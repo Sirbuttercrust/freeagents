@@ -108,7 +108,8 @@ describe('invariant 12: the platform wallet is never an input owner on any trans
       jobId: 'job_1',
       leg: 'deposit',
       finalTx,
-      amountUsd: '2.00',
+      amountToken: '2',
+      feeToken: '0.06',
       operatorAddress,
     });
 

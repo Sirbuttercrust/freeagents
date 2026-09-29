@@ -512,8 +512,11 @@ describe('onAuth re-checks deposit readiness before it settles (ABT only)', () =
       const { sessionToken, authCallbackUrl } = await startAbtSessionLocal(baseUrl, jobId);
       // The agent's side re-proposes the price after /start already read
       // the agreement: this resets BOTH acceptances (job.ts's own rule).
-      await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: twoLineProposal, priceUsd: '550.00', rail: 'abt' }, agent);
-      const result = await completeAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fakeChain);
+      // It happens after the wallet fetched its claim and before it
+      // answers, so it is onAuth's own readiness re-check that refuses.
+      const result = await completeAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fakeChain, () =>
+        postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: twoLineProposal, priceUsd: '550.00', rail: 'abt' }, agent),
+      );
       expect(result.confirmed).toBe(false);
       expect(result.error).toBe(
         `the deposit can start only once both parties have signed the price; still to sign: the buyer and the agent: ${publicBaseUrlFromEnv()}/agreement?job=${jobId}`,
@@ -649,6 +652,12 @@ async function completeAbtWalletProtocol(
   sessionToken: string,
   authCallbackUrl: string,
   fakeChain: { readonly client: AbtChainClient; sentTx(): string | undefined },
+  // Runs once the wallet holds the claim and before it answers, for a test
+  // that changes the job between the claim and the answer. The claim
+  // itself is refused when the job changed BEFORE it is fetched (the
+  // locked price no longer matches), so a test of onAuth's own re-check
+  // has to change the job after the claim.
+  beforeAnswer?: () => Promise<unknown>,
 ): Promise<{ readonly confirmed: boolean; readonly error?: string }> {
   const { decode: jwtDecode } = await import('@arcblock/jwt');
   const { walletResponseJwt, walletSignsPartialTx } = await import('../helpers/abt-fixtures.js');
@@ -678,6 +687,7 @@ async function completeAbtWalletProtocol(
     throw new Error('expected a prepareTx claim at step 1');
   }
   const finalTx = await walletSignsPartialTx(prepareTxClaim.partialTx, wallet);
+  await beforeAnswer?.();
 
   const step1SubmitRes = await fetch(`${baseUrl}${authPath}`, {
     method: 'POST',

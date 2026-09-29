@@ -7,7 +7,7 @@
 // ABT beta chain, 2026-09-05). partialTx.from/pk name the platform wallet
 // (the envelope sender); itx.inputs is always empty (the wallet adds the
 // buyer's input); itx.outputs pay the operator and the platform fee.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
 import { fromTokenToUnit, bytesToHex, fromBase58 } from '@ocap/util';
 import { encodeTx, decodeTx as cborDecodeTx } from '@ocap/message/cbor';
@@ -87,6 +87,58 @@ describe('createAbtPaymentRail: quote (injected rate source, no network)', () =>
     expect(quote.amountToken).toBe('500');
     expect(quote.feeToken).toBe('15');
     expect(quote.rateSource.length).toBeGreaterThan(0);
+  });
+
+  it('a source that answers a bare string quotes with that rate and no feed time', async () => {
+    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ rateSource: async () => '0.5' }));
+    const quote = await rail.quote({ priceUsd: '100.00' });
+    expect(quote.usdPerToken).toBe('0.5');
+    expect(quote.rateUpdatedAt).toBeNull();
+    expect(quote.amountToken).toBe('200');
+    expect(quote.feeToken).toBe('6');
+  });
+
+  it('a source that answers a timestamped reading quotes with its rate and carries its feed time', async () => {
+    const updatedAt = new Date('2026-09-28T18:00:00Z');
+    const rail = withEnv(envConfig(), () =>
+      createAbtPaymentRail({ rateSource: async () => ({ usdPerToken: '0.25', updatedAt }) }),
+    );
+    const quote = await rail.quote({ priceUsd: '100.00' });
+    expect(quote.usdPerToken).toBe('0.25');
+    expect(quote.rateUpdatedAt).toEqual(updatedAt);
+    expect(quote.amountToken).toBe('400');
+    expect(quote.feeToken).toBe('12');
+  });
+
+  it('with no injected source, quotes from the CoinGecko feed (a stubbed global fetch, never the network)', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ arcblock: { usd: 0.5, last_updated_at: Math.floor(Date.now() / 1000) } }), { status: 200 });
+    });
+    try {
+      const rail = withEnv(envConfig(), () => createAbtPaymentRail());
+      const quote = await rail.quote({ priceUsd: '100.00' });
+      expect(calls).toHaveLength(1);
+      expect(quote.usdPerToken).toBe('0.50000000');
+      expect(quote.amountToken).toBe('200');
+      expect(quote.feeToken).toBe('6');
+      expect(quote.rateUpdatedAt).toBeInstanceOf(Date);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('with no injected source and a dead feed, rejects with RateUnavailableError', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('network down');
+    });
+    try {
+      const rail = withEnv(envConfig(), () => createAbtPaymentRail());
+      await expect(rail.quote({ priceUsd: '100.00' })).rejects.toBeInstanceOf(RateUnavailableError);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('rejects with RateUnavailableError when the rate source answers null, rather than quoting a stale number', async () => {
@@ -257,7 +309,8 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
       jobId: 'job_1',
       leg: 'deposit',
       finalTx,
-      amountUsd: '2.00',
+      amountToken: '2',
+      feeToken: '0.06',
       operatorAddress,
     });
 
@@ -280,21 +333,27 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     expect(sentTx.signature.length).toBeGreaterThan(0);
   });
 
-  // S2: the expected operator/fee amounts are computed ONCE here, from the
-  // amountUsd the caller supplied (the route reads this from the job's
-  // agreed price, never from a body field -- see abt-did-connect.ts), the
-  // exact same quote math createRequest already used (usdToTokenAmount +
-  // fromTokenToUnit at the injected rate). confirm() has nothing else to
-  // compare the chain's observed outputs against.
-  it('computes expectedOperatorUnit and expectedFeeUnit from amountUsd, at the injected rate and the domain fee rate', async () => {
+  // FIX-B70a: the expected operator/fee amounts are the exact token
+  // amounts the claim was built from (the platform's own lock, computed
+  // from the job), converted with the same fromTokenToUnit createRequest
+  // uses for the claim's outputs. No rate is read here: the rate source
+  // in this test throws if anything calls it.
+  it('computes expectedOperatorUnit and expectedFeeUnit from the locked amountToken and feeToken, reading no rate', async () => {
     const { client } = fakeChainClient();
-    const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
+    const rail = withEnv(envConfig(), () =>
+      createAbtPaymentRail({
+        chainClient: client,
+        rateSource: async () => {
+          throw new Error('onWalletResponse must not read a rate');
+        },
+      }),
+    );
     const request = await rail.createRequest({
       jobId: 'job_1',
       leg: 'deposit',
       operatorAddress,
-      amountToken: '100',
-      feeToken: '3',
+      amountToken: '290.25889',
+      feeToken: '8.7077667',
     });
     const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
 
@@ -303,25 +362,23 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
       jobId: 'job_1',
       leg: 'deposit',
       finalTx,
-      amountUsd: '100.00',
+      amountToken: '290.25889',
+      feeToken: '8.7077667',
       operatorAddress,
     });
 
-    // At a 1:1 rate, 100.00 USD is 100 ABT; the 3 percent ABT fee on top
-    // is 3 ABT. fromTokenToUnit's default is 18 decimals.
-    expect(ref.expectedOperatorUnit).toBe(fromTokenToUnit('100').toString());
-    expect(ref.expectedFeeUnit).toBe(fromTokenToUnit('3').toString());
+    expect(ref.expectedOperatorUnit).toBe(request.claim.partialTx.itx.outputs[0].tokens[0].value);
+    expect(ref.expectedFeeUnit).toBe(request.claim.partialTx.itx.outputs[1].tokens[0].value);
+    expect(ref.expectedOperatorUnit).toBe(fromTokenToUnit('290.25889').toString());
+    expect(ref.expectedFeeUnit).toBe(fromTokenToUnit('8.7077667').toString());
   });
 
-  // MUTATION PROOF target (the brief's "a test proves a caller-supplied
-  // amount cannot override"): a caller cannot make onWalletResponse derive
-  // a smaller expected amount than the job actually agreed by passing a
-  // different amountUsd than what the route would have supplied -- there
-  // is no path here that reads an amount from anywhere but this single
-  // argument, so this test pins that the argument IS what governs the
-  // computed expectation, closing the gap that a route-level trust of a
-  // body field would otherwise open.
-  it('a different amountUsd produces a correspondingly different expected amount (nothing else feeds the computation)', async () => {
+  // MUTATION PROOF target: a caller cannot make onWalletResponse derive a
+  // smaller expected amount than the lock by passing a different locked
+  // amount than the claim carried. The locked amounts are the only input
+  // to the expectation, so a different locked amount gives a different
+  // expected unit and nothing else changes.
+  it('a different locked amount gives a different expected unit, and only the units change (nothing else feeds the expectation)', async () => {
     const { client } = fakeChainClient();
     const rail = withEnv(envConfig(), () => createAbtPaymentRail({ chainClient: client, rateSource: async () => '1' }));
     const request = await rail.createRequest({
@@ -333,16 +390,16 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
     });
     const { base58: finalTx } = await walletSignedFinalTxBase58(request.claim);
 
-    const cheapRef = await rail.onWalletResponse({
-      rail: 'abt',
-      jobId: 'job_1',
-      leg: 'deposit',
-      finalTx,
-      amountUsd: '1.00',
-      operatorAddress,
+    const base = { rail: 'abt' as const, jobId: 'job_1', leg: 'deposit' as const, finalTx, operatorAddress };
+    const lockedRef = await rail.onWalletResponse({ ...base, amountToken: '100', feeToken: '3' });
+    const cheapRef = await rail.onWalletResponse({ ...base, amountToken: '1', feeToken: '0.03' });
+
+    expect(cheapRef).toEqual({
+      ...lockedRef,
+      expectedOperatorUnit: fromTokenToUnit('1').toString(),
+      expectedFeeUnit: fromTokenToUnit('0.03').toString(),
     });
-    expect(cheapRef.expectedOperatorUnit).toBe(fromTokenToUnit('1').toString());
-    expect(cheapRef.expectedOperatorUnit).not.toBe(fromTokenToUnit('100').toString());
+    expect(cheapRef.expectedOperatorUnit).not.toBe(lockedRef.expectedOperatorUnit);
   });
 
   // Proves the envelope is actually signed correctly and reproducibly: the
@@ -378,7 +435,8 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
       jobId: 'job_1',
       leg: 'deposit',
       finalTx,
-      amountUsd: '2.00',
+      amountToken: '2',
+      feeToken: '0.06',
       operatorAddress,
     });
 
@@ -394,7 +452,7 @@ describe('createAbtPaymentRail: onWalletResponse (decode, sign the envelope, bro
 
 // S2: a ref carrying the two expected amounts (in the chain's smallest
 // unit) and the two output addresses, matching what onWalletResponse
-// would have built from amountUsd '100.00' at a 1:1 rate: 100 ABT to the
+// builds from a locked amountToken '100' and feeToken '3': 100 ABT to the
 // operator, 3 ABT (the 3 percent fee) to the platform.
 function refFor(hash: string): {
   readonly rail: 'abt';
@@ -548,7 +606,8 @@ describe('createAbtPaymentRail: confirm (S2, binds the chain\'s own record to wh
       jobId: 'job_1',
       leg: 'deposit',
       finalTx,
-      amountUsd: '100.00',
+      amountToken: '100',
+      feeToken: '3',
       operatorAddress,
     });
     const confirmation = await rail2.confirm(ref);

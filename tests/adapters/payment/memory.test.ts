@@ -28,7 +28,8 @@ describe('createMemoryPaymentRail: onWalletResponse returns a distinct ref per c
       jobId: 'job_1',
       leg: 'deposit',
       finalTx: 'x',
-      amountUsd: '10.00',
+      amountToken: '10',
+      feeToken: '0.3',
       operatorAddress: 'z1Operator',
     });
     const ref2 = await rail.onWalletResponse({
@@ -36,7 +37,8 @@ describe('createMemoryPaymentRail: onWalletResponse returns a distinct ref per c
       jobId: 'job_1',
       leg: 'balance',
       finalTx: 'y',
-      amountUsd: '30.00',
+      amountToken: '30',
+      feeToken: '0.9',
       operatorAddress: 'z1Operator',
     });
     expect(ref1.rail).toBe('abt');
@@ -52,7 +54,8 @@ describe('createMemoryPaymentRail: confirm is driven by setConfirmed, not by any
       jobId: 'job_1',
       leg: 'deposit',
       finalTx: 'x',
-      amountUsd: '10.00',
+      amountToken: '10',
+      feeToken: '0.3',
       operatorAddress: 'z1Operator',
     });
 
@@ -71,7 +74,8 @@ describe('createMemoryPaymentRail: confirm is driven by setConfirmed, not by any
       jobId: 'job_1',
       leg: 'deposit',
       finalTx: 'x',
-      amountUsd: '10.00',
+      amountToken: '10',
+      feeToken: '0.3',
       operatorAddress: 'z1Operator',
     });
     rail.setConfirmed(ref.hash, true);

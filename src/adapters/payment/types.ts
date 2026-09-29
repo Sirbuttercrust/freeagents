@@ -38,8 +38,18 @@ export class RateUnavailableError extends Error {
 
 // Injected so tests never hit the network (brief scope item 3): returns
 // dollars-per-token for the named rail, or null when no rate can be read.
-// The production default's source is named in abt.ts's header comment.
+// The ABT rail's production default is the CoinGecko feed in
+// abt-usd-rate.ts; the USDC rail's rate is its peg (usdc.ts).
 export type RateSource = (rail: Rail) => Promise<string | null>;
+
+// A dollars-per-token price together with the time its feed last updated
+// it (not the time we read it). The ABT rail accepts a source that answers
+// this in place of a bare string (abt.ts), so the checkout can show how
+// old the rate is.
+export interface RateReading {
+  readonly usdPerToken: string;
+  readonly updatedAt: Date;
+}
 
 export interface Quote {
   readonly rail: Rail;
@@ -127,14 +137,16 @@ export type WalletResponseInput =
       readonly jobId: string;
       readonly leg: 'deposit' | 'balance';
       readonly finalTx: string;
-      // S2: the leg's agreed USD amount (route's legAmountUsdFromJob),
-      // carried through so onWalletResponse can compute the expected
-      // operator and fee amounts confirm() must bind the chain's own
-      // observed outputs against. Never read from a caller-supplied body
-      // field at the route (S2 brief, "the amount must come from the
-      // job's agreed price"); this is the rail's own input contract,
-      // mirroring the USDC arm's amountUsd below (added by S1).
-      readonly amountUsd: string;
+      // FIX-B70a: the exact token amounts the claim was built from, the
+      // lock the platform computed from the job's agreed price when the
+      // payment session started (abt-did-connect.ts). onWalletResponse
+      // turns them into the amounts confirm() checks the chain against
+      // and reads no rate, so a price that moves, or a feed that dies,
+      // between the claim and the wallet's answer cannot change what is
+      // expected. Never read from a caller-supplied body field or from
+      // the wallet's finalTx.
+      readonly amountToken: string;
+      readonly feeToken: string;
       // S2 review round 2, D1: the operator address the PLATFORM itself
       // named when it built the payment request (the same value
       // createRequest's CreateRequestInput carried, read at the route
@@ -183,9 +195,10 @@ export type WalletResponseInput =
 // D1), the configured fee address, the job and leg the ref belongs to
 // (S2: needed so confirm() can refuse a hash that already backed a
 // different job or leg), and the expected operator/fee amounts in the
-// chain's smallest unit, computed once from the job's own agreed price
-// (S2, mirroring expectedPriceBaseUnits below, added by S1 on the USDC
-// arm).
+// chain's smallest unit, computed once from the locked token amounts the
+// claim was built from (FIX-B70a), never from a rate read after the
+// wallet answered (mirroring expectedPriceBaseUnits below, added by S1 on
+// the USDC arm).
 export type PaymentRef =
   | {
       readonly rail: 'abt';

@@ -163,7 +163,7 @@ import {
   usdcHalfPaidRecordFor,
   type RouteLeg,
 } from '../adapters/payment/route-support.js';
-import type { PaymentRef, PaymentRequest } from '../adapters/payment/types.js';
+import { RateUnavailableError, type PaymentRef, type PaymentRequest } from '../adapters/payment/types.js';
 import { createSettlementRepository } from '../adapters/storage/storage.js';
 import type { SettlementRepository } from '../adapters/storage/types.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
@@ -4710,8 +4710,8 @@ export function createApp(
 
   // R-28 (ENT-4): open a draft job from the buyer's brief. The route owns
   // only what the domain does not know about: body shape, DID and repository
-  // syntax, and agent existence (a driver asymmetry — Prisma rejects an
-  // unknown agentDid through its foreign key while memory accepts it — so
+  // syntax, and agent existence (a driver asymmetry: Prisma rejects an
+  // unknown agentDid through its foreign key while memory accepts it, so
   // the check lives here to keep both drivers answering identically).
   // Everything about the brief itself, including its emptiness and the hash,
   // is delegated to createJob rather than restated.
@@ -5076,7 +5076,7 @@ export function createApp(
 
   // R-8's shared skeleton for the criteria exchange: load the job, let the
   // domain apply its rule, persist through repo.update. The error mapping
-  // mirrors POST /jobs — a bad body or a domain rule is the caller's to fix
+  // mirrors POST /jobs: a bad body or a domain rule is the caller's to fix
   // (400), an unknown id is 404, a state conflict is 409, and storage trouble
   // is 503 with the cause in the log, not the body.
   //
@@ -7403,6 +7403,21 @@ export function createApp(
           res.status(readiness.status).json({ error: readiness.message });
           return;
         }
+      }
+      // FIX-B70a: the price is read here once before a session is minted,
+      // so a deployment with no ABT/USD price answers 503 and starts
+      // nothing. The session's own lock is written by onStart in the
+      // adapter (abt-did-connect.ts), which both doors run. The sentence
+      // stays free of the payment vocabulary the no-custody test bans
+      // outside the payment adapter directory.
+      try {
+        await abtPaymentRail.quote({ priceUsd: legAmountUsdFromJob(gate.job, leg) });
+      } catch (error) {
+        if (error instanceof RateUnavailableError) {
+          res.status(503).json({ error: 'The ABT price is not available right now. Try again in a minute.' });
+          return;
+        }
+        throw error;
       }
       // The did-connect-js generateSession route reads req.query,
       // req.body and req.params into extraParams (protocol.js's own
