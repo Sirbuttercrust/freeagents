@@ -24,6 +24,7 @@ import type { Delegation } from '../../src/domain/agent.js';
 import { createJob, type Job, type Criterion } from '../../src/domain/job.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
+import { PAYOUT_NOTICE_HREF, PAYOUT_NOTICE_SENTENCE, noticeLinks, startPayoutWorld, visibleText, type PayoutWorld } from '../helpers/payout-accounts.js';
 
 // Real-browser layout tests launch Chrome, navigate at least once and
 // evaluate in the page; vitest's 5000ms default times out under full-suite
@@ -758,5 +759,87 @@ describe('the My agents screen, driven end to end against the real app', () => {
         await browser.close();
       }
     }, BROWSER_TIMEOUT_MS);
+  });
+});
+
+// FIX-SW12g (SW3-10): an owner whose account names no payout address on
+// either rail cannot be paid (PLAN.md P8d), and this page is where the
+// owner of at least one agent is told so. Every account here is its own
+// row in its own app (tests/helpers/payout-accounts.ts).
+describe('the payout notice on /myagents (SW3-10)', () => {
+  let world: PayoutWorld;
+  let originalSeed: string | undefined;
+
+  beforeAll(async () => {
+    originalSeed = process.env.FREEAGENTS_PLATFORM_SEED;
+    process.env.FREEAGENTS_PLATFORM_SEED = PLATFORM_SEED;
+    world = await startPayoutWorld('myagents-payout');
+  });
+
+  afterAll(async () => {
+    await world.close();
+    if (originalSeed === undefined) delete process.env.FREEAGENTS_PLATFORM_SEED;
+    else process.env.FREEAGENTS_PLATFORM_SEED = originalSeed;
+  });
+
+  function expectNoNotice(document: Document): void {
+    expect(visibleText(document)).not.toContain(PAYOUT_NOTICE_SENTENCE);
+    expect(noticeLinks(document)).toEqual([]);
+  }
+
+  it('both addresses null with one agent on the roster shows the whole sentence, linked to /settings', async () => {
+    const page = await renderMyAgents(world.baseUrl, world.noAddress.session);
+    try {
+      expect(page.document.querySelectorAll('#rows > *').length, 'the roster rendered').toBe(1);
+      expect(visibleText(page.document)).toContain(PAYOUT_NOTICE_SENTENCE);
+      expect(page.document.getElementById('payout-notice')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(PAYOUT_NOTICE_SENTENCE);
+      expect(page.document.querySelector('#payout-notice a')?.getAttribute('href')).toBe(PAYOUT_NOTICE_HREF);
+      expect(noticeLinks(page.document).length).toBe(1);
+      const res = await fetch(`${world.baseUrl}${PAYOUT_NOTICE_HREF}`, { headers: { Accept: HTML } });
+      expect(res.status, 'the link reaches a page the app mounts').toBe(200);
+    } finally {
+      page.close();
+    }
+  });
+
+  it.each([
+    ['only the EVM (USDC) address set', 'evmOnly'],
+    ['only the ABT address set', 'abtOnly'],
+  ] as const)('%s shows neither the sentence nor the link', async (_label, key) => {
+    const page = await renderMyAgents(world.baseUrl, world[key].session);
+    try {
+      expect(page.document.querySelectorAll('#rows > *').length, 'the roster rendered').toBe(1);
+      expectNoNotice(page.document);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('an account with no agents shows neither: a person who only hires needs no payout address', async () => {
+    const page = await renderMyAgents(world.baseUrl, world.noAgents.session);
+    try {
+      expect(page.document.getElementById('empty-state')?.hidden).toBe(false);
+      expectNoNotice(page.document);
+    } finally {
+      page.close();
+    }
+  });
+
+  it.each([
+    ['a non-200 /accounts/me', (path: string) => path === '/accounts/me'],
+    ['a non-200 roster read', (path: string) => /^\/accounts\/[^/]+\/agents$/.test(path)],
+  ] as const)('%s shows neither, and the page\'s own failure sentence instead', async (_label, fails) => {
+    const proxy = await world.failing(fails);
+    try {
+      const page = await renderMyAgents(proxy.baseUrl, world.noAddress.session);
+      try {
+        expect(page.document.getElementById('load-error')?.hidden).toBe(false);
+        expectNoNotice(page.document);
+      } finally {
+        page.close();
+      }
+    } finally {
+      await proxy.close();
+    }
   });
 });
