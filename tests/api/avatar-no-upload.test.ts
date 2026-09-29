@@ -87,11 +87,12 @@ describe('avatars are derived, never uploaded (R-21)', () => {
   let server: Server;
   let baseUrl: string;
   let authHeader: Record<string, string>;
+  const accountRepo = new MemoryAccountRepository();
 
   beforeAll(async () => {
     const sessionAdapter = testSessionAdapter();
     server = createApp(
-      new MemoryAccountRepository(),
+      accountRepo,
       new MemoryAgentRepository(),
       acceptingIdentity,
       undefined,
@@ -119,8 +120,10 @@ describe('avatars are derived, never uploaded (R-21)', () => {
   });
 
   it('an avatar field in the POST /agents body is ignored, and the DID default is served instead', async () => {
-    const reg = await postJson(baseUrl, '/accounts', { did: OPERATOR_DID, githubLogin: 'test-session-user' }, authHeader);
-    expect(reg.status).toBe(201);
+    // FIX-B62a: a login cannot be typed into POST /accounts any more, so the
+    // operator's account (the login this test's GitHub session proves) is
+    // seeded through the repository the app was built with.
+    await accountRepo.register({ did: OPERATOR_DID, githubLogin: 'test-session-user' });
 
     const res = await postJson(baseUrl, '/agents', {
       did: AGENT_DID,

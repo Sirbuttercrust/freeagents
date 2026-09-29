@@ -658,7 +658,7 @@ describe('P8d: signing in gives you an account, no POST /accounts call anywhere'
       const res = await fetch(`${baseUrl}/accounts`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ did: 'did:abt:p8d-bring-your-own', githubLogin: 'p8d-bring-your-own-login' }),
+        body: JSON.stringify({ did: 'did:abt:p8d-bring-your-own' }),
       });
       expect(res.status).toBe(201);
       const body = (await res.json()) as Record<string, unknown>;

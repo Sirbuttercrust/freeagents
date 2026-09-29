@@ -678,7 +678,6 @@ describe('P8a (D1): an agent DID already claimed by a delegation cannot be regis
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             did: AGENT_DID,
-            githubLogin: 'p8a-d1-attacker-login',
             passkeySubject: attackerSubject,
           }),
         });
@@ -762,7 +761,7 @@ describe('P8a (D2): an Account registered before its did is ever delegated canno
       const operatorReg = await fetch(`${baseUrl}/accounts`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ did: operatorWallet.toDid(), githubLogin: 'p8a-d2-operator-login' }),
+        body: JSON.stringify({ did: operatorWallet.toDid() }),
       });
       expect(operatorReg.status).toBe(201);
 
@@ -774,7 +773,6 @@ describe('P8a (D2): an Account registered before its did is ever delegated canno
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           did: agentWallet.toDid(),
-          githubLogin: 'p8a-d2-attacker-login',
           passkeySubject: attackerSubject,
         }),
       });
