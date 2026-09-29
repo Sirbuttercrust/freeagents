@@ -436,3 +436,29 @@ describe('prisma/migrations, Agent.negotiatesOnOwnersBehalf is actually migrated
     expect(agent).toMatch(/negotiatesOnOwnersBehalf\s+Boolean\s+@default\(false\)/);
   });
 });
+
+// FIX-B61a: the stored passkey has its own table, keyed to the passkey name
+// and not a relation to Account, and Account never carries key material.
+describe('prisma, the PasskeyCredential table is declared and migrated (FIX-B61a)', () => {
+  const migrations = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
+  const sql = readdirSync(migrations, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(migrations, e.name, 'migration.sql')))
+    .map((e) => readFileSync(join(migrations, e.name, 'migration.sql'), 'utf8'))
+    .join('\n');
+
+  it('declares the credential id as the key, the key as bytes, a counter, and no relation to Account', () => {
+    const body = modelBody('PasskeyCredential');
+    for (const line of [/\bid\s+String\s+@id\b/, /\bsubject\s+String\b/, /\bpublicKey\s+Bytes\b/, /\bcounter\s+Int\b/, /@@index\(\[subject\]\)/]) {
+      expect(body).toMatch(line);
+    }
+    expect(body).not.toMatch(/@relation|\bAccount\b/);
+    expect(modelBody('Account')).not.toMatch(/publicKey|credentialId|counter/i);
+  });
+
+  it('a migration creates the table with its primary key and its subject index', () => {
+    expect(sql).toMatch(/CREATE TABLE\s+"PasskeyCredential"\s*\(/);
+    expect(sql).toMatch(/"publicKey"\s+BYTEA\s+NOT NULL/);
+    expect(sql).toMatch(/CONSTRAINT\s+"PasskeyCredential_pkey"\s+PRIMARY KEY\s*\("id"\)/);
+    expect(sql).toMatch(/CREATE INDEX\s+"PasskeyCredential_subject_idx"\s+ON\s+"PasskeyCredential"\("subject"\)/);
+  });
+});

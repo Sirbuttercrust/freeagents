@@ -36,6 +36,9 @@ const mock = vi.hoisted(() => ({
   compromiseReportFindMany: vi.fn(),
   reviewCreate: vi.fn(),
   reviewFindMany: vi.fn(),
+  passkeyCredentialCreate: vi.fn(),
+  passkeyCredentialFindUnique: vi.fn(),
+  passkeyCredentialUpdate: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -59,6 +62,11 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
       credential = { create: mock.credentialCreate, findUnique: mock.credentialFindUnique, findMany: mock.credentialFindMany };
       compromiseReport = { create: mock.compromiseReportCreate, findMany: mock.compromiseReportFindMany };
       review = { create: mock.reviewCreate, findMany: mock.reviewFindMany };
+      passkeyCredential = {
+        create: mock.passkeyCredentialCreate,
+        findUnique: mock.passkeyCredentialFindUnique,
+        update: mock.passkeyCredentialUpdate,
+      };
     },
     Prisma: actual.Prisma,
   };
@@ -73,6 +81,7 @@ const {
   PrismaJobRepository,
   PrismaAccountRepository,
   PrismaReviewRepository,
+  PrismaPasskeyCredentialRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const {
   AgentAlreadyExistsError,
@@ -80,6 +89,7 @@ const {
   JobAlreadyExistsError,
   AccountAlreadyExistsError,
   ReviewAlreadyExistsError,
+  PasskeyCredentialAlreadyExistsError,
 } = await import('../../src/adapters/storage/types.js');
 
 // The same input/output pair tests/adapters/storage.test.ts pins the memory
@@ -2052,5 +2062,82 @@ describe('PrismaReviewRepository (R-22, ENT-10, issue 29)', () => {
     const rows = await repo.listByAgentDid('did:example:nobody');
 
     expect(rows).toEqual([]);
+  });
+});
+
+describe('PrismaPasskeyCredentialRepository', () => {
+  const stored = {
+    id: 'cred-1',
+    subject: 'passkey-name-1',
+    publicKey: new Uint8Array([1, 2, 3]),
+    counter: 0,
+    transports: ['internal'],
+    createdAt: new Date('2026-09-28T00:00:00.000Z'),
+    lastUsedAt: null,
+  };
+
+  afterEach(() => {
+    vi.mocked(mock.passkeyCredentialCreate).mockReset();
+    vi.mocked(mock.passkeyCredentialFindUnique).mockReset();
+    vi.mocked(mock.passkeyCredentialUpdate).mockReset();
+  });
+
+  it('save: sends every field of the credential to create, the key as bytes', async () => {
+    vi.mocked(mock.passkeyCredentialCreate).mockResolvedValue(stored);
+
+    await new PrismaPasskeyCredentialRepository().save(stored);
+
+    expect(mock.passkeyCredentialCreate).toHaveBeenCalledWith({
+      data: {
+        id: 'cred-1',
+        subject: 'passkey-name-1',
+        publicKey: Buffer.from([1, 2, 3]),
+        counter: 0,
+        transports: ['internal'],
+        createdAt: stored.createdAt,
+      },
+    });
+  });
+
+  it('save: only a P2002 unique violation becomes PasskeyCredentialAlreadyExistsError; every other error is rethrown untouched', async () => {
+    const repo = new PrismaPasskeyCredentialRepository();
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'test' });
+    const timeout = new Prisma.PrismaClientKnownRequestError('Timed out', { code: 'P1008', clientVersion: 'test' });
+    const plain = new Error('disk full');
+
+    vi.mocked(mock.passkeyCredentialCreate).mockRejectedValueOnce(p2002);
+    expect(await repo.save(stored).catch((e: unknown) => e)).toBeInstanceOf(PasskeyCredentialAlreadyExistsError);
+    vi.mocked(mock.passkeyCredentialCreate).mockRejectedValueOnce(timeout);
+    expect(await repo.save(stored).catch((e: unknown) => e)).toBe(timeout);
+    vi.mocked(mock.passkeyCredentialCreate).mockRejectedValueOnce(plain);
+    expect(await repo.save(stored).catch((e: unknown) => e)).toBe(plain);
+  });
+
+  it('findById: looks the row up by credential id and maps it to the domain shape; no row is null', async () => {
+    vi.mocked(mock.passkeyCredentialFindUnique).mockResolvedValueOnce({
+      ...stored,
+      publicKey: Buffer.from([1, 2, 3]),
+      extraColumn: 'not part of the shape',
+    });
+    const repo = new PrismaPasskeyCredentialRepository();
+
+    const row = await repo.findById('cred-1');
+
+    expect(mock.passkeyCredentialFindUnique).toHaveBeenCalledWith({ where: { id: 'cred-1' } });
+    expect(row).toEqual(stored);
+    expect(row?.publicKey).toBeInstanceOf(Uint8Array);
+    vi.mocked(mock.passkeyCredentialFindUnique).mockResolvedValueOnce(null);
+    expect(await repo.findById('nope')).toBeNull();
+  });
+
+  it('recordUse: sets the new counter and lastUsedAt on that credential id only', async () => {
+    vi.mocked(mock.passkeyCredentialUpdate).mockResolvedValue(stored);
+
+    await new PrismaPasskeyCredentialRepository().recordUse('cred-1', 9);
+
+    expect(mock.passkeyCredentialUpdate).toHaveBeenCalledWith({
+      where: { id: 'cred-1' },
+      data: { counter: 9, lastUsedAt: expect.any(Date) },
+    });
   });
 });

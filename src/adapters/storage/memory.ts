@@ -41,6 +41,9 @@ import {
   type NotificationRepository,
   type AttachmentRepository,
   type PushSubscriptionRepository,
+  PasskeyCredentialAlreadyExistsError,
+  type PasskeyCredentialRepository,
+  type StoredPasskeyCredential,
   credentialLookupKey,
 } from './types.js';
 
@@ -688,5 +691,35 @@ export class MemoryPushSubscriptionRepository implements PushSubscriptionReposit
 
   async removeByEndpoint(endpoint: string): Promise<void> {
     this.rows.delete(endpoint);
+  }
+}
+
+// FIX-B61a: stored passkeys, keyed by credential id. save is insert-only.
+// Rows are copied in and out so a caller can never change what is stored.
+export class MemoryPasskeyCredentialRepository implements PasskeyCredentialRepository {
+  private readonly rows = new Map<string, StoredPasskeyCredential>();
+
+  private static copy(row: StoredPasskeyCredential): StoredPasskeyCredential {
+    return { ...row, publicKey: new Uint8Array(row.publicKey), transports: [...row.transports] };
+  }
+
+  async save(credential: StoredPasskeyCredential): Promise<void> {
+    if (this.rows.has(credential.id)) {
+      throw new PasskeyCredentialAlreadyExistsError(credential.id);
+    }
+    this.rows.set(credential.id, MemoryPasskeyCredentialRepository.copy(credential));
+  }
+
+  async findById(id: string): Promise<StoredPasskeyCredential | null> {
+    const row = this.rows.get(id);
+    return row === undefined ? null : MemoryPasskeyCredentialRepository.copy(row);
+  }
+
+  async recordUse(id: string, newCounter: number): Promise<void> {
+    const row = this.rows.get(id);
+    if (row === undefined) {
+      throw new Error(`passkey credential ${id} is not stored`);
+    }
+    this.rows.set(id, { ...row, counter: newCounter, lastUsedAt: new Date() });
   }
 }

@@ -752,3 +752,21 @@ model PushSubscription {
 
   @@index([accountDid])
 }
+
+// FIX-B61a: the passkey a person made at sign-up, stored so every later
+// sign-in is checked against this key. id is the credential id exactly as
+// the browser returns it (base64url); subject is the passkey name the
+// server made at register. Not a relation to Account: that row is
+// provisioned on the first signed-in request, after this one is saved, and
+// key material never rides on Account.
+model PasskeyCredential {
+  id         String    @id
+  subject    String
+  publicKey  Bytes
+  counter    Int
+  transports String[]
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([subject])
+}

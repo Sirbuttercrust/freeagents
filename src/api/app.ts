@@ -699,8 +699,9 @@ function signerDidOf(req: Request): string | null {
 // at all. The method matters because resolving a session to an Account
 // joins through a DIFFERENT unique column depending on which proof
 // produced it: a github-oauth session's subject is the GitHub login
-// (Account.githubLogin), a passkey session's subject is the passkey
-// subject (Account.passkeySubject). Joining through the wrong column
+// (Account.githubLogin), a passkey session's subject is the passkey name
+// the server made when the passkey was created (Account.passkeySubject).
+// Joining through the wrong column
 // would either miss a real account or, worse, resolve to the wrong one.
 interface SessionedRequest extends Request {
   sessionSubject?: string;
@@ -762,7 +763,11 @@ async function provisionAccountForSession(
 //   - a live session resolves through the account lookup the schema's
 //     unique githubLogin / passkeySubject constraint makes safe: two
 //     accounts can never claim the same login or subject, so this join
-//     can never resolve to two different accounts for one session. P8d:
+//     can never resolve to two different accounts for one session. A
+//     passkey session's subject is proven by the stored passkey (the
+//     adapter mints it only after a registration it saved or an
+//     authentication checked against the saved key), never by a name a
+//     caller sent. P8d:
 //     when the lookup finds no account, one is provisioned right here
 //     (the anchor: a person who has never used this product signs in
 //     and can immediately hire, no second registration step). A
@@ -1542,7 +1547,8 @@ export function createApp(
   // caller-supplied secret flows through, so it is mounted in the `verify`
   // class (rate-limit-classes.ts; FIX-S7 round 3 moved GET
   // /agents/:agentDid to `read`, so this route now shares the `verify`
-  // bucket only with POST /auth/passkey/verify and GET
+  // bucket only with POST /auth/passkey/verify, POST /auth/passkey/signin
+  // and GET
   // /v1/credentials/:credentialId). completeGitHubOAuth is total (never
   // throws): null covers every failure path (bad state, reused state,
   // expired state, provider refusal), so null maps to 401 without
@@ -1746,18 +1752,12 @@ export function createApp(
     },
   );
 
-  // P8b: registerPasskey is total (never throws) but its own header
-  // comment names the passkey-unconfigured deployment as a real
-  // possibility (throw when options.passkey is undefined). That is a
-  // deployment-configuration fact, not a caller error, so it maps to the
-  // same 503 every other unconfigured-capability path in this file uses.
-  app.post('/auth/passkey/register', (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { subject?: unknown };
-    const subject = body.subject;
-    if (typeof subject !== 'string' || subject.length === 0) {
-      res.status(400).json({ error: 'body must be { subject }, a non-empty string' });
-      return;
-    }
+  // FIX-B61a: register reads no body. The server makes the passkey name and
+  // binds it to the ceremony, so a browser never picks the account. The
+  // adapter throws when passkeys are not configured (a deployment fact, not
+  // a caller error), which is the same 503 every unconfigured capability gets.
+  app.post('/auth/passkey/register', (_req: Request, res: Response) => {
+    const subject = 'pk-' + randomBytes(32).toString('base64url');
     void session.registerPasskey(subject).then(
       (options) => {
         res.status(200).json(options);
@@ -1771,27 +1771,73 @@ export function createApp(
 
   // P8b: the second unauthenticated entry point taking a caller-supplied
   // secret (brief scope item 6), so it rides the same verify rate limiter
-  // as the GitHub callback. verifyPasskey is total: null covers both a
-  // caller-shaped-but-wrong response and an expired or reused challenge,
-  // mapped to 401 without inspecting which one it was.
+  // as the GitHub callback. null (a wrong response, an expired, reused or
+  // already-bound attempt) is 401 without saying which. A throw means the
+  // passkey could not be stored: 503, no session.
   app.post(
     '/auth/passkey/verify',
-    (req: Request, res: Response, next: NextFunction) => {
+    (req: Request, res: Response) => {
       const body = (req.body ?? {}) as { responseJson?: unknown };
       const responseJson = body.responseJson;
       if (typeof responseJson !== 'string' || responseJson.length === 0) {
         res.status(400).json({ error: 'body must be { responseJson }, a non-empty string' });
         return;
       }
-      void session.verifyPasskey(responseJson).then((completed) => {
+      void session.verifyPasskey(responseJson).then(
+        (completed) => {
+          if (completed === null) {
+            res.status(401).json({ error: 'invalid or expired sign-in attempt' });
+            return;
+          }
+          res.status(200).json(completed);
+        },
+        (err: unknown) => {
+          console.error('POST /auth/passkey/verify: storage failed', err);
+          res.status(503).json({ error: 'storage unavailable' });
+        },
+      );
+    },
+  );
+
+  // FIX-B61a: the returning half. No body: the browser offers the passkeys
+  // it holds for this site. Same 503 sentence as register when unconfigured.
+  app.post('/auth/passkey/signin/start', (_req: Request, res: Response) => {
+    void session.beginPasskeySignIn().then(
+      (options) => {
+        res.status(200).json(options);
+      },
+      (err: unknown) => {
+        console.error('POST /auth/passkey/signin/start: adapter failed', err);
+        res.status(503).json({ error: 'passkey sign-in is not configured on this deployment' });
+      },
+    );
+  });
+
+  // FIX-B61a: the assertion is checked against the stored passkey, and the
+  // account comes from the passkey, never from a name the caller sends. null
+  // is 401 without saying which check failed; a throw is the store being
+  // unreachable, 503, never 401 and never 500.
+  app.post('/auth/passkey/signin', (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { responseJson?: unknown };
+    const responseJson = body.responseJson;
+    if (typeof responseJson !== 'string' || responseJson.length === 0) {
+      res.status(400).json({ error: 'body must be { responseJson }, a non-empty string' });
+      return;
+    }
+    void session.completePasskeySignIn(responseJson).then(
+      (completed) => {
         if (completed === null) {
           res.status(401).json({ error: 'invalid or expired sign-in attempt' });
           return;
         }
         res.status(200).json(completed);
-      }, next);
-    },
-  );
+      },
+      (err: unknown) => {
+        console.error('POST /auth/passkey/signin: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+      },
+    );
+  });
 
   // P8b: endSession is idempotent by contract (dead, unknown, and absent
   // tokens are all a no-op), so signing out is never a 401. A caller

@@ -563,3 +563,38 @@ export interface PushSubscriptionRepository {
   listByAccountDid(accountDid: string): Promise<readonly PushSubscription[]>;
   removeByEndpoint(endpoint: string): Promise<void>;
 }
+
+// FIX-B61a: the passkey a person made at sign-up. Keyed by the WebAuthn
+// credential id, exactly the base64url string the browser returns (never
+// case folded). `subject` is the passkey name the server made at register,
+// a plain string and not a relation to Account (see schema.prisma). The
+// public key lives here and never as a column on Account.
+export interface StoredPasskeyCredential {
+  readonly id: string;
+  readonly subject: string;
+  readonly publicKey: Uint8Array<ArrayBuffer>;
+  readonly counter: number;
+  readonly transports: readonly string[];
+  readonly createdAt: Date;
+  readonly lastUsedAt: Date | null;
+}
+
+// Thrown by save when the credential id is already stored. A "none"
+// attestation lets anyone claim any credential id, so a save that replaced
+// the stored key would be an account takeover by another door.
+export class PasskeyCredentialAlreadyExistsError extends Error {
+  constructor(id: string) {
+    super(`passkey credential ${id} is already bound`);
+    this.name = 'PasskeyCredentialAlreadyExistsError';
+  }
+}
+
+export interface PasskeyCredentialRepository {
+  // Insert only. Throws PasskeyCredentialAlreadyExistsError for a credential
+  // id already stored, and leaves the stored row exactly as it was.
+  save(credential: StoredPasskeyCredential): Promise<void>;
+  findById(id: string): Promise<StoredPasskeyCredential | null>;
+  // Records a verified sign-in: the authenticator's new counter and the time
+  // it was used. Throws for a credential id that was never saved.
+  recordUse(id: string, newCounter: number): Promise<void>;
+}
