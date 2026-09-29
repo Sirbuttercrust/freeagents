@@ -167,7 +167,7 @@
   // still-pending.
   function outcomeFromResponse(win, jobId, leg, result, receipts, feeRefused) {
     if (result.state !== "ok") {
-      return { outcome: "server_refused", message: "Could not reach the payment service. Try again in a moment." };
+      return { outcome: "server_refused", unreachable: true, message: "Could not reach the payment service. Try again in a moment." };
     }
     var body = result.value.body || {};
     if (result.value.status !== 200) {
@@ -176,7 +176,7 @@
         clearStored(win, jobId, leg);
         return { outcome: "already_paid", message: startError };
       }
-      return { outcome: "server_refused", message: startError };
+      return { outcome: "server_refused", status: result.value.status, message: startError };
     }
     if (body.confirmed === true) {
       clearStored(win, jobId, leg);
@@ -243,7 +243,7 @@
     var startPath = "/jobs/" + encodeURIComponent(jobId) + "/payments/" + leg + "/usdc/start";
     var startResult = await window.FAApi.postAuthed(startPath, token, {});
     if (startResult.state !== "ok") {
-      return { outcome: "server_refused", message: "Could not reach the payment service. Try again in a moment." };
+      return { outcome: "server_refused", unreachable: true, message: "Could not reach the payment service. Try again in a moment." };
     }
     var startBody = startResult.value.body || {};
     if (startResult.value.status !== 200) {
@@ -252,7 +252,7 @@
         clearStored(win, jobId, leg);
         return { outcome: "already_paid", message: startError };
       }
-      return { outcome: "server_refused", message: startError };
+      return { outcome: "server_refused", status: startResult.value.status, message: startError };
     }
 
     var chainResult = await ensureChain(provider, startBody.chainId);

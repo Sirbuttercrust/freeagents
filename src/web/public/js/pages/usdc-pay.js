@@ -15,6 +15,22 @@
     var s = typeof text === "string" ? text : "";
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
+  // SW2-11: a server refusal offers Try again only when pressing it can
+  // get a different answer: the service was unreachable, it said slow
+  // down (429), or it failed on its side (5xx) for a reason that can
+  // pass, like a storage 503. The rail-not-configured 503 cannot pass on
+  // this deployment, told apart by its own words the way deposit.js
+  // tells the ABT price 503 apart. Any other 4xx, and a refusal with no
+  // status (the start answer named fewer than two transfers, or there
+  // is nothing stored to check), says a retry would get the same answer.
+  var RAIL_MISSING_PHRASE = "usdc payment rail is not configured";
+  function retryable(result) {
+    if (result.unreachable === true) return true;
+    var code = result.status;
+    if (code === 429) return true;
+    if (typeof code !== "number" || code < 500) return false;
+    return !(code === 503 && String(result.message).toLowerCase().indexOf(RAIL_MISSING_PHRASE) !== -1);
+  }
   // opts: { jobId, token, leg, onBusy(bool), onPaid(), onAlreadyPaid(),
   // onRefused(message) }. onRefused answers true when the page shows a
   // server refusal its own way; the sheet then stays empty.
@@ -26,8 +42,9 @@
     function clear() { A.showById("usdc-pick", false); showOnly(null); status(""); }
     // Each outcome keeps its own sentence; the press shown is the one
     // thing that sentence says to do. mismatched says to send nothing
-    // else, so it offers nothing. no_wallet, cancelled, wallet_error,
-    // server_refused and fee_due retry (the engine reuses a sent price).
+    // else, so it offers nothing. no_wallet, cancelled, wallet_error and
+    // fee_due retry (the engine reuses a sent price). server_refused
+    // retries only where a retry can change the answer (retryable).
     function settle(result) {
       var outcome = result.outcome;
       setBusy(false);
@@ -38,6 +55,7 @@
       if (outcome === "already_paid") { showOnly("usdc-reload"); if (opts.onAlreadyPaid) opts.onAlreadyPaid(); return; }
       if (outcome === "transfer_failed" || outcome === "price_due") { showOnly("usdc-resend"); return; }
       if (outcome === "waiting_network") { showOnly("usdc-check"); return; }
+      if (outcome === "server_refused") { showOnly(retryable(result) ? "usdc-retry" : null); return; }
       showOnly(outcome === "mismatched" ? null : "usdc-retry");
     }
     function run(chosen, resend) {
