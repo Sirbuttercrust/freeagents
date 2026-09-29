@@ -15,6 +15,10 @@ import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixture
 // record: no field beyond this set, so one copy verifies against the other.
 const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'passkeySubject', 'createdAt', 'operatorAddressEvm', 'operatorAddressAbt']);
 
+// B61c: the passkey's name is private to the account, so the public answer
+// is the stored set without passkeySubject.
+const PUBLIC_FIELDS = [...ALLOWED_FIELDS].filter((field) => field !== 'passkeySubject');
+
 // Names that would mean key material leaked into storage or the wire.
 // Matched by substring, so publicKeyMultibase / privateKeyMultibase and the
 // like are all caught by their stems.
@@ -89,10 +93,10 @@ describe('operator registration, invariant 2', () => {
 
     const stored = await repo.findByDid(did);
     expect(stored).not.toBeNull();
+    // B61c: the passkey's name is private to the account, so the public read-back omits it.
     expect(readBackBody).toEqual({
       did: stored?.did,
       githubLogin: stored?.githubLogin,
-      passkeySubject: stored?.passkeySubject ?? null,
       createdAt: stored?.createdAt.toISOString(),
       operatorAddressEvm: stored?.operatorAddressEvm ?? null,
       operatorAddressAbt: stored?.operatorAddressAbt ?? null,
@@ -134,7 +138,8 @@ describe('operator registration, invariant 2', () => {
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual([...ALLOWED_FIELDS].sort());
+    // B61c: the passkey's name is private to the account, so it is not in the answer.
+    expect(Object.keys(body).sort()).toEqual([...PUBLIC_FIELDS].sort());
     expect(findKeyMaterialFields(body)).toEqual([]);
 
     const stored = await repo.findByDid(did);

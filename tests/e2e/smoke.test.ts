@@ -545,7 +545,8 @@ describe('the API starts and answers', () => {
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as Record<string, unknown>;
     expect(createdBody.did).toBe('did:abt:op1');
-    expect(Object.keys(createdBody).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm', 'passkeySubject']);
+    // B61c: the passkey's name is private to the account, so the 201 has five keys.
+    expect(Object.keys(createdBody).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm']);
 
     // 2. Read back: the same body, field for field.
     const read = await get('/accounts/did:abt:op1');
