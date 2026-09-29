@@ -117,12 +117,11 @@
   }
 
   function row(cap) {
-    /* The row carries the class its four page-local rules are written for.
+    /* The row carries the class its page-local rules are written for.
        Before W-signin this built a bare <div> and signin.html declared
-       .cap, .cap .what, .cap .why and .cap .where with nothing to match:
-       four dead rules that looked like a styled component and painted
-       nothing. The children's classes were already correct; only the row's
-       was missing. */
+       .cap and its inner rules with nothing to match: dead rules that
+       looked like a styled component and painted nothing. The children's
+       classes were already correct; only the row's was missing. */
     var node = document.createElement("div");
     node.className = "cap";
 
@@ -131,12 +130,11 @@
     what.textContent = readable(cap);
     node.appendChild(what);
 
-    /* DOM order is the reading order the sheet lays out: the capability,
-       the route it names, then the service's reason underneath both. */
-    var where = document.createElement("div");
-    where.className = "where";
-    where.textContent = String(cap.method || "") + " " + String(cap.path || "");
-    node.appendChild(where);
+    /* DOM order is the reading order the sheet lays out: the capability's
+       plain name, then the service's reason underneath it. SW2-06: no HTTP
+       route renders here. A person signing in needs to know what they can
+       do and why, and DESIGN.md 9 keeps machine terms off a primary path;
+       the routes stay readable at GET /capabilities itself. */
 
     /* The service's own one-sentence reason, verbatim. Rewriting it here
        would let the page and the API disagree about the same rule. */
