@@ -128,18 +128,14 @@ export interface SessionAdapter {
 
   // WebAuthn ceremonies. Options and responses are the JSON the browser
   // API produces, passed through opaque; the adapter validates.
-  //
   // Making a passkey: the server calls registerPasskey with a name it made
   // (never one a browser sent); verifyPasskey finds the ceremony by the
   // challenge inside the response, stores the credential under that name,
-  // and mints the session. A storage failure throws; every failed attempt
-  // is null.
+  // then mints the session. Signing back in: no name is sent; the response
+  // is checked against the stored key and counter. A storage failure
+  // throws; every failed attempt is null.
   registerPasskey(subject: string): Promise<{ optionsJson: string }>;
   verifyPasskey(responseJson: string): Promise<Session | null>;
-  // Signing back in: the browser offers the passkeys it holds for the site
-  // (no name is sent), the response is checked against the stored key and
-  // counter, and the session is for the name stored with that passkey.
-  // Storage failures throw; every other failure is null.
   beginPasskeySignIn(): Promise<{ optionsJson: string }>;
   completePasskeySignIn(responseJson: string): Promise<Session | null>;
 

@@ -1752,12 +1752,10 @@ export function createApp(
     },
   );
 
-  // FIX-B61a: register no longer reads the body. The server makes the
-  // passkey name (32 random bytes) and binds it to the ceremony it starts,
-  // so a browser can never pick which account a passkey belongs to. The
-  // adapter still throws when options.passkey is undefined (a
-  // deployment-configuration fact, not a caller error), which maps to the
-  // same 503 every other unconfigured-capability path in this file uses.
+  // FIX-B61a: register reads no body. The server makes the passkey name and
+  // binds it to the ceremony, so a browser never picks the account. The
+  // adapter throws when passkeys are not configured (a deployment fact, not
+  // a caller error), which is the same 503 every unconfigured capability gets.
   app.post('/auth/passkey/register', (_req: Request, res: Response) => {
     const subject = 'pk-' + randomBytes(32).toString('base64url');
     void session.registerPasskey(subject).then(
@@ -1773,11 +1771,9 @@ export function createApp(
 
   // P8b: the second unauthenticated entry point taking a caller-supplied
   // secret (brief scope item 6), so it rides the same verify rate limiter
-  // as the GitHub callback. verifyPasskey answers null for a
-  // caller-shaped-but-wrong response, an expired or reused challenge, or a
-  // credential id already bound, mapped to 401 without inspecting which
-  // one it was. It throws only when the passkey could not be stored, which
-  // is a 503 and mints no session.
+  // as the GitHub callback. null (a wrong response, an expired, reused or
+  // already-bound attempt) is 401 without saying which. A throw means the
+  // passkey could not be stored: 503, no session.
   app.post(
     '/auth/passkey/verify',
     (req: Request, res: Response) => {
@@ -1803,9 +1799,8 @@ export function createApp(
     },
   );
 
-  // FIX-B61a: the returning half. Start takes no body: the browser offers
-  // the passkeys it holds for this site. Same 503 sentence as register when
-  // passkeys are not configured on this deployment.
+  // FIX-B61a: the returning half. No body: the browser offers the passkeys
+  // it holds for this site. Same 503 sentence as register when unconfigured.
   app.post('/auth/passkey/signin/start', (_req: Request, res: Response) => {
     void session.beginPasskeySignIn().then(
       (options) => {
@@ -1818,11 +1813,10 @@ export function createApp(
     );
   });
 
-  // FIX-B61a: checks the browser's assertion against the stored passkey.
-  // The account is found from the passkey itself, never from a name the
-  // caller sends. null (a forged, replayed, expired, cloned, unverified or
-  // mismatched attempt) is 401 without saying which; a throw is the store
-  // being unreachable, 503, never 401 and never 500.
+  // FIX-B61a: the assertion is checked against the stored passkey, and the
+  // account comes from the passkey, never from a name the caller sends. null
+  // is 401 without saying which check failed; a throw is the store being
+  // unreachable, 503, never 401 and never 500.
   app.post('/auth/passkey/signin', (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { responseJson?: unknown };
     const responseJson = body.responseJson;

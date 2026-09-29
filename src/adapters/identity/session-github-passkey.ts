@@ -20,20 +20,14 @@
 // standard, actively maintained WebAuthn library. See the PR body for the
 // new-dependency justification this brief requires.
 //
-// FIX-B61a: a passkey signs in only the account it was registered to.
-//   - registerPasskey(subject) is called by the server with a name the
-//     server made (never one a browser sent). The challenge it issues is
-//     bound to that name, and the options ask for a discoverable,
-//     user-verified credential whose user handle is that name.
-//   - verifyPasskey finds the pending registration by the challenge inside
-//     the response's clientDataJSON, never by anything the envelope names,
-//     stores the credential (id and public key) under the registration's
-//     name, and only then mints the session.
-//   - beginPasskeySignIn / completePasskeySignIn are the returning half: an
-//     authentication checked against the stored key and counter, whose
-//     user handle must be the stored name. The browser names nobody; the
-//     account is found from the passkey itself.
-// A person who has no stored passkey cannot sign in by passkey.
+// FIX-B61a: a passkey signs in only the account it was registered to. The
+// server makes the passkey name at register and binds it to the ceremony;
+// verifyPasskey finds the ceremony by the challenge inside the response,
+// stores the credential under that name, and only then mints the session;
+// beginPasskeySignIn / completePasskeySignIn check a later assertion
+// against the stored key and counter, with the user handle equal to the
+// stored name. The browser names nobody. No stored passkey, no passkey
+// sign-in.
 import { randomBytes } from 'node:crypto';
 import {
   generateAuthenticationOptions,
@@ -43,6 +37,7 @@ import {
   type AuthenticationResponseJSON,
   type AuthenticatorTransportFuture,
   type RegistrationResponseJSON,
+  type WebAuthnCredential,
 } from '@simplewebauthn/server';
 import { MemoryPasskeyCredentialRepository } from '../storage/memory.js';
 import { createPasskeyCredentialRepository } from '../storage/storage.js';
@@ -84,31 +79,18 @@ interface StoredPasskeyChallenge {
   used: boolean;
 }
 
-// What the browser's passkey picker shows for every account: a label that
-// carries nothing about the account it belongs to.
+// The browser's passkey picker label: it says nothing about the account.
 const PASSKEY_LABEL = 'FreeAgents account';
 
-// The shape of a verified registration's credential, as the store keeps it.
-interface VerifiedCredential {
-  readonly id: string;
-  readonly publicKey: Uint8Array<ArrayBuffer>;
-  readonly counter: number;
-  readonly transports?: readonly string[];
-}
-
-// The challenge a browser signed lives inside the response's clientDataJSON
-// (WebAuthn's own field), so it is what finds the ceremony a response
-// completes. Null for anything that is not a well-formed response.
+// The challenge a browser signed lives inside the response's clientDataJSON,
+// so it is what finds the ceremony a response completes. Null for anything
+// that is not a well-formed response.
 function challengeInClientData(response: unknown): string | null {
-  if (typeof response !== 'object' || response === null) return null;
-  const inner = (response as { response?: unknown }).response;
-  if (typeof inner !== 'object' || inner === null) return null;
-  const clientDataJSON = (inner as { clientDataJSON?: unknown }).clientDataJSON;
-  if (typeof clientDataJSON !== 'string') return null;
+  const encoded = (response as { response?: { clientDataJSON?: unknown } } | null)?.response?.clientDataJSON;
+  if (typeof encoded !== 'string') return null;
   try {
-    const clientData: unknown = JSON.parse(Buffer.from(clientDataJSON, 'base64url').toString('utf8'));
-    if (typeof clientData !== 'object' || clientData === null) return null;
-    const challenge = (clientData as { challenge?: unknown }).challenge;
+    const clientData = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as { challenge?: unknown } | null;
+    const challenge = clientData?.challenge;
     return typeof challenge === 'string' && challenge.length > 0 ? challenge : null;
   } catch {
     return null;
@@ -382,9 +364,8 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       };
     },
 
-    // Called by the server with a name the server made, never one a browser
-    // sent. The challenge is bound to that name; the options ask for a
-    // discoverable, user-verified credential whose user handle is the name,
+    // The server calls this with a name it made, never one a browser sent.
+    // The challenge is bound to that name, and the name is the user handle,
     // so a later sign-in finds the account from the passkey itself.
     async registerPasskey(subject: string): Promise<{ optionsJson: string }> {
       if (options.passkey === undefined) {
@@ -404,16 +385,14 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       return { optionsJson: JSON.stringify(regOptions) };
     },
 
-    // responseJson carries { response }: the browser's registration
-    // response. The ceremony is found by the challenge inside its
-    // clientDataJSON; anything else the envelope carries (a `subject` an
-    // older page still sends) is not read. A failed attempt is null; a
-    // storage failure throws, so the route answers 503 and no session is
+    // responseJson carries { response }. The ceremony is found by the
+    // challenge inside it; any `subject` in the envelope is not read. A
+    // failed attempt is null; a storage failure throws, so no session is
     // minted for a passkey that was never stored.
     async verifyPasskey(responseJson: string): Promise<Session | null> {
       if (options.passkey === undefined) return null;
       let subject: string;
-      let credential: VerifiedCredential;
+      let credential: WebAuthnCredential;
       try {
         const parsed: unknown = JSON.parse(responseJson);
         if (typeof parsed !== 'object' || parsed === null) return null;
@@ -456,9 +435,8 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       return newSession(subject, 'passkey');
     },
 
-    // The returning half. No allowCredentials: the browser offers the
-    // passkeys it holds for this site, and the one it picks names the
-    // account through its user handle.
+    // No allowCredentials: the browser offers the passkeys it holds for
+    // this site, and the one it picks names the account by its user handle.
     async beginPasskeySignIn(): Promise<{ optionsJson: string }> {
       if (options.passkey === undefined) {
         throw new Error('session adapter: passkey is not configured (FREEAGENTS_PASSKEY_RP_ID unset)');
@@ -471,8 +449,7 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       return { optionsJson: JSON.stringify(authOptions) };
     },
 
-    // responseJson is the browser's authentication response itself. Every
-    // refusal is null; a storage failure throws.
+    // Every refusal is null; a storage failure throws.
     async completePasskeySignIn(responseJson: string): Promise<Session | null> {
       if (options.passkey === undefined) return null;
       const passkey = options.passkey;
