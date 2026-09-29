@@ -85,21 +85,19 @@ describe('the /signin page, running its own script against the real server', () 
     }
   });
 
-  it('the passkey button is present and enabled when the browser supports WebAuthn', async () => {
+  it('both passkey controls are present, and disabled with the reason shown, when the browser has no WebAuthn', async () => {
     const page = await renderSignin();
     try {
       // jsdom carries no WebAuthn API, so the page's own feature check
-      // (`!('credentials' in navigator)`) disables the button here -- this
-      // proves the DEGRADE path, not the happy path (auth-routes.test.ts
-      // and the real ceremony fixture cover the happy path over HTTP
-      // directly, since navigator.credentials.create() has no jsdom
-      // implementation to drive it through a browser DOM at all).
-      const btn = page.document.getElementById('btn-passkey') as HTMLButtonElement | null;
-      expect(btn).not.toBeNull();
+      // (`!('credentials' in navigator)`) disables both passkey controls
+      // here. This proves the DEGRADE path; the ceremonies themselves run
+      // in real Chrome in tests/web/signin-passkey.test.ts.
+      const buttons = ['btn-passkey', 'btn-passkey-create'].map((id) => page.document.getElementById(id) as HTMLButtonElement | null);
+      buttons.forEach((btn) => expect(btn).not.toBeNull());
       const unavailable = page.document.getElementById('passkey-unavailable');
       expect(unavailable).not.toBeNull();
       expect(unavailable!.hidden).toBe(false);
-      expect(btn!.disabled).toBe(true);
+      expect(buttons.map((btn) => btn!.disabled)).toEqual([true, true]);
     } finally {
       page.close();
     }
@@ -127,36 +125,34 @@ describe('a configured deployment reaches the real GitHub redirect (client_id pr
   });
 });
 
-// qa (review round 1, D1, inert-declared-control): the page's own
-// beginPasskey() minted a fresh random subject on every click, so a session
-// it produced could never resolve to an Account bound to an earlier subject.
-// Driven through the page's own script (jsdom), not by importing signin.js's
-// internals, the same discipline the rest of this file holds to. jsdom has
-// no WebAuthn implementation (the file's own earlier comment), so the
-// ceremony itself cannot complete here; this proves the one thing that CAN
-// be proven in this environment without it: the subject the page sends to
-// POST /auth/passkey/register is stable across repeated attempts on one
-// device, not re-minted every time.
+// FIX-B61b: this block used to pin "the subject the page sends to
+// POST /auth/passkey/register is stable across attempts", a name the page
+// minted and kept in localStorage. That name was the defect: the server now
+// makes the account's name, and a page that names one could only ever be
+// guessing. What is pinned instead is its absence: two presses of Create a
+// passkey send register no body, and nothing is written to localStorage.
+// jsdom has no WebAuthn, so the ceremony is rejected at once; the sign-in
+// ceremony and the full create path run in real Chrome in
+// tests/web/signin-passkey.test.ts.
 function withFakeWebAuthnSupport(window: JSDOM['window']): void {
   Object.defineProperty(window.navigator, 'credentials', {
     configurable: true,
     // The ceremony is never completed in this environment (no jsdom
     // WebAuthn implementation exists to answer it); rejecting immediately
-    // is enough to observe what subject the page registered before it
-    // asked for a ceremony at all.
+    // is enough to observe what the page sent before it asked for one.
     value: { create: () => Promise.reject(new Error('no WebAuthn ceremony available in this test environment')) },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).PublicKeyCredential = function PublicKeyCredential(): void {};
 }
 
-describe('the /signin page\'s passkey subject is stable across attempts, not re-minted per click', () => {
-  it('sends the same subject to POST /auth/passkey/register on a second click as on the first', async () => {
+describe('the /signin page sends and keeps no passkey name', () => {
+  it('two presses of Create a passkey post register with no body, and localStorage stays empty', async () => {
     const virtualConsole = new VirtualConsole();
     const failures: string[] = [];
     virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
 
-    const registeredSubjects: string[] = [];
+    const registerBodies: Array<string | null> = [];
 
     const response = await fetch(`${baseUrl}/signin`, { headers: { Accept: 'text/html' } });
     const markup = await response.text();
@@ -172,15 +168,7 @@ describe('the /signin page\'s passkey subject is stable across attempts, not re-
         Object.defineProperty(window, 'fetch', {
           writable: true,
           value: (input: string, init?: RequestInit) => {
-            const url = input;
-            if (url.includes('/auth/passkey/register') && typeof init?.body === 'string') {
-              try {
-                const parsed = JSON.parse(init.body) as { subject?: unknown };
-                if (typeof parsed.subject === 'string') registeredSubjects.push(parsed.subject);
-              } catch {
-                // malformed body would fail the assertion below on its own
-              }
-            }
+            if (input.includes('/auth/passkey/register')) registerBodies.push(typeof init?.body === 'string' ? init.body : null);
             return fetch(new URL(input, baseUrl), init);
           },
         });
@@ -194,7 +182,7 @@ describe('the /signin page\'s passkey subject is stable across attempts, not re-
       });
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const btn = dom.window.document.getElementById('btn-passkey') as HTMLButtonElement | null;
+      const btn = dom.window.document.getElementById('btn-passkey-create') as HTMLButtonElement | null;
       expect(btn).not.toBeNull();
       expect(btn!.disabled).toBe(false);
 
@@ -205,9 +193,9 @@ describe('the /signin page\'s passkey subject is stable across attempts, not re-
 
       if (failures.length > 0) throw new Error(`page script failed: ${failures.join('; ')}`);
 
-      expect(registeredSubjects.length).toBe(2);
-      expect(registeredSubjects[0]).toEqual(registeredSubjects[1]);
-      expect(registeredSubjects[0]?.length).toBeGreaterThan(0);
+      expect(registerBodies).toEqual([null, null]);
+      expect(dom.window.localStorage.length).toBe(0);
+      expect(dom.window.localStorage.getItem('fa_passkey_subject')).toBeNull();
     } finally {
       dom.window.close();
     }
@@ -304,7 +292,7 @@ describe('a completed passkey sign-in on the real page tells the person the trut
       });
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const btn = dom.window.document.getElementById('btn-passkey') as HTMLButtonElement | null;
+      const btn = dom.window.document.getElementById('btn-passkey-create') as HTMLButtonElement | null;
       expect(btn).not.toBeNull();
       expect(btn!.disabled).toBe(false);
 
@@ -316,7 +304,7 @@ describe('a completed passkey sign-in on the real page tells the person the trut
       const status = dom.window.document.getElementById('signin-status');
       expect(status).not.toBeNull();
       expect(status!.hidden).toBe(false);
-      expect(status!.textContent).toContain('Signed in');
+      expect(status!.textContent).toBe('Signed in with a passkey. You can hire or list an agent now.');
       expect(status!.textContent).not.toContain('did not go through');
       // D2 guard: the retracted caveat must not resurface. True at P8b,
       // false since P8d's account provisioning merged.
@@ -335,10 +323,10 @@ describe('a completed passkey sign-in on the real page tells the person the trut
 // re-rendered it. Unlike the GitHub path there is no navigation
 // afterwards, so nothing else re-ran the nav either. A person who signs
 // in with a passkey on /signin stood on a page whose nav still said
-// "Sign in" and offered no way to sign out. This drives the real
-// ceremony through the real page's own scripts, the same discipline the
-// rest of this file holds to, and checks the nav in place, with no
-// reload.
+// "Sign in" and offered no way to sign out. This drives the create
+// ceremony (Create a passkey, the one jsdom's stub can answer) through the
+// real page's own scripts, the same discipline the rest of this file holds
+// to, and checks the nav in place, with no reload.
 describe('the nav on /signin tells the truth immediately after a passkey sign-in, with no reload', () => {
   it('hides Sign in, shows a working Sign out, right after the ceremony completes', async () => {
     const sessionAdapter = createSessionAdapter({
@@ -388,7 +376,7 @@ describe('the nav on /signin tells the truth immediately after a passkey sign-in
       expect(signinBefore!.hidden).toBe(false);
       expect(signedInBefore!.hidden).toBe(true);
 
-      const btn = dom.window.document.getElementById('btn-passkey') as HTMLButtonElement | null;
+      const btn = dom.window.document.getElementById('btn-passkey-create') as HTMLButtonElement | null;
       expect(btn).not.toBeNull();
       btn!.click();
       await new Promise((resolve) => setTimeout(resolve, 250));

@@ -37,10 +37,12 @@
      THE ACCESS BOUNDARY BELOW IS LIVE, NOT A PROMISE: it is read from
      GET /capabilities, the route R-23 added so the limit is stated before
      a person invests effort. Hire and list routes already require a
-     session or a verified R-34 request signature (R-39, issue 83). P8b
-     wires the two controls above to the real routes: GET /auth/github/start
-     and /auth/github/callback for GitHub, POST /auth/passkey/register and
-     /auth/passkey/verify for a passkey. P8d closed the gap those routes
+     session or a verified R-34 request signature (R-39, issue 83). The
+     controls above call the real routes: GET /auth/github/start
+     and /auth/github/callback for GitHub; for a passkey,
+     POST /auth/passkey/signin/start and /auth/passkey/signin to sign in
+     with one this device holds, and POST /auth/passkey/register and
+     /auth/passkey/verify to create one. P8d closed the gap those routes
      left open: the first sign-in for a subject now provisions its
      account server-side (resolveActingParty, src/api/app.ts), so there is
      no separate registration step between a first sign-in and a first
@@ -114,15 +116,16 @@
   .cap .why { font-size: 13px; color: var(--fg-2); margin-top: 2px; flex-basis: 100%; }
   .cap .where { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
 
-  /* The two real controls are 44px in the wireframe (style="height:44px" on
-     all three of its buttons) and were unstated here. base.css:118 gives a
-     .btn min-height: 40px on desktop and polish.css:568 raises it to 44 only
-     under (max-width: 760px), (pointer: coarse), so a desktop pointer met a
-     40px target on the page whose whole content is two buttons. The floor is
-     unconditional on these two, and tests/web/signin-polished.test.ts reads
-     it back out of the computed style in a real browser at 1280px and at
-     320px rather than trusting this declaration. */
-  #btn-github, #btn-passkey { min-height: 44px; }
+  /* The three real controls are 44px in the wireframe (style="height:44px"
+     on all three of its buttons) and were unstated here. base.css:118 gives
+     a .btn min-height: 40px on desktop and polish.css:568 raises it to 44
+     only under (max-width: 760px), (pointer: coarse), so a desktop pointer
+     met a 40px target on the page whose whole content is these buttons. The
+     floor is unconditional on all three, and
+     tests/web/signin-polished.test.ts reads it back out of the computed
+     style in a real browser at 1280px and at 320px rather than trusting
+     this declaration. */
+  #btn-github, #btn-passkey, #btn-passkey-create { min-height: 44px; }
 </style>
 </head>
 <body>
@@ -161,15 +164,23 @@
       <button class="btn btn-block" id="btn-passkey" type="button">
         <span class="ico ico-sm" data-ico="fingerprint"></span>Use a passkey
       </button>
+      <!-- The one named departure from spec/wireframe/signin.html, which
+           draws only "Use a passkey". Signing in with a passkey and making
+           one are two different browser ceremonies, and the page cannot
+           tell a first visit from a return without asking the browser, so
+           each gets its own control in the same button style. -->
+      <button class="btn btn-block" id="btn-passkey-create" type="button">
+        <span class="ico ico-sm" data-ico="plus"></span>Create a passkey
+      </button>
     </div>
 
     <div class="empty" id="account-notice" style="margin-top:14px">
       Signing in creates your account. There is no separate registration
-      step: the first time you continue with GitHub or use a passkey, an
+      step: the first time you continue with GitHub or create a passkey, an
       account exists under that identity, ready to hire or list.
     </div>
 
-    <p class="sub" id="signin-status" style="margin-top:14px" hidden></p>
+    <p class="sub" id="signin-status" role="status" aria-live="polite" style="margin-top:14px" hidden></p>
 
     <div class="empty" id="github-unconfigured" hidden style="margin-top:14px">
       <b>GitHub sign-in is not set up on this deployment.</b>
