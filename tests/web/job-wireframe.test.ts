@@ -589,7 +589,9 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
   // form of "watch" at all.
   describe('SW2-10: no page says the platform watched a merge', () => {
     const surfaces: Array<{ path: string; selector: string; want: string }> = [
-      { path: '/', selector: '#tier-1', want: 'Hires we saw merge' },
+      // The landing page keeps "merge" off by rule (landing-simple.test.ts,
+      // DESIGN.md 1.3), so its chip says what the platform does: it checks.
+      { path: '/', selector: '#tier-1', want: 'Hires we checked' },
       { path: `/agents/${AGENT_DID}`, selector: '.pstat.is-hire .sub2', want: 'we saw them merge' },
       { path: '/how', selector: '.evrow.t1 .evwho', want: 'We did. We saw the pull request merge on GitHub.' },
     ];
