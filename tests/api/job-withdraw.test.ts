@@ -217,8 +217,9 @@ describe('job withdraw (R-31)', () => {
       try {
         const res = await postWithdraw(baseUrl, row.id);
         expect(res.status).toBe(409);
+        // SW1-07: one sentence, the status named once.
         expect(((await res.json()) as { error: string }).error).toBe(
-          `cannot transition from "${status}" a job in status "${status}"`,
+          `this job is "${status}", a final status, so it cannot change`,
         );
       } finally {
         await stop(server);

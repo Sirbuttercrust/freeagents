@@ -44,6 +44,18 @@ function stagedJob(overrides: Partial<Job> = {}): Job {
   return { ...staged, ...overrides };
 }
 
+// toThrow('text') matches a substring, so the sentence tests read the message
+// off the thrown error and compare it whole.
+function errorOf(fn: () => unknown): Error {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof Error) return err;
+    throw err;
+  }
+  throw new Error('expected the call to throw');
+}
+
 describe('requestRedo: staged -> redo_requested, once, cited, no price change', () => {
   it('refuses at any status other than staged', () => {
     const draft = createJob(
@@ -102,6 +114,32 @@ describe('refuseRedo: redo_requested -> staged, recorded, allowance not restored
   it('refuses at any status other than redo_requested', () => {
     const job = stagedJob();
     expect(() => refuseRedo(job, new Date())).toThrow(JobTransitionError);
+  });
+
+  // SW1-01: confirmed -> staged is a legal edge (the stage route walks it),
+  // so the transition table alone let a refusal through on a job that was
+  // never staged. Only a requested redo can be refused.
+  it('refuses a confirmed job with the whole sentence, and leaves the job unchanged', () => {
+    const job: Job = { ...stagedJob(), status: 'confirmed' };
+    const before = structuredClone(job);
+    const err = errorOf(() => refuseRedo(job, new Date('2026-01-07T00:00:00Z')));
+    expect(err).toBeInstanceOf(JobTransitionError);
+    expect(err.message).toBe(
+      'cannot refuse a redo on this job: it is in status "confirmed", and only a requested redo can be refused',
+    );
+    expect(job).toEqual(before);
+  });
+
+  it('refuses a staged job nobody asked a redo on with the whole sentence, and leaves the job unchanged', () => {
+    const job = stagedJob();
+    const before = structuredClone(job);
+    const err = errorOf(() => refuseRedo(job, new Date('2026-01-07T00:00:00Z')));
+    expect(err).toBeInstanceOf(JobTransitionError);
+    expect(err.message).toBe(
+      'cannot refuse a redo on this job: it is in status "staged", and only a requested redo can be refused',
+    );
+    expect(job).toEqual(before);
+    expect(job.redoRefusedAt).toBeNull();
   });
 
   it('returns the job to staged and records the refusal instant', () => {

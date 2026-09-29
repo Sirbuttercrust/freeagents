@@ -202,3 +202,60 @@ describe('job redo at staged (P6, design record row 2)', () => {
     expect(latest?.sequence).toBe(2);
   });
 });
+
+// SW1-01, on a server of its own: the class limiter counts per app, and the
+// describe above already spends most of a minute's write budget.
+describe('redo-refuse only refuses a redo that was asked (SW1-01)', () => {
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(121));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(122));
+    stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(123));
+    const started = await startWith(new MemoryJobRepository(), new MemoryAttestationRepository());
+    server = started.server;
+    baseUrl = started.baseUrl;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  // A refusal only exists after a redo was asked. On a job that was never
+  // staged, or staged with no redo requested, the route answers 409 with a
+  // sentence and writes nothing.
+  it('the agent refusing a redo on a confirmed job (never staged) gets 409 and the job is unchanged', async () => {
+    const created = await postSigned(baseUrl, '/jobs', { agentDid: agent.did, repository: 'buyer/target-repo', brief: 'Fix the login bug' }, buyer);
+    const jobId = String(((await created.json()) as Record<string, unknown>).id);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail: 'abt' }, agent)).status).toBe(200);
+    for (const index of [0, 1]) {
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, buyer)).status).toBe(200);
+      expect((await postSigned(baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, agent)).status).toBe(200);
+    }
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, buyer)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/price/accept`, {}, agent)).status).toBe(200);
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/confirm`, {}, buyer)).status).toBe(200);
+
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/redo-refuse`, {}, agent);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'cannot refuse a redo on this job: it is in status "confirmed", and only a requested redo can be refused',
+    });
+    const after = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as Record<string, unknown>;
+    expect(after.status).toBe('confirmed');
+    expect((after.redo as Record<string, unknown>).refusedAt).toBeNull();
+  });
+
+  it('the agent refusing a redo on a staged job nobody asked a redo on gets 409 and the job is unchanged', async () => {
+    const jobId = await walkToStaged(baseUrl);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/redo-refuse`, {}, agent);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'cannot refuse a redo on this job: it is in status "staged", and only a requested redo can be refused',
+    });
+    const after = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as Record<string, unknown>;
+    expect(after.status).toBe('staged');
+    expect((after.redo as Record<string, unknown>).refusedAt).toBeNull();
+  });
+});
