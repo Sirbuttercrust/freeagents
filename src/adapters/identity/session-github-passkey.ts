@@ -48,6 +48,7 @@ import { MemoryPasskeyCredentialRepository } from '../storage/memory.js';
 import { createPasskeyCredentialRepository } from '../storage/storage.js';
 import { PasskeyCredentialAlreadyExistsError, type PasskeyCredentialRepository } from '../storage/types.js';
 import type { OAuthStart, GitHubProofCompletion, OAuthStatePurpose, Session, SessionAdapter, SignInMethod } from './session.js';
+
 // One store, one row shape, for both sign-in methods (the brief: "one
 // session shape... no parallel token store per method"). subject and
 // method are the fields Session itself carries; everything past them is

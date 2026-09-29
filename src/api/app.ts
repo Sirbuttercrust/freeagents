@@ -699,8 +699,9 @@ function signerDidOf(req: Request): string | null {
 // at all. The method matters because resolving a session to an Account
 // joins through a DIFFERENT unique column depending on which proof
 // produced it: a github-oauth session's subject is the GitHub login
-// (Account.githubLogin), a passkey session's subject is the passkey
-// name the server made when the passkey was created (Account.passkeySubject). Joining through the wrong column
+// (Account.githubLogin), a passkey session's subject is the passkey name
+// the server made when the passkey was created (Account.passkeySubject).
+// Joining through the wrong column
 // would either miss a real account or, worse, resolve to the wrong one.
 interface SessionedRequest extends Request {
   sessionSubject?: string;
@@ -762,7 +763,11 @@ async function provisionAccountForSession(
 //   - a live session resolves through the account lookup the schema's
 //     unique githubLogin / passkeySubject constraint makes safe: two
 //     accounts can never claim the same login or subject, so this join
-//     can never resolve to two different accounts for one session. P8d:
+//     can never resolve to two different accounts for one session. A
+//     passkey session's subject is proven by the stored passkey (the
+//     adapter mints it only after a registration it saved or an
+//     authentication checked against the saved key), never by a name a
+//     caller sent. P8d:
 //     when the lookup finds no account, one is provisioned right here
 //     (the anchor: a person who has never used this product signs in
 //     and can immediately hire, no second registration step). A
