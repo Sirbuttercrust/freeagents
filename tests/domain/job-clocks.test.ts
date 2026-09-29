@@ -9,9 +9,12 @@ import {
   applyLapses,
   createJob,
   deemCompleted,
+  deemWindowEnd,
+  deemWindowHasPassed,
   expireUnstaged,
   JobTransitionError,
   lapseAtStaged,
+  mergedInsideWindow,
   requestRedo,
   stageWork,
   type Job,
@@ -216,6 +219,67 @@ describe('deemCompleted: submitted neither merged nor closed, 7 days after submi
     const result = deemCompleted(submittedJob(), now);
     expect(result.mergeCommit).toBeNull();
     expect(result.mergedAt).toBeNull();
+  });
+});
+
+// FIX-B60D: the review window itself, pure and shared. The deem clock and
+// the route that asks GitHub before deeming both read the window through
+// these, so "past the window" and "inside the window" can never disagree at
+// the boundary: exactly 7 days after submittedAt is inside, one millisecond
+// later is past.
+describe('the review window: 7 days from submittedAt, shared by deemCompleted and the merge check', () => {
+  const submittedAt = new Date('2026-01-10T00:00:00Z');
+  const windowEnd = new Date(submittedAt.getTime() + SEVEN_DAYS_MS);
+  const submitted = (): Job =>
+    baseJob({
+      status: 'submitted',
+      pullRequestUrl: 'https://github.com/freeagents-platform/target-repo/pull/1',
+      submittedAt,
+      deadline: new Date(submittedAt.getTime() + 30 * 86_400_000),
+    });
+
+  it('deemWindowEnd is submittedAt plus DEEM_COMPLETED_AFTER_DAYS', () => {
+    expect(deemWindowEnd(submitted())).toEqual(windowEnd);
+  });
+
+  it('deemWindowEnd is null for a job that was never submitted', () => {
+    expect(deemWindowEnd(baseJob())).toBeNull();
+  });
+
+  it('a merge exactly at the end of the window is inside it', () => {
+    expect(mergedInsideWindow(submitted(), windowEnd)).toBe(true);
+  });
+
+  it('a merge one millisecond after the end of the window is outside it', () => {
+    expect(mergedInsideWindow(submitted(), new Date(windowEnd.getTime() + 1))).toBe(false);
+  });
+
+  it('a merge one millisecond before the end of the window is inside it', () => {
+    expect(mergedInsideWindow(submitted(), new Date(windowEnd.getTime() - 1))).toBe(true);
+  });
+
+  it('a job that was never submitted has no window to merge inside', () => {
+    expect(mergedInsideWindow(baseJob(), submittedAt)).toBe(false);
+  });
+
+  it('exactly at the end of the window it has not passed, one millisecond later it has', () => {
+    expect(deemWindowHasPassed(submitted(), windowEnd)).toBe(false);
+    expect(deemWindowHasPassed(submitted(), new Date(windowEnd.getTime() + 1))).toBe(true);
+  });
+
+  it('only a submitted job has a window that can pass: stale, deemed, completed and unsubmitted jobs never ask', () => {
+    const late = new Date(windowEnd.getTime() + 1000);
+    expect(deemWindowHasPassed({ ...submitted(), status: 'stale' }, late)).toBe(false);
+    expect(deemWindowHasPassed({ ...submitted(), status: 'deemed_completed' }, late)).toBe(false);
+    expect(deemWindowHasPassed({ ...submitted(), status: 'completed' }, late)).toBe(false);
+    expect(deemWindowHasPassed(baseJob(), late)).toBe(false);
+  });
+
+  it('deemCompleted deems on exactly the instants deemWindowHasPassed reports', () => {
+    for (const offset of [-1000, -1, 0, 1, 1000]) {
+      const now = new Date(windowEnd.getTime() + offset);
+      expect(deemCompleted(submitted(), now).status === 'deemed_completed').toBe(deemWindowHasPassed(submitted(), now));
+    }
   });
 });
 

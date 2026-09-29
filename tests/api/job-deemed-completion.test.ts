@@ -6,11 +6,20 @@
 // exactly once, at the choke point every mutation and GET route shares
 // (see applyLiveLapses's own header comment), and GET /jobs/:jobId resolves
 // it as a sibling of the projection the same way a merge credential rides.
+//
+// FIX-B60D: before a submitted job past its window is deemed, the platform
+// asks GitHub once whether its pull request merged (a merge inside the
+// window completes it instead; tests/api/job-deem-asks-github.test.ts). Both
+// apps here therefore get a GitHub double that answers `open` for the
+// planted pull request at the attested commit, so what these tests prove is
+// unchanged: a pull request still unmerged when the window ends is deemed.
 import type { Server } from 'node:http';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import type { GithubAdapter } from '../../src/adapters/github/types.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import {
   isCompletedHireCredential,
@@ -58,6 +67,33 @@ async function get(base: string, path: string): Promise<Response> {
   return fetch(`${base}${path}`);
 }
 
+// FIX-B60D: a GitHub double that reports the planted pull request (the URL
+// in submittedJob above) open, at the attested commit, so the platform's one
+// read before deeming finds nothing merged.
+function openPullRequestGithub(): GithubAdapter {
+  const { github, setPullRequest } = createStagingLifecycleGithubFake();
+  setPullRequest(
+    { owner: 'freeagents-platform', repo: 'target-repo', number: 1 },
+    {
+      state: 'open',
+      mergeCommitSha: null,
+      mergedAt: null,
+      headSha: 'commit-sha-deemed',
+      additions: 1,
+      deletions: 0,
+      filesChanged: 1,
+      repositoryPublic: true,
+      headRepoOwner: 'scout-deemed',
+      headRepoFullName: 'scout-deemed/target-repo',
+      headRepoIsFork: true,
+      baseRepoFullName: 'freeagents-platform/target-repo',
+      authorLogin: 'scout-deemed',
+      body: 'Job: j-deemed\n',
+    },
+  );
+  return github;
+}
+
 describe('deemed-completion credential issuance (P6, design record row 3)', () => {
   let server: Server;
   let baseUrl: string;
@@ -85,7 +121,7 @@ describe('deemed-completion credential issuance (P6, design record row 3)', () =
       accounts,
       agentRepo,
       undefined,
-      undefined,
+      openPullRequestGithub(),
       jobRepo,
       credentials,
       undefined,
@@ -189,7 +225,7 @@ describe('deemed-completion credential issuance (P6, design record row 3)', () =
       new MemoryAccountRepository(),
       new MemoryAgentRepository(),
       undefined,
-      undefined,
+      openPullRequestGithub(),
       jobRepo,
       flakyCredentials,
       undefined,

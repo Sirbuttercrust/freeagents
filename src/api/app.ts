@@ -128,6 +128,8 @@ import {
   recordStale,
   recordStagedDeclined,
   decline,
+  deemWindowHasPassed,
+  mergedInsideWindow,
   recordWithdrawn,
   refuseRedo,
   requestChanges,
@@ -5166,7 +5168,9 @@ export function createApp(
   // function still asked the gate only for staged, so a paid buyer with a
   // pending redo was fed a fabricated "not settled" answer and could be
   // terminated closed_unpaid with the gate never consulted -- the other
-  // clock, deemCompleted, still never consults it). Deriving the set from
+  // clock, deemCompleted, never consults the settlement gate; its own live
+  // question, whether GitHub saw a merge inside the review window, is asked
+  // by askGithubBeforeDeeming below). Deriving the set from
   // lapseAtStaged's own starting statuses, rather than repeating a second
   // literal here, is what keeps this call site from silently falling
   // behind the domain function again the next time that set changes. A
@@ -5225,6 +5229,254 @@ export function createApp(
     }
   }
 
+  // FIX-B60D: the observation of a submitted job's pull request, shared by
+  // POST /jobs/:jobId/merge and the deem path in applyLiveLapses. It parses
+  // the stored URL, asks GitHub (ENT-7.1: never the caller) and runs the STG2
+  // attested-commit check, writing nothing. A malformed URL is a corrupted
+  // row and THROWS, as the route always did; the deem path catches it.
+  type HttpAnswer = { readonly kind: 'answer'; readonly status: number; readonly body: { readonly error: string } };
+  type PullRequestObservation =
+    | HttpAnswer
+    | { readonly kind: 'head_moved'; readonly attested: string | null; readonly head: string }
+    | { readonly kind: 'observed'; readonly summary: PullRequestSummary; readonly pullRequestUrl: string };
+  type MergedCompletion =
+    | HttpAnswer
+    | { readonly kind: 'completed'; readonly row: Job; readonly credential: VerifiableCredential };
+
+  async function observePullRequest(label: string, job: Job): Promise<PullRequestObservation> {
+    // A submitted job always carries a URL in the shape submitPullRequest
+    // itself wrote (R-10); anything else is a corrupted row, not a caller
+    // error, so it reaches the terminal handler as a 500 like the
+    // pull-request route's own corrupted-state leg.
+    const pullRequestUrl = job.pullRequestUrl;
+    const match =
+      pullRequestUrl === null ? null : /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(pullRequestUrl);
+    if (match === null || pullRequestUrl === null) {
+      throw new Error(`job ${job.id} is submitted but pullRequestUrl is missing or malformed`);
+    }
+    const [, owner, repo, prNumber] = match;
+    if (owner === undefined || repo === undefined || prNumber === undefined) {
+      throw new Error(`job ${job.id} is submitted but pullRequestUrl is missing or malformed`);
+    }
+    const ref: PullRequestRef = { owner, repo, number: Number(prNumber) };
+
+    let summary: PullRequestSummary;
+    try {
+      summary = await github.getPullRequest(ref);
+    } catch (err) {
+      console.error(`${label}: github unavailable`, err);
+      return { kind: 'answer', status: 503, body: { error: 'github unavailable' } };
+    }
+
+    // STG2: the attested-commit check, before ANY outcome is recorded --
+    // open, closed or merged alike. The agent forked the buyer's
+    // repository itself and holds push on that fork, so nothing stops
+    // it from resetting the branch after the platform attested a
+    // commit; this is the check that catches that. An open PR can be
+    // fixed by the agent resetting the branch back to the attested
+    // commit; a closed or merged PR whose head moved records nothing
+    // either, since a mismatch here means this was never the work the
+    // platform attested to.
+    if (!chainIdentifiersMatch(summary.headSha, job.stagedCommit)) {
+      return { kind: 'head_moved', attested: job.stagedCommit, head: summary.headSha };
+    }
+    return { kind: 'observed', summary, pullRequestUrl };
+  }
+
+  // The instant a merged pull request completed the job: GitHub's fact
+  // (ENT-7.1); only a response with no timestamp is observed now, which on
+  // the deem path is after the window, so that answer deems the job.
+  function mergeInstantOf(summary: PullRequestSummary): Date {
+    return summary.mergedAt ?? new Date();
+  }
+
+  // FIX-B60D: the merged branch of POST /jobs/:jobId/merge, moved here so
+  // the deem path completes a job by the same steps. A merged summary with
+  // no merge commit sha THROWS, as the route always did; the deem path
+  // catches it.
+  async function completeMergedPullRequest(
+    label: string,
+    job: Job,
+    observed: { readonly summary: PullRequestSummary; readonly pullRequestUrl: string },
+  ): Promise<MergedCompletion> {
+    const { summary, pullRequestUrl } = observed;
+    // A merged state with no merge commit sha is an inconsistent github
+    // response, not a caller error: ENT-7 requires the merge commit, so
+    // this is our problem to surface as a 500, not a 409 or 400.
+    if (summary.mergeCommitSha === null) {
+      throw new Error(`github reported job ${job.id}'s pull request merged with no merge commit sha`);
+    }
+    const mergeCommitSha = summary.mergeCommitSha;
+
+    let outcome: { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> };
+    try {
+      outcome = completeJob(job, { mergeCommit: mergeCommitSha, completedAt: mergeInstantOf(summary) });
+    } catch (err) {
+      // Covers a job that completed between the read above and here.
+      if (err instanceof JobTransitionError) {
+        return { kind: 'answer', status: 409, body: { error: err.message } };
+      }
+      throw err;
+    }
+
+    // ENT-8: the credential names the key that signed the merge, so the
+    // agent's verification method is resolved before anything is written.
+    // Same mapping as POST /agents/:agentDid/account-proof: a resolver we
+    // cannot reach is a platform failure, not a caller error, and the job
+    // stays submitted and fully retryable.
+    let signedBy: string;
+    try {
+      const doc = await identityAdapter.resolveDid(job.agentDid);
+      const method = doc.verificationMethod[0];
+      if (method === undefined) {
+        throw new Error(`the DID document for ${job.agentDid} carries no verification method`);
+      }
+      signedBy = method;
+    } catch (err) {
+      console.error(`${label}: identity resolution failed`, err);
+      return { kind: 'answer', status: 503, body: { error: 'identity resolution unavailable' } };
+    }
+
+    // Issuance BEFORE persistence, deliberately: a failed signing leaves
+    // the job submitted and retryable, rather than completing a hire this
+    // platform cannot attest to.
+    const claim: WorkHistoryClaim = {
+      jobId: job.id,
+      repository: job.repository,
+      pullRequestUrl,
+      mergeCommitSha,
+      // GitHub's instant, the same one stamped on the row (ENT-7.1).
+      mergedAt: outcome.completedJob.completedAt.toISOString(),
+      diffAdditions: summary.additions,
+      diffDeletions: summary.deletions,
+      diffFiles: summary.filesChanged,
+      briefHash: job.briefHash,
+      specHash: job.confirmedSpecHash,
+      buyerDid: job.buyerDid,
+      signedBy,
+    };
+    let credential: VerifiableCredential;
+    try {
+      credential = await credentialsAdapter.issueWorkHistoryCredential(job.agentDid, claim);
+    } catch (err) {
+      console.error(`${label}: credential issuance failed`, err);
+      return { kind: 'answer', status: 503, body: { error: 'credential issuance unavailable' } };
+    }
+
+    let row: Job | null;
+    try {
+      row = await jobRepo.complete(outcome.job, outcome.completedJob);
+    } catch (err) {
+      console.error(`${label}: storage failed`, err);
+      return { kind: 'answer', status: 503, body: { error: 'storage unavailable' } };
+    }
+    if (row === null) {
+      // The row vanished between the read and the write.
+      return { kind: 'answer', status: 404, body: { error: 'not found' } };
+    }
+
+    // Two writes to one driver with no transaction spanning them. The
+    // residual is named rather than hidden: a crash between them leaves a
+    // completed job with no credential, and the retry meets the 409 the
+    // completed status already returns. Nothing is lost - the credential
+    // is re-derivable from the stored job row, github's report and the
+    // platform key - but it is not re-derived automatically.
+    try {
+      await credentialRepo.save({
+        completedJobId: row.id,
+        subjectDid: row.agentDid,
+        document: credential,
+        // R-17 (invariant 4, proof gate finding): the one fact
+        // evidenceTier needs beyond the merge itself, read off github's own
+        // report on the same PR object the merge commit came from. Before
+        // this line no writer ever passed the field, so every real hire
+        // defaulted to the fail-closed false and could never reach
+        // verified-hire, no matter how public the repository actually was.
+        repositoryPublic: summary.repositoryPublic,
+      });
+    } catch (err) {
+      console.error(`${label}: storage failed`, err);
+      return { kind: 'answer', status: 503, body: { error: 'storage unavailable' } };
+    }
+
+    // HT1 Part B: "system events (... completed) are rows in the same
+    // thread." Best-effort, logged, never turns a successful merge
+    // into a 503: the credential is already durably issued by this
+    // point, and a message write failing here must not undo that.
+    try {
+      const systemRow = await messageRepo.create(
+        createSystemMessage(
+          {
+            id: 'm-' + randomBytes(8).toString('hex'),
+            jobId: row.id,
+            body: 'Completed',
+            systemEvent: { type: 'completed', mergeCommit: mergeCommitSha },
+          },
+          new Date(),
+        ),
+      );
+      broadcastThreadEvent(row.id, 'message', messageProjection(systemRow));
+    } catch (err) {
+      console.error(`${label}: failed to write the completed system row`, err);
+    }
+
+    return { kind: 'completed', row, credential };
+  }
+
+  // FIX-B60D: a job this load completed from a merge dated inside the window,
+  // keyed by the row applyLiveLapses returned, with its receipt. The merge
+  // route reads it so the request that caused the completion answers 200
+  // with the receipt, not the 409 of a job completed by an earlier request.
+  const completedOnLoad = new WeakMap<Job, VerifiableCredential>();
+
+  // FIX-B60D (bugs.md B60, second half): what applyLiveLapses asks, once,
+  // before the deem clock runs on a submitted job whose review window has
+  // passed. The clock is pure and cannot know the buyer merged on day 3 of a
+  // job nobody opened until day 8, so the platform asks GitHub through the
+  // merge route's own observation. The answers:
+  //   completed: merged inside the window; the job is persisted completed
+  //     with the work-history credential.
+  //   deem: open, closed, merged after the window, merged with no date, or
+  //     the head moved off the attested commit; the caller runs the deem
+  //     clock and issues the deemed-completion credential as before.
+  //   answered: GitHub, identity, signing or storage failed and the 503 is
+  //     sent. The job stays submitted, nothing is issued, the next read asks
+  //     again. A failure NEVER falls through to deeming: a merged pull
+  //     request must not get a receipt saying no merge was observed.
+  //     GET /jobs/:jobId is not wrapped in `forwarded`, so every throw is
+  //     caught here rather than left as an unhandled rejection.
+  // Once completed or deemed the job is no longer `submitted`, so this never
+  // asks twice.
+  async function askGithubBeforeDeeming(
+    label: string,
+    job: Job,
+    res: Response,
+  ): Promise<{ readonly kind: 'completed'; readonly row: Job } | { readonly kind: 'deem' } | { readonly kind: 'answered' }> {
+    try {
+      const observation = await observePullRequest(label, job);
+      if (observation.kind === 'answer') {
+        res.status(observation.status).json(observation.body);
+        return { kind: 'answered' };
+      }
+      if (observation.kind === 'head_moved') return { kind: 'deem' };
+      const { summary } = observation;
+      if (summary.state !== 'merged' || !mergedInsideWindow(job, mergeInstantOf(summary))) {
+        return { kind: 'deem' };
+      }
+      const completion = await completeMergedPullRequest(label, job, observation);
+      if (completion.kind === 'answer') {
+        res.status(completion.status).json(completion.body);
+        return { kind: 'answered' };
+      }
+      completedOnLoad.set(completion.row, completion.credential);
+      return { kind: 'completed', row: completion.row };
+    } catch (err) {
+      console.error(`${label}: could not observe the pull request before deeming`, err);
+      res.status(503).json({ error: 'github unavailable' });
+      return { kind: 'answered' };
+    }
+  }
+
   async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
     let remainderIsSettled = false;
     if (LAPSE_AT_STAGED_STATUSES.has(job.status)) {
@@ -5236,7 +5488,13 @@ export function createApp(
         return null;
       }
     }
-    const lapsed = applyLapses(job, new Date(), remainderIsSettled);
+    const now = new Date();
+    if (deemWindowHasPassed(job, now)) {
+      const asked = await askGithubBeforeDeeming(label, job, res);
+      if (asked.kind === 'answered') return null;
+      if (asked.kind === 'completed') return asked.row;
+    }
+    const lapsed = applyLapses(job, now, remainderIsSettled);
     if (lapsed.status === job.status) {
       // Already settled at this status on an earlier read -- but if that
       // earlier read is the one whose issuance attempt failed, this is
@@ -7862,6 +8120,15 @@ export function createApp(
       // sees the narrowed non-null row.
       const job = current;
 
+      // FIX-B60D: the load above may itself have completed this job from a
+      // merge inside the window (applyLiveLapses). This request asked for
+      // that outcome, so it answers 200 with the receipt, not a 409.
+      const completedByLoad = completedOnLoad.get(current);
+      if (completedByLoad !== undefined) {
+        res.status(200).json({ ...jobProjection(current), credential: completedByLoad });
+        return;
+      }
+
       // A known status other than submitted or stale is a conflict before
       // github is ever asked. stale falls through on purpose (D3 2026-08-22):
       // a merge after the stale marker still completes, so its PR is still
@@ -7885,7 +8152,9 @@ export function createApp(
         // into a 500 platform fault instead of the same honest 409 every
         // other non-observable status already answers. deemed_completed
         // additionally used to spend a real github.getPullRequest call
-        // before failing; listing it here stops that call too.
+        // before failing; listing it here stops that call too. FIX-B60D: the
+        // load asks GitHub before deeming; a merge inside the window at the
+        // attested commit would have completed the job instead.
         'staged',
         'staged_declined',
         'closed_unpaid',
@@ -7897,52 +8166,22 @@ export function createApp(
         return;
       }
 
-      // A submitted job always carries a URL in the shape submitPullRequest
-      // itself wrote (R-10); anything else is a corrupted row, not a caller
-      // error, so it reaches the terminal handler as a 500 like the
-      // pull-request route's own corrupted-state leg.
-      const pullRequestUrl = current.pullRequestUrl;
-      const match =
-        pullRequestUrl === null
-          ? null
-          : /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(pullRequestUrl);
-      if (match === null || pullRequestUrl === null) {
-        throw new Error(`job ${jobId} is submitted but pullRequestUrl is missing or malformed`);
-      }
-      const [, owner, repo, prNumber] = match;
-      if (owner === undefined || repo === undefined || prNumber === undefined) {
-        throw new Error(`job ${jobId} is submitted but pullRequestUrl is missing or malformed`);
-      }
-      const ref: PullRequestRef = { owner, repo, number: Number(prNumber) };
-
-      // This is the ENT-7.1 observation itself: the state that decides
-      // whether the job completes comes from github, never from the caller.
-      let summary: PullRequestSummary;
-      try {
-        summary = await github.getPullRequest(ref);
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: github unavailable', err);
-        res.status(503).json({ error: 'github unavailable' });
+      // The URL parse, GitHub read and attested-commit check are
+      // observePullRequest, shared with the deem path (applyLiveLapses).
+      const observation = await observePullRequest('POST /jobs/:jobId/merge', current);
+      if (observation.kind === 'answer') {
+        res.status(observation.status).json(observation.body);
         return;
       }
-
-      // STG2: the attested-commit check, before ANY outcome is recorded --
-      // open, closed or merged alike. The agent forked the buyer's
-      // repository itself and holds push on that fork, so nothing stops
-      // it from resetting the branch after the platform attested a
-      // commit; this is the check that catches that. An open PR can be
-      // fixed by the agent resetting the branch back to the attested
-      // commit; a closed or merged PR whose head moved records nothing
-      // either, since a mismatch here means this was never the work the
-      // platform attested to.
-      if (!chainIdentifiersMatch(summary.headSha, current.stagedCommit)) {
+      if (observation.kind === 'head_moved') {
         res.status(409).json({
           error: 'the pull request head moved off the attested commit',
-          attested: current.stagedCommit,
-          head: summary.headSha,
+          attested: observation.attested,
+          head: observation.head,
         });
         return;
       }
+      const summary = observation.summary;
 
       // R-12 (ENT-7.2): record the observed outcome, with the same storage
       // legs as the merged answer below - transition conflict 409, vanished
@@ -7999,139 +8238,15 @@ export function createApp(
         return;
       }
 
-      // A merged state with no merge commit sha is an inconsistent github
-      // response, not a caller error: ENT-7 requires the merge commit, so
-      // this is our problem to surface as a 500, not a 409 or 400.
-      if (summary.mergeCommitSha === null) {
-        throw new Error(`github reported job ${jobId}'s pull request merged with no merge commit sha`);
-      }
-      const mergeCommitSha = summary.mergeCommitSha;
-
-      let outcome: { readonly job: Job; readonly completedJob: Omit<CompletedJob, 'id'> };
-      try {
-        outcome = completeJob(current, {
-          mergeCommit: mergeCommitSha,
-          // The merge instant is github's fact, not this service's clock
-          // (ENT-7.1); only a github response with no timestamp at all falls
-          // back to observing it now.
-          completedAt: summary.mergedAt ?? new Date(),
-        });
-      } catch (err) {
-        // Covers a job that completed between the read above and here.
-        if (err instanceof JobTransitionError) {
-          res.status(409).json({ error: err.message });
-          return;
-        }
-        throw err;
-      }
-
-      // ENT-8: the credential names the key that signed the merge, so the
-      // agent's verification method is resolved before anything is written.
-      // Same mapping as POST /agents/:agentDid/account-proof: a resolver we
-      // cannot reach is a platform failure, not a caller error, and the job
-      // stays submitted and fully retryable.
-      let signedBy: string;
-      try {
-        const doc = await identityAdapter.resolveDid(job.agentDid);
-        const method = doc.verificationMethod[0];
-        if (method === undefined) {
-          throw new Error(`the DID document for ${job.agentDid} carries no verification method`);
-        }
-        signedBy = method;
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: identity resolution failed', err);
-        res.status(503).json({ error: 'identity resolution unavailable' });
+      // The merged branch is completeMergedPullRequest, shared with the deem
+      // path; a merged answer with no merge commit sha throws there and
+      // reaches the terminal handler as a 500, as before.
+      const completion = await completeMergedPullRequest('POST /jobs/:jobId/merge', current, observation);
+      if (completion.kind === 'answer') {
+        res.status(completion.status).json(completion.body);
         return;
       }
-
-      // Issuance BEFORE persistence, deliberately: a failed signing leaves
-      // the job submitted and retryable, rather than completing a hire this
-      // platform cannot attest to.
-      const claim: WorkHistoryClaim = {
-        jobId: job.id,
-        repository: job.repository,
-        pullRequestUrl,
-        mergeCommitSha,
-        // GitHub's instant, the same one stamped on the row (ENT-7.1).
-        mergedAt: outcome.completedJob.completedAt.toISOString(),
-        diffAdditions: summary.additions,
-        diffDeletions: summary.deletions,
-        diffFiles: summary.filesChanged,
-        briefHash: job.briefHash,
-        specHash: job.confirmedSpecHash,
-        buyerDid: job.buyerDid,
-        signedBy,
-      };
-      let credential: VerifiableCredential;
-      try {
-        credential = await credentialsAdapter.issueWorkHistoryCredential(job.agentDid, claim);
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: credential issuance failed', err);
-        res.status(503).json({ error: 'credential issuance unavailable' });
-        return;
-      }
-
-      let row: Job | null;
-      try {
-        row = await jobRepo.complete(outcome.job, outcome.completedJob);
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: storage failed', err);
-        res.status(503).json({ error: 'storage unavailable' });
-        return;
-      }
-      if (row === null) {
-        // The row vanished between the read and the write.
-        res.status(404).json({ error: 'not found' });
-        return;
-      }
-
-      // Two writes to one driver with no transaction spanning them. The
-      // residual is named rather than hidden: a crash between them leaves a
-      // completed job with no credential, and the retry meets the 409 the
-      // completed status already returns. Nothing is lost - the credential
-      // is re-derivable from the stored job row, github's report and the
-      // platform key - but it is not re-derived automatically.
-      try {
-        await credentialRepo.save({
-          completedJobId: row.id,
-          subjectDid: row.agentDid,
-          document: credential,
-          // R-17 (invariant 4, proof gate finding): the one fact
-          // evidenceTier needs beyond the merge itself, read off github's own
-          // report on the same PR object the merge commit came from. Before
-          // this line no writer ever passed the field, so every real hire
-          // defaulted to the fail-closed false and could never reach
-          // verified-hire, no matter how public the repository actually was.
-          repositoryPublic: summary.repositoryPublic,
-        });
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: storage failed', err);
-        res.status(503).json({ error: 'storage unavailable' });
-        return;
-      }
-
-      // HT1 Part B: "system events (... completed) are rows in the same
-      // thread." Best-effort, logged, never turns a successful merge
-      // into a 503: the credential is already durably issued by this
-      // point, and a message write failing here must not undo that.
-      try {
-        const systemRow = await messageRepo.create(
-          createSystemMessage(
-            {
-              id: 'm-' + randomBytes(8).toString('hex'),
-              jobId: row.id,
-              body: 'Completed',
-              systemEvent: { type: 'completed', mergeCommit: mergeCommitSha },
-            },
-            new Date(),
-          ),
-        );
-        broadcastThreadEvent(row.id, 'message', messageProjection(systemRow));
-      } catch (err) {
-        console.error('POST /jobs/:jobId/merge: failed to write the completed system row', err);
-      }
-
-      res.status(200).json({ ...jobProjection(row), credential });
+      res.status(200).json({ ...jobProjection(completion.row), credential: completion.credential });
     }),
   );
 
