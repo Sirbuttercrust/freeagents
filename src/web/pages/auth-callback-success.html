@@ -26,8 +26,9 @@
      a JSON client (src/api/app.ts's GET /auth/github/callback negotiates
      on the Accept header; an API caller still gets the byte-identical
      JSON it always has). The session below is embedded as JSON, never in
-     this page's own URL, and the script at the bottom moves it into
-     sessionStorage and sends the person into the product. -->
+     this page's own URL, and the scripts at the bottom move it into
+     sessionStorage and send the person into the product: back to the page
+     they pressed Sign in on, or to / (auth-callback.js). -->
 
 <div class="wrap section" style="padding-top:90px; padding-bottom:100px">
   <div class="pane pane-pad" style="max-width:420px; margin:0 auto; text-align:center">
@@ -36,6 +37,7 @@
 </div>
 
 <script type="application/json" id="fa-session-data"><!--SESSION_JSON--></script>
+<script src="/js/pages/api.js"></script>
 <script src="/js/pages/auth-callback.js"></script>
 </body>
 </html>

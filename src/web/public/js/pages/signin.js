@@ -406,6 +406,16 @@
     chain
       .then(function (session) {
         storeSession(session);
+        /* SW3-01: a person who pressed Sign in on another page goes back
+           to it, by the same rule the GitHub callback page follows
+           (FAApi.takeReturnPath in api.js, which removes the stored path
+           whether or not it is used). With no usable path the person
+           stays here, told they are signed in, as before. */
+        var returnPath = A.takeReturnPath();
+        if (returnPath) {
+          window.location.replace(returnPath);
+          return;
+        }
         /* FANav.refresh() re-runs nav.js's render(), which owns
            #once-signed-in too: one call sets the nav's signed-in state and
            that section together. */

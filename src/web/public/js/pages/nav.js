@@ -20,7 +20,14 @@
    because hire.js needs the identical read to attach a bearer token to a
    write, and a second page needing the same fact is exactly the case that
    must never grow a second implementation of it. This script still owns
-   clearing the key on sign-out and re-rendering; only the read moved. */
+   clearing the key on sign-out and re-rendering; only the read moved.
+
+   IT ALSO REMEMBERS WHERE SIGN IN WAS PRESSED (SW3-01, wireReturnPath
+   below): any press on a link to /signin stores the page's path and
+   query, so signing in brings the person back to it. The rule that
+   decides what may be stored and followed lives in api.js
+   (FAApi.rememberReturnPath and FAApi.takeReturnPath), shared with the
+   GitHub callback page and the passkey path on /signin. */
 
 (function () {
   "use strict";
@@ -263,10 +270,33 @@
     });
   }
 
+  /* SW3-01: remember where Sign in was pressed. One capture-phase listener
+     for the whole page, so the nav's #nav-signin, every page's in-page
+     #signin-link and any later link to /signin are covered with no page
+     edited, and the page's own handling of the press is left alone (this
+     stores and returns; it never cancels the navigation). It stores the
+     page's path and query through FAApi.rememberReturnPath, never the
+     origin or the hash. On /signin itself nothing is stored, so a person
+     who opened the sign-in page on its own still lands on / afterwards. */
+  function wireReturnPath() {
+    document.addEventListener("click", function (e) {
+      var target = e.target;
+      var link = target && typeof target.closest === "function" ? target.closest("a[href]") : null;
+      if (!link) return;
+      /* link.origin and link.pathname are the href resolved against this
+         page, so "/signin", "signin" and a full URL to it all match, and a
+         link to /signin on another site does not. */
+      if (link.origin !== window.location.origin || !A.isSignInPath(link.pathname)) return;
+      if (A.isSignInPath(window.location.pathname)) return;
+      A.rememberReturnPath(window.location.pathname + window.location.search);
+    }, true);
+  }
+
   function start() {
     render();
     wireSignOut();
     wireMenu();
+    wireReturnPath();
   }
 
   /* THE PHONE MENU (DESIGN.md 5 nav, the league look). Below 761px the
