@@ -27,6 +27,22 @@ export function alwaysSettledGate(): SettlementGate {
   return new AlwaysSettledGate();
 }
 
+// The gate a hire has between its deposit and its second payment: every
+// deposit reads settled, and a job's second payment reads settled only after
+// the test marks it (markBalanceSettled). Tests that walk a hire to staged and
+// then decline it or ask for a redo use this, since both moves belong to a
+// hire that is not yet paid in full (SW3-07). A test that goes on to open the
+// pull request marks the job settled right before that step.
+class DepositSettledGate extends MemorySettlementGate {
+  override async depositSettled(_jobId: string): Promise<boolean> {
+    return true;
+  }
+}
+
+export function depositSettledGate(): MemorySettlementGate {
+  return new DepositSettledGate();
+}
+
 export function unsettledGate(): MemorySettlementGate {
   return new MemorySettlementGate();
 }
