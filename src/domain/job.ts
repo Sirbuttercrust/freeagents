@@ -405,10 +405,10 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
     // stale -> closed_unmerged edge is legal (R-31): an outcome update
     // after stale, not a new state. P4: deemed_completed joins the same
-    // list (the buyer paid, then neither merged nor closed within the
-    // review window) -- see deemCompleted below. `stale` itself is
-    // untouched by this card: deemed completion now fires at 7 days,
-    // long before stale's 30-day mark, so stale is effectively
+    // list (the buyer paid, then neither merged nor closed with a cited
+    // reason within the review window) -- see deemCompleted below.
+    // `stale` itself is untouched by this card: deemed completion now
+    // fires at 7 days, long before stale's 30-day mark, so stale is effectively
     // unreachable on a paid job going forward. That retirement is its
     // own card (a status removal ripples through both storage drivers
     // and the lifecycle routes); this table keeps `stale` exactly as it
@@ -822,9 +822,9 @@ export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): 
   return { ...job, status: 'closed_unpaid' };
 }
 
-// submitted, neither merged nor closed, DEEM_COMPLETED_AFTER_DAYS after
-// submittedAt, becomes deemed_completed (terminal). Fires long before
-// STALE_AFTER_DAYS' 30-day mark (see the transition table's comment on
+// submitted, neither merged nor closed with a cited reason,
+// DEEM_COMPLETED_AFTER_DAYS after submittedAt, becomes deemed_completed
+// (terminal). Fires long before STALE_AFTER_DAYS' 30-day mark (see the transition table's comment on
 // `submitted`), which is why stale is now effectively unreachable on a
 // paid job -- a retirement left to its own card, not resolved here.
 //
