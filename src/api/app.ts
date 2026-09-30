@@ -1003,7 +1003,7 @@ async function withBuyerGithubLogins(
 const UNSENT_UPLOAD_RETRY_AFTER_SECONDS = 60;
 // Running the sweep on every upload would repeat its read for no gain.
 const UNSENT_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
-// A large backlog is cleared over several uploads, not inside one request.
+// A large backlog is cleared over several uploads, not in one request.
 const UNSENT_SWEEP_BATCH = 100;
 
 function unsentUploadSentence(cap: 'job' | 'account'): string {
@@ -2551,8 +2551,7 @@ export function createApp(
             });
             return;
           }
-          // FIX-SW4f: the sweep removes an upload no message carries once it
-          // is older than the TTL, so a message may only carry a fresh one.
+          // FIX-SW4f: the sweep removes an unsent upload after the TTL.
           if (unsentUploadExpired(attachment.createdAt, new Date())) {
             res.status(400).json({ error: `${attachmentId} expired before it was sent; upload the file again.` });
             return;
@@ -2587,10 +2586,9 @@ export function createApp(
       try {
         const row = await messageRepo.create(message);
         if (attachmentRefs.length > 0) {
-          // FIX-SW4f: record which message carries each upload, so the
-          // upload quota stops counting it and the sweep keeps it. The
-          // message is already stored: a failure here is logged and the
-          // sweep finds the carrying message and records it later.
+          // FIX-SW4f: record which message carries each upload, so the quota
+          // stops counting it and the sweep keeps it. The message is stored:
+          // a failure here is logged, and the sweep records it later.
           try {
             await attachmentRepo.markSent(attachmentRefs.map((ref) => ref.attachmentId), row.id);
           } catch (err) {
