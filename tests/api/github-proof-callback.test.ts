@@ -17,7 +17,7 @@ import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolve
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
-import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch, startGitHubSignIn } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch, startGitHubProof, startGitHubSignIn } from '../helpers/session-fixtures.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { CreateGistInput, CreateGistResult, DeleteGistInput, DeleteGrantInput, Gist, GithubAdapter } from '../../src/adapters/github/types.js';
@@ -190,13 +190,9 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
   });
 
   it('200: start then callback ends verified, reads back proofStatus and githubLogin, exactly one createGist with the exchanged token, then one deleteGrant', async () => {
-    const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-    expect(startRes.status).toBe(200);
-    const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-    const state = new URL(redirectUrl).searchParams.get('state');
-    expect(state).not.toBeNull();
+    const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
-    const callbackRes = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state!)}`);
+    const callbackRes = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
     expect(callbackRes.status).toBe(200);
     const body = (await callbackRes.json()) as Record<string, unknown>;
     expect(body).toEqual({ outcome: 'verified', agentDid: booted.agentDid });
@@ -215,10 +211,8 @@ describe('GET /auth/github/callback, the one-click proof branch: the whole click
 
   // Brief test (c): verified with a third-party parser, node:crypto only.
   it('the published gist verifies independently with a third-party parser, node:crypto, and the key line the gist itself carries; a flipped byte fails', async () => {
-    const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-    const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-    const state = new URL(redirectUrl).searchParams.get('state')!;
-    const callbackRes = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+    const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
+    const callbackRes = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
     expect((await callbackRes.json())).toEqual({ outcome: 'verified', agentDid: booted.agentDid });
 
     const publishedCalls = booted.githubFake.calls.createGist;
@@ -307,14 +301,12 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
   it('401: a reused (already-completed) proof state cannot complete twice', async () => {
     const booted = await bootWithDerivableAgent('octo-reused-proof');
     try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
-      const first = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const first = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(first.status).toBe(200);
 
-      const replay = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const replay = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(replay.status).toBe(401);
     } finally {
       await new Promise<void>((resolve) => booted.server.close(() => resolve()));
@@ -362,9 +354,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     if (address === null || typeof address === 'string') throw new Error('expected a port');
     const baseUrl = `http://127.0.0.1:${address.port}`;
     try {
-      const startRes = await postSigned(baseUrl, `/agents/${agentDid}/github-proof/start`, {}, operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(baseUrl, agentDid, operator);
 
       // The agent's operator changes between start and callback (a real
       // storage mutation, not the route's own doing) -- decision 2's own
@@ -376,7 +366,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
       const stored = asAny.rows.get(agentDid) as Record<string, unknown>;
       asAny.rows.set(agentDid, { ...stored, operatorDid: otherOperator.did });
 
-      const res = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const res = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).toEqual({ outcome: 'failed', agentDid });
@@ -424,10 +414,8 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     if (addressFirst === null || typeof addressFirst === 'string') throw new Error('expected a port');
     const baseUrlFirst = `http://127.0.0.1:${addressFirst.port}`;
     try {
-      const startRes = await postSigned(baseUrlFirst, `/agents/${agentDid}/github-proof/start`, {}, operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
-      const callbackRes = await fetch(`${baseUrlFirst}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const { state, cookie } = await startGitHubProof(baseUrlFirst, agentDid, operator);
+      const callbackRes = await fetch(`${baseUrlFirst}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect((await callbackRes.json())).toEqual({ outcome: 'verified', agentDid });
     } finally {
       await new Promise<void>((resolve) => serverFirst.close(() => resolve()));
@@ -446,10 +434,8 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     if (address === null || typeof address === 'string') throw new Error('expected a port');
     const baseUrl = `http://127.0.0.1:${address.port}`;
 
-    const startRes2 = await postSigned(baseUrl, `/agents/${agentDid}/github-proof/start`, {}, operator);
-    const { redirectUrl: redirectUrl2 } = (await startRes2.json()) as { redirectUrl: string };
-    const state2 = new URL(redirectUrl2).searchParams.get('state')!;
-    const callbackRes2 = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state2)}`);
+    const { state: state2, cookie: cookie2 } = await startGitHubProof(baseUrl, agentDid, operator);
+    const callbackRes2 = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state2)}`, { headers: { Cookie: cookie2 } });
     expect(callbackRes2.status).toBe(200);
     const outcome = await callbackRes2.json();
 
@@ -484,11 +470,9 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
-      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(res.status).toBe(200);
       const bodyText = await res.text();
       expect(bodyText).not.toContain(FAKE_TOKEN);
@@ -512,11 +496,9 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
-      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).toEqual({ outcome: 'failed', agentDid: booted.agentDid });
@@ -544,12 +526,10 @@ describe('GET /auth/github/callback, the one-click proof branch: HTML landing (d
   it("redirects an HTML caller to /agentsettings?agent=<did>&github=verified on success", async () => {
     const booted = await bootWithDerivableAgent('octo-html-verified');
     try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
       const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, {
-        headers: { Accept: HTML },
+        headers: { Accept: HTML, Cookie: cookie },
         redirect: 'manual',
       });
       expect(res.status).toBe(302);
@@ -580,11 +560,9 @@ describe('GET /auth/github/callback, the one-click proof branch: HTML landing (d
   it('still answers JSON to a plain fetch (no Accept header) with the exact same route', async () => {
     const booted = await bootWithDerivableAgent('octo-still-json-proof');
     try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
-      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(res.status).toBe(200);
       expect(String(res.headers.get('content-type'))).toContain('application/json');
     } finally {
@@ -623,11 +601,9 @@ describe('GET /auth/github/callback, the one-click proof branch: route-level cro
   it('a proof state presented at the callback never mints a session: the proof branch runs and answers an outcome shape, never {subject, method, token}', async () => {
     const booted = await bootWithDerivableAgent('octo-crossover-proof-state');
     try {
-      const startRes = await postSigned(booted.baseUrl, `/agents/${booted.agentDid}/github-proof/start`, {}, booted.operator);
-      const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-      const state = new URL(redirectUrl).searchParams.get('state')!;
+      const { state, cookie } = await startGitHubProof(booted.baseUrl, booted.agentDid, booted.operator);
 
-      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).toEqual({ outcome: 'verified', agentDid: booted.agentDid });

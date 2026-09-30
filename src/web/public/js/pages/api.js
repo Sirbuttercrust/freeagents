@@ -37,7 +37,17 @@
    (requireSessionOrSignature, src/api/app.ts). It carries `Authorization:
    Bearer <token>` and nothing else privileged: `credentials: "omit"`
    still holds (the 2026-09-06 sweep's cookie finding is unaffected, since
-   the token rides a header a cookie could never forge). */
+   the token rides a header a cookie could never forge).
+
+   ONE EXCEPTION, B76: `postAuthedSameOrigin` is the same write with
+   `credentials: "same-origin"`, and only github-proof.js calls it, for
+   POST /agents/:agentDid/github-proof/start. That answer sets the
+   fa_oauth_state cookie, which ties the one-click proof to the browser that
+   pressed Confirm GitHub, and the browser stores it only if the request
+   allows cookies. The cookie authorizes nothing (the session is still the
+   bearer token) and it is sent only to /auth/github/callback, for this
+   origin only. Every other request in this file keeps `credentials:
+   "omit"`. */
 
 (function (global) {
   "use strict";
@@ -194,6 +204,18 @@
      message to distinguish several refusals (P8g scope item 9). A
      request that never reached the server is the only failed() case. */
   function postAuthed(path, token, body) {
+    return postJson(path, token, body, "omit");
+  }
+
+  /* B76: postAuthed for the one request whose answer sets a cookie the page
+     must keep, POST /agents/:agentDid/github-proof/start (see the header).
+     Same headers, same answer shape, credentials "same-origin". Only
+     github-proof.js calls it. */
+  function postAuthedSameOrigin(path, token, body) {
+    return postJson(path, token, body, "same-origin");
+  }
+
+  function postJson(path, token, body, credentials) {
     return fetch(path, {
       method: "POST",
       headers: {
@@ -201,7 +223,7 @@
         Accept: "application/json",
         Authorization: "Bearer " + token,
       },
-      credentials: "omit",
+      credentials: credentials,
       body: JSON.stringify(body),
     })
       .then(function (res) {
@@ -741,6 +763,7 @@
     getLinkedData: getLinkedData,
     getAuthed: getAuthed,
     postAuthed: postAuthed,
+    postAuthedSameOrigin: postAuthedSameOrigin,
     postAuthedKeepalive: postAuthedKeepalive,
     checkMerge: checkMerge,
     patchAuthed: patchAuthed,

@@ -971,10 +971,27 @@ async function withBuyerGithubLogins(
   }));
 }
 
-// SW4-06: the cookie that ties a GitHub sign-in to the browser that began
-// it (see GET /auth/github/start and /auth/github/callback below).
+// SW4-06 and B76: the cookie that ties a GitHub sign-in, and a one-click
+// GitHub proof, to the browser that began it (see GET /auth/github/start,
+// POST /agents/:agentDid/github-proof/start and GET /auth/github/callback
+// below).
 const OAUTH_STATE_COOKIE = 'fa_oauth_state';
 const OAUTH_STATE_COOKIE_PATH = '/auth/github/callback';
+
+// Sets the binding cookie on a start's answer: fa_oauth_state holding the
+// state the start returns. Both starts call this one function, so the two
+// flows cannot drift apart on an attribute. The attributes are explained at
+// GET /auth/github/start.
+function setOAuthStateCookie(res: Response, start: OAuthStart): void {
+  const redirectUri = new URL(start.redirectUrl).searchParams.get('redirect_uri');
+  res.cookie(OAUTH_STATE_COOKIE, start.state, {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: OAUTH_STATE_COOKIE_PATH,
+    maxAge: 10 * 60 * 1000,
+    secure: redirectUri !== null && redirectUri.startsWith('https://'),
+  });
+}
 
 // One cookie's value from a Cookie request header, or null when it is
 // absent. Nothing else in this app reads a cookie, so this is not a parser.
@@ -1609,7 +1626,9 @@ export function createApp(
   // equal to the state in the query. Without it a callback link begun in
   // one browser would sign whoever opened it into the account that finished
   // GitHub's step. The cookie authorizes nothing (the session stays a
-  // bearer token) and only the callback route reads it.
+  // bearer token) and only the callback route reads it. B76: the one-click
+  // proof's start (POST /agents/:agentDid/github-proof/start) sets the same
+  // cookie through the same function, setOAuthStateCookie.
   //   - HttpOnly: no page script needs it.
   //   - SameSite=Lax, not Strict: the return from GitHub is a cross-site
   //     top-level GET, which a Strict cookie is withheld from and a Lax one
@@ -1624,14 +1643,7 @@ export function createApp(
   //     working.
   app.get('/auth/github/start', (_req: Request, res: Response, next: NextFunction) => {
     void session.beginGitHubOAuth().then((start) => {
-      const redirectUri = new URL(start.redirectUrl).searchParams.get('redirect_uri');
-      res.cookie(OAUTH_STATE_COOKIE, start.state, {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: OAUTH_STATE_COOKIE_PATH,
-        maxAge: 10 * 60 * 1000,
-        secure: redirectUri !== null && redirectUri.startsWith('https://'),
-      });
+      setOAuthStateCookie(res, start);
       res.status(200).json(start);
     }, next);
   });
@@ -1685,10 +1697,21 @@ export function createApp(
         res.status(200).json({ outcome, agentDid });
       }
 
+      // B76: a proof state is bound to the browser that pressed Confirm
+      // GitHub, the same way a sign-in state is (SW4-06 below). Every
+      // answer this route gives for a proof state clears fa_oauth_state on
+      // its path: the decline, the refusals and every outcome, so a
+      // finished or refused attempt leaves nothing behind.
+      if (purpose !== null && purpose.kind === 'proof') {
+        res.clearCookie(OAUTH_STATE_COOKIE, { path: OAUTH_STATE_COOKIE_PATH });
+      }
+
       // Decision 1 and 3: GitHub's own decline arrives with no code at
       // all. Read straight from the peeked purpose (nothing to exchange,
       // nothing to write) rather than falling into the missing-code 400
-      // below, which stays reserved for sign-in.
+      // below, which stays reserved for sign-in. B76: the decline needs no
+      // cookie. It exchanges nothing and publishes nothing, so an owner who
+      // declines lands back on /agentsettings whichever browser it is.
       if (purpose !== null && purpose.kind === 'proof' && errorParam === 'access_denied') {
         sendProofOutcome('refused', purpose.agentDid);
         return;
@@ -1704,6 +1727,24 @@ export function createApp(
       }
 
       if (purpose !== null && purpose.kind === 'proof') {
+        // B76: a proof completes only in the browser that began it. A
+        // missing fa_oauth_state cookie, or one that differs from the
+        // query's state, answers what an invalid proof state answers,
+        // BEFORE completeGitHubProofOAuth runs: nothing is exchanged,
+        // published or written, and the state stays unused, so the owner's
+        // own browser can still finish it. Without this, a link begun by
+        // the owner and opened by someone else would publish the proof
+        // from that person's GitHub account and record the owner's agent
+        // as it. The two values come from the same request and the state
+        // is a random token, so the comparison is plain and exact.
+        if (readCookie(req.headers.cookie, OAUTH_STATE_COOKIE) !== state) {
+          if (wantsHtml) {
+            res.status(401).set('Content-Type', 'text/html; charset=utf-8').send(web.renderAuthCallbackErrorPage());
+            return;
+          }
+          res.status(401).json({ error: 'invalid or expired sign-in attempt' });
+          return;
+        }
         (async () => {
           const completion = await session.completeGitHubProofOAuth({ code, state });
           if (completion.kind === 'invalid-state') {
@@ -1825,18 +1866,16 @@ export function createApp(
       }
 
       // SW4-06: the sign-in branch completes only in the browser that began
-      // it. The proof branch above is exempt on purpose: its start is
-      // POST /agents/:agentDid/github-proof/start, called through
-      // FAApi.postAuthed, which fetches with credentials omitted, so a
-      // cookie set on that answer is never stored and requiring one would
-      // break every proof (the proof flow's own binding is a separate
-      // card). Here a missing cookie, or one that differs from the query's
-      // state, answers what an invalid state answers, BEFORE
-      // completeGitHubOAuth runs, so a refused attempt leaves its state
-      // unused. The two values come from the same request and the state is
-      // a random token, so the comparison is plain and exact. Every answer
-      // from here on clears the cookie, so a finished or refused attempt
-      // leaves nothing behind.
+      // it. The proof branch above is bound the same way (B76): its start,
+      // POST /agents/:agentDid/github-proof/start, sets the same cookie
+      // and the page stores it by sending that one request with
+      // credentials same-origin. Here a missing cookie, or one that differs
+      // from the query's state, answers what an invalid state answers,
+      // BEFORE completeGitHubOAuth runs, so a refused attempt leaves its
+      // state unused. The two values come from the same request and the
+      // state is a random token, so the comparison is plain and exact.
+      // Every answer from here on clears the cookie, so a finished or
+      // refused attempt leaves nothing behind.
       res.clearCookie(OAUTH_STATE_COOKIE, { path: OAUTH_STATE_COOKIE_PATH });
       if (readCookie(req.headers.cookie, OAUTH_STATE_COOKIE) !== state) {
         if (wantsHtml) {
@@ -4352,6 +4391,16 @@ export function createApp(
   // DID, both fail that comparison: 409, naming path two. That 409 is
   // checked BEFORE the OAuth-configured check, so a deployment with GitHub
   // OAuth unconfigured never masks it behind a 503.
+  //
+  // B76: the 200 also binds the proof to THIS browser. It sets the
+  // fa_oauth_state cookie to the proof's state, through the same function
+  // GET /auth/github/start uses (setOAuthStateCookie), and the callback's
+  // proof branch completes only when that cookie comes back equal to the
+  // state in the query. The page stores it by sending this one request with
+  // credentials same-origin (FAApi.postAuthedSameOrigin); the cookie
+  // authorizes nothing, since the operator check above still rides the
+  // bearer token. The 401, 403, 404, 409 and 503 answers set no cookie, and
+  // the state stays out of the body.
   app.post('/agents/:agentDid/github-proof/start', async (req: Request, res: Response) => {
     const did = String(req.params.agentDid);
     const gated = await requireCallerIsAgentOperator('POST /agents/:agentDid/github-proof/start', req, res, did);
@@ -4384,6 +4433,7 @@ export function createApp(
       res.status(503).json({ error: 'github proof is not configured on this deployment' });
       return;
     }
+    setOAuthStateCookie(res, start);
     res.status(200).json({ redirectUrl: start.redirectUrl });
   });
 

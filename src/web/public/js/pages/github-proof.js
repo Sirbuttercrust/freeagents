@@ -3,8 +3,13 @@
    one function and neither page carries a copy of it.
 
    WHAT IT CALLS. POST /agents/:agentDid/github-proof/start, once, with the
-   stored session's bearer token and no body. A 200 answers
-   { redirectUrl }, GitHub's own authorize page, and the page goes there.
+   stored session's bearer token and no body, through
+   FAApi.postAuthedSameOrigin: the one write on the site that sends
+   credentials same-origin (B76). A 200 answers { redirectUrl }, GitHub's own
+   authorize page, and sets the fa_oauth_state cookie that binds this proof
+   to this browser; the page goes to GitHub and the browser sends the cookie
+   back on GitHub's redirect, so the proof completes only here. The cookie
+   authorizes nothing and is never read by the page (HttpOnly).
    The route's 200 shape is trusted as its contract states: the start
    answers 503 when GitHub is not configured, so there is no "200 but
    unconfigured" case to read out of the URL the way signin.js must.
@@ -59,7 +64,7 @@
       return;
     }
     busy(button, true);
-    A.postAuthed("/agents/" + encodeURIComponent(agentDid) + "/github-proof/start", session.token, {}).then(function (result) {
+    A.postAuthedSameOrigin("/agents/" + encodeURIComponent(agentDid) + "/github-proof/start", session.token, {}).then(function (result) {
       if (result.state === "ok" && result.value.status === 200) {
         global.location.href = result.value.body.redirectUrl;
         return;
