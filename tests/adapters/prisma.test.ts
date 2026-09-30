@@ -40,6 +40,8 @@ const mock = vi.hoisted(() => ({
   passkeyCredentialCreate: vi.fn(),
   passkeyCredentialFindUnique: vi.fn(),
   passkeyCredentialUpdate: vi.fn(),
+  pushSubscriptionDeleteMany: vi.fn(),
+  pushSubscriptionFindUnique: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -68,6 +70,7 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
         findUnique: mock.passkeyCredentialFindUnique,
         update: mock.passkeyCredentialUpdate,
       };
+      pushSubscription = { deleteMany: mock.pushSubscriptionDeleteMany, findUnique: mock.pushSubscriptionFindUnique };
     },
     Prisma: actual.Prisma,
   };
@@ -83,6 +86,7 @@ const {
   PrismaAccountRepository,
   PrismaReviewRepository,
   PrismaPasskeyCredentialRepository,
+  PrismaPushSubscriptionRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const {
   AgentAlreadyExistsError,
@@ -2209,5 +2213,51 @@ describe('PrismaPasskeyCredentialRepository', () => {
       where: { id: 'cred-1' },
       data: { counter: 9, lastUsedAt: expect.any(Date) },
     });
+  });
+});
+
+// FIX-SW4b (bugs.md SW4-02): the owner rule is in the query, so the driver's
+// exact arguments are what keep another account from removing a row.
+describe('PrismaPushSubscriptionRepository: the owner rule', () => {
+  const createdAt = new Date('2026-09-30T00:00:00.000Z');
+  const dbRow = {
+    id: 'ps-1',
+    accountDid: 'did:example:buyer',
+    endpoint: 'https://push.example.test/e1',
+    p256dh: 'buyer-p256dh',
+    auth: 'buyer-auth',
+    createdAt,
+  };
+
+  afterEach(() => {
+    vi.mocked(mock.pushSubscriptionDeleteMany).mockReset();
+    vi.mocked(mock.pushSubscriptionFindUnique).mockReset();
+  });
+
+  it('removeForAccount: deletes where the endpoint AND the account both match, and nothing else', async () => {
+    vi.mocked(mock.pushSubscriptionDeleteMany).mockResolvedValue({ count: 0 });
+
+    await new PrismaPushSubscriptionRepository().removeForAccount('did:example:buyer', 'https://push.example.test/e1');
+
+    expect(mock.pushSubscriptionDeleteMany).toHaveBeenCalledTimes(1);
+    expect(mock.pushSubscriptionDeleteMany).toHaveBeenCalledWith({
+      where: { endpoint: 'https://push.example.test/e1', accountDid: 'did:example:buyer' },
+    });
+  });
+
+  it('findByEndpoint: looks the row up by its unique endpoint and maps it to the domain shape', async () => {
+    vi.mocked(mock.pushSubscriptionFindUnique).mockResolvedValue({ ...dbRow, extraColumn: 'not part of the domain shape' });
+
+    const found = await new PrismaPushSubscriptionRepository().findByEndpoint('https://push.example.test/e1');
+
+    expect(mock.pushSubscriptionFindUnique).toHaveBeenCalledWith({ where: { endpoint: 'https://push.example.test/e1' } });
+    expect(found).toEqual(dbRow);
+  });
+
+  it('findByEndpoint: a missing row is null', async () => {
+    vi.mocked(mock.pushSubscriptionFindUnique).mockResolvedValue(null);
+
+    expect(await new PrismaPushSubscriptionRepository().findByEndpoint('https://push.example.test/none')).toBeNull();
+    expect(mock.pushSubscriptionFindUnique).toHaveBeenCalledWith({ where: { endpoint: 'https://push.example.test/none' } });
   });
 });

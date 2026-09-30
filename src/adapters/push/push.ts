@@ -96,7 +96,7 @@ export function createPushSender(
         // Fire-and-forget: an expired subscription (410 Gone), a
         // malformed endpoint, or a network error never propagates.
         // A caller that wants to prune dead subscriptions does so
-        // through PushSubscriptionRepository.removeByEndpoint
+        // through PushSubscriptionRepository.removeForAccount
         // separately; this method's job is only "try to deliver".
       }
     },

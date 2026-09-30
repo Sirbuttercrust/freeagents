@@ -714,8 +714,13 @@ export class MemoryPushSubscriptionRepository implements PushSubscriptionReposit
     return [...this.rows.values()].filter((row) => row.accountDid === accountDid);
   }
 
-  async removeByEndpoint(endpoint: string): Promise<void> {
-    this.rows.delete(endpoint);
+  async removeForAccount(accountDid: string, endpoint: string): Promise<void> {
+    if (this.rows.get(endpoint)?.accountDid === accountDid) this.rows.delete(endpoint);
+  }
+
+  async findByEndpoint(endpoint: string): Promise<PushSubscription | null> {
+    const row = this.rows.get(endpoint);
+    return row === undefined ? null : { ...row };
   }
 }
 

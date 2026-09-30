@@ -3,7 +3,7 @@
 // and replaces the stored binding when a later check passes for a different
 // handle. No test had executed either branch.
 import { describe, expect, it } from 'vitest';
-import { MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
+import { MemoryAgentRepository, MemoryJobRepository, MemoryPushSubscriptionRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { Job } from '../../src/domain/job.js';
 
@@ -325,5 +325,53 @@ describe('MemoryJobRepository.findByAgentDid', () => {
 
     const rows = await repo.findByAgentDid(agent);
     expect(rows.map((r) => r.id).sort()).toEqual(['job_a', 'job_b', 'job_d']);
+  });
+});
+
+// FIX-SW4b (bugs.md SW4-02): a push subscription is removed only by the
+// account that holds it, and a lookup by endpoint hands back a copy.
+describe('MemoryPushSubscriptionRepository: the owner rule', () => {
+  const row = {
+    id: 'ps-1',
+    accountDid: 'did:abt:zBuyer',
+    endpoint: 'https://push.example.test/e1',
+    p256dh: 'buyer-p256dh',
+    auth: 'buyer-auth',
+    createdAt: new Date('2026-09-30T00:00:00.000Z'),
+  };
+
+  it('removeForAccount with another account leaves the row in place', async () => {
+    const repo = new MemoryPushSubscriptionRepository();
+    await repo.upsert(row);
+
+    await repo.removeForAccount('did:abt:zStranger', row.endpoint);
+
+    expect(await repo.listByAccountDid(row.accountDid)).toEqual([row]);
+  });
+
+  it('removeForAccount with the holding account removes the row', async () => {
+    const repo = new MemoryPushSubscriptionRepository();
+    await repo.upsert(row);
+
+    await repo.removeForAccount(row.accountDid, row.endpoint);
+
+    expect(await repo.listByAccountDid(row.accountDid)).toEqual([]);
+  });
+
+  it('findByEndpoint returns null for an endpoint nobody holds', async () => {
+    expect(await new MemoryPushSubscriptionRepository().findByEndpoint('https://push.example.test/none')).toBeNull();
+  });
+
+  it('findByEndpoint returns a copy: changing it changes nothing stored', async () => {
+    const repo = new MemoryPushSubscriptionRepository();
+    await repo.upsert(row);
+
+    const found = await repo.findByEndpoint(row.endpoint);
+    expect(found).toEqual(row);
+    found!.accountDid = 'did:abt:zStranger';
+    found!.p256dh = 'changed';
+
+    expect(await repo.findByEndpoint(row.endpoint)).toEqual(row);
+    expect(await repo.listByAccountDid(row.accountDid)).toEqual([row]);
   });
 });
