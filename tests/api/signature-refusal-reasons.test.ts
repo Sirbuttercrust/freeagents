@@ -20,6 +20,7 @@ import {
 import {
   REQUEST_SIGNATURE_COMPONENTS,
   SIGNATURE_MAX_AGE_SECONDS,
+  verify,
   verifyWithReason,
 } from '../../src/adapters/identity/http-signature.js';
 import type { SignatureSpendStorage } from '../../src/adapters/identity/signature-spend-storage-types.js';
@@ -347,4 +348,31 @@ describe('SW1-08 (d): each of the three writers answers the reason, not the bare
     const h = signed(registered, path, { body, created: Math.floor(Date.now() / 1000) - 600 });
     expect(await send(path, h, body)).toEqual({ status: 401, body: STALE_BODY });
   });
+});
+
+describe('SW1-08: verify() and verifyWithReason() give the same verdict for the same request', () => {
+  // Each variant is refused before the key lookup, so a resolver that answers
+  // null is enough: what is pinned is that both functions give the same
+  // verdict for the same request, not any key material.
+  const variants: ReadonlyArray<{ readonly name: string; readonly headers: (h: Headers) => Headers }> = [
+    { name: 'both headers present and valid in shape', headers: (h) => h },
+    { name: 'no Signature', headers: (h) => ({ 'signature-input': h['signature-input'] ?? '' }) },
+    { name: 'no Signature-Input', headers: (h) => ({ signature: h.signature ?? '' }) },
+    { name: 'an empty Signature', headers: (h) => ({ ...h, signature: '' }) },
+    { name: 'unreadable Signature-Input', headers: (h) => ({ ...h, 'signature-input': 'nope' }) },
+  ];
+  for (const variant of variants) {
+    it(`gives the same verdict from both functions for: ${variant.name}`, async () => {
+      const req = {
+        method: 'POST',
+        targetUri: `${baseUrl}${CHANGES_PATH}`,
+        headers: variant.headers(signed(registered, CHANGES_PATH)),
+      };
+      const noKey = () => Promise.resolve(null);
+      const detailed = await verifyWithReason(req, noKey, { requiredComponents: REQUEST_SIGNATURE_COMPONENTS });
+      const plain = await verify(req, noKey, { requiredComponents: REQUEST_SIGNATURE_COMPONENTS });
+      const expected = detailed.kind === 'verified' ? { did: detailed.did } : detailed.kind === 'invalid' ? 'invalid' : 'unknown-key';
+      expect(plain).toEqual(expected);
+    });
+  }
 });
