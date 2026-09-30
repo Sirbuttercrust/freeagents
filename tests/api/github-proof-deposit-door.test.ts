@@ -12,7 +12,7 @@ import { createApp } from '../../src/api/app.js';
 import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
 import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolver.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
-import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, startGitHubProof } from '../helpers/session-fixtures.js';
 import { MemoryAgentRepository, MemoryAccountRepository, MemoryJobRepository, MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
@@ -201,11 +201,8 @@ describe('FIX-B47b2 test (b): a deposit-start door refuses the login step before
 
           // The one-click proof: the AGENT's OPERATOR starts it, then the
           // callback completes it.
-          const startRes = await postSigned(baseUrl, `/agents/${agentDid}/github-proof/start`, {}, agentOperator);
-          expect(startRes.status).toBe(200);
-          const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
-          const state = new URL(redirectUrl).searchParams.get('state')!;
-          const callbackRes = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`);
+          const { state, cookie } = await startGitHubProof(baseUrl, agentDid, agentOperator);
+          const callbackRes = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } });
           expect(callbackRes.status).toBe(200);
           expect(await callbackRes.json()).toEqual({ outcome: 'verified', agentDid });
           expect(createGistCalls).toHaveLength(1);

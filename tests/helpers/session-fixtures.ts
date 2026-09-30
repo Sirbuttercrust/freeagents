@@ -4,6 +4,7 @@
 // this brief's "no network calls in the test suite").
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { Session, SessionAdapter } from '../../src/adapters/identity/session.js';
+import { signRequest, type SigningIdentity } from './sign-request.js';
 
 export interface FakeGitHubUser {
   readonly login: string;
@@ -67,6 +68,43 @@ export async function startGitHubSignIn(baseUrl: string): Promise<{ readonly sta
     throw new Error('startGitHubSignIn: GET /auth/github/start set no fa_oauth_state cookie');
   }
   return { state: body.state, cookie: set.split(';')[0]! };
+}
+
+// B76: a one-click GitHub proof completes only in the browser that began it.
+// The operator's browser presses Confirm GitHub, which calls the real POST
+// /agents/:agentDid/github-proof/start (signed here by the operator) and
+// keeps the fa_oauth_state cookie that answer sets, the way a browser's jar
+// would. `cookie` is the Cookie request header value (name=value, no
+// attributes) the callback wants back. `state` is the one in redirectUrl.
+export async function startGitHubProof(
+  baseUrl: string,
+  agentDid: string,
+  operator: SigningIdentity,
+): Promise<{ readonly state: string; readonly cookie: string }> {
+  const bodyText = '{}';
+  const targetUri = `${baseUrl}/agents/${agentDid}/github-proof/start`;
+  const signed = signRequest(operator, 'POST', targetUri, { body: bodyText });
+  const res = await fetch(targetUri, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'signature-input': signed['signature-input'],
+      signature: signed.signature,
+      'content-digest': signed['content-digest'],
+    },
+    body: bodyText,
+  });
+  if (res.status !== 200) {
+    throw new Error(`startGitHubProof: the start answered ${res.status}, not 200`);
+  }
+  const { redirectUrl } = (await res.json()) as { redirectUrl: string };
+  const state = new URL(redirectUrl).searchParams.get('state');
+  if (state === null) throw new Error('startGitHubProof: the redirectUrl carries no state');
+  const set = res.headers.getSetCookie().find((line) => line.startsWith('fa_oauth_state='));
+  if (set === undefined) {
+    throw new Error('startGitHubProof: POST github-proof/start set no fa_oauth_state cookie');
+  }
+  return { state, cookie: set.split(';')[0]! };
 }
 
 // R-39 follow-up (issue 83, route enforcement): a ready-to-use session

@@ -142,11 +142,11 @@ async function readAgent(did: string): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
 
-interface Call { readonly path: string; readonly method: string; readonly body: Record<string, unknown> | null; readonly authed: boolean; readonly auth: string }
+interface Call { readonly path: string; readonly method: string; readonly body: Record<string, unknown> | null; readonly authed: boolean; readonly auth: string; readonly credentials: string | undefined }
 interface Page {
   window: JSDOM['window']; document: Document; calls: Call[];
   // FIX-B47c: what POST .../github-proof/start answered, in order.
-  starts: { status: number; body: Record<string, unknown> }[];
+  starts: { status: number; body: Record<string, unknown>; cookie: string }[];
   // When set, a matching request rejects the way fetch does offline.
   reject: ((path: string, method: string) => boolean) | null;
   close: () => void;
@@ -179,6 +179,7 @@ async function render(path: string, session: Session | null, opts: { base?: stri
             body: typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null,
             authed: typeof headers.Authorization === 'string',
             auth: headers.Authorization ?? '',
+            credentials: init?.credentials,
           });
           if (page.reject?.(String(input), method)) return Promise.reject(new TypeError('Failed to fetch'));
           // When set, a matching request waits for the returned promise
@@ -186,7 +187,8 @@ async function render(path: string, session: Session | null, opts: { base?: stri
           const go = (): Promise<Response> => {
             if (!String(input).endsWith('/github-proof/start')) return fetch(new URL(input, base), init);
             return fetch(new URL(input, base), init).then(async (res) => {
-              page.starts.push({ status: res.status, body: (await res.clone().json()) as Record<string, unknown> });
+              const set = res.headers.getSetCookie().find((line) => line.startsWith('fa_oauth_state='));
+              page.starts.push({ status: res.status, body: (await res.clone().json()) as Record<string, unknown>, cookie: set === undefined ? '' : set.split(';')[0]! });
               return res;
             });
           };
@@ -779,6 +781,31 @@ describe('(m) the press', () => {
   });
 });
 
+// B76: the press is the one write that sends credentials, so the browser
+// stores the fa_oauth_state cookie the start sets and sends it back on
+// GitHub's redirect. Every other write on the page still omits them.
+describe('(m2) the press sends credentials, no other write does', () => {
+  it('the start goes out with credentials same-origin and the save on the same page still goes out with omit', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'press-credentials', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    const nav = captureNavigations();
+    try {
+      type(page, 'nm', 'press-credentials-renamed');
+      await save(page);
+      await press(page, nav);
+      expect(patches(page)).toHaveLength(1);
+      expect(patches(page)[0]!.credentials).toBe('omit');
+      expect(startsOf(page)).toHaveLength(1);
+      expect(startsOf(page)[0]!.credentials).toBe('same-origin');
+      expect(startsOf(page)[0]!.auth).toBe(`Bearer ${passkeyOwner.token}`);
+      expect(toGithub(nav.calls)).toHaveLength(1);
+    } finally {
+      nav.restore();
+      page.close();
+    }
+  });
+});
+
 describe('(n) each refusal leaves the page where it is and says one sentence', () => {
   async function refusedWith(page: Page, nav: { calls: string[] }, sentence: string, status: number | null): Promise<void> {
     await press(page, nav);
@@ -879,16 +906,21 @@ describe('(o) the landing from GitHub', () => {
     const page = await render(settingsPath(did), passkeyOwner);
     const nav = captureNavigations();
     let redirectUrl = '';
+    // The cookie the start set, which the page's browser would hold and send
+    // back on GitHub's redirect (B76). The jsdom page cannot hold it: the
+    // harness forwards the start with node's fetch.
+    let cookie = '';
     try {
       await press(page, nav);
       redirectUrl = toGithub(nav.calls)[0]!;
+      cookie = page.starts[0]!.cookie;
     } finally {
       nav.restore();
       page.close();
     }
     nextLogin = 'proof-picked-account';
     const state = new URL(redirectUrl).searchParams.get('state')!;
-    const back = await fetch(`${baseUrl}/auth/github/callback?code=any&state=${encodeURIComponent(state)}`, { headers: { Accept: HTML }, redirect: 'manual' });
+    const back = await fetch(`${baseUrl}/auth/github/callback?code=any&state=${encodeURIComponent(state)}`, { headers: { Accept: HTML, Cookie: cookie }, redirect: 'manual' });
     expect(back.status).toBe(302);
     const landing = back.headers.get('location')!;
     expect(landing).toBe(`${settingsPath(did)}&github=verified`);
