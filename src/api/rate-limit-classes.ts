@@ -59,12 +59,13 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/jobs/:jobId/messages/read-state', classification: 'read' },
   { method: 'POST', pattern: '/jobs/:jobId/messages/read', classification: 'write' },
   { method: 'POST', pattern: '/jobs/:jobId/typing', classification: 'write' },
-  // A stream is one long request (Make item 2): exempt, never counted
-  // against the read bucket the way a normal poll would be.
-  { method: 'GET', pattern: '/jobs/:jobId/messages/stream', classification: 'exempt' },
+  // Opening a stream is one request and costs a read (SW4-04). The socket
+  // it then holds is not a request the bucket can see, so that is bounded
+  // by the per-caller stream caps in src/api/stream-caps.ts instead.
+  { method: 'GET', pattern: '/jobs/:jobId/messages/stream', classification: 'read' },
   { method: 'GET', pattern: '/accounts/:did/notifications', classification: 'read' },
   { method: 'POST', pattern: '/accounts/:did/notifications/:notificationId/read', classification: 'write' },
-  { method: 'GET', pattern: '/accounts/:did/notifications/stream', classification: 'exempt' },
+  { method: 'GET', pattern: '/accounts/:did/notifications/stream', classification: 'read' },
   { method: 'GET', pattern: '/push/vapid-public-key', classification: 'read' },
   { method: 'POST', pattern: '/accounts/:did/push-subscriptions', classification: 'write' },
   { method: 'DELETE', pattern: '/accounts/:did/push-subscriptions', classification: 'write' },
