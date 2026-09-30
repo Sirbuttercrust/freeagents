@@ -232,6 +232,20 @@ describe('promoteUnprovedGithubLogin, memory driver (FIX-B62b d)', () => {
     expect(row?.unprovedGithubLogin).toBeNull();
   });
 
+  it('refuses to put a proved login on a second row, throws, and changes neither row', async () => {
+    const repo = new MemoryAccountRepository();
+    await repo.register({ did: 'did:abt:zNHoldsProvedLogin', githubLogin: 'x' });
+    await repo.register({ did: DID, unprovedGithubLogin: 'x' });
+    await expect(repo.promoteUnprovedGithubLogin(DID, 'x')).rejects.toBeInstanceOf(AccountAlreadyExistsError);
+    const holder = await repo.findByDid('did:abt:zNHoldsProvedLogin');
+    expect(holder?.githubLogin).toBe('x');
+    expect(holder?.unprovedGithubLogin).toBeNull();
+    const legacy = await repo.findByDid(DID);
+    expect(legacy?.githubLogin).toBeNull();
+    expect(legacy?.unprovedGithubLogin).toBe('x');
+    expect((await repo.findByGithubLogin('x'))?.did).toBe('did:abt:zNHoldsProvedLogin');
+  });
+
   it('promotes a login that differs only in case, storing the spelling passed', async () => {
     const repo = await seeded();
     const promoted = await repo.promoteUnprovedGithubLogin(DID, 'some-LOGIN');
