@@ -484,6 +484,61 @@ describe('job merge (R-11)', () => {
   });
 });
 
+// SW1-02 and SW1-03: a hire that is not waiting on a merge is refused 409
+// before GitHub is asked. redo_requested never opened a pull request (the
+// row carries no pullRequestUrl, so the old order reached the URL parse and
+// answered 500); cited_closed carries the URL of a pull request the buyer
+// already closed on the record, so the old order spent a GitHub read before
+// it refused.
+describe('job merge, a hire that is not waiting on a merge (SW1-02, SW1-03)', () => {
+  const cases: ReadonlyArray<{ readonly name: string; readonly row: (id: string) => Job }> = [
+    {
+      name: 'redo_requested',
+      row: (id) => ({ ...submittedJob(id), status: 'redo_requested', pullRequestUrl: null, submittedAt: null, deadline: null }),
+    },
+    {
+      name: 'cited_closed',
+      row: (id) => ({
+        ...submittedJob(id),
+        status: 'cited_closed',
+        citedCloseCriterionIndex: 0,
+        citedCloseReasonText: 'The login bug is still there',
+        citedCloseAuthorDid: BUYER_DID,
+        citedCloseAt: new Date(Date.now() - 60_000),
+      }),
+    },
+  ];
+  const parties: ReadonlyArray<{ readonly label: string; readonly identity: SigningIdentity }> = [
+    { label: 'buyer', identity: buyerIdentity },
+    { label: 'agent', identity: agentIdentity },
+  ];
+
+  for (const { name, row } of cases) {
+    for (const { label, identity } of parties) {
+      it(`answers 409 for the ${label} on a ${name} job, asks github nothing, and leaves the job as it was`, async () => {
+        const fixture = createStagingLifecycleGithubFake();
+        const jobRepo = new MemoryJobRepository();
+        const planted = row(`j-not-waiting-${name}-${label}`);
+        await jobRepo.create(planted);
+        // A matching open pull request is registered so that a route which
+        // did read GitHub would find one and the count below would move.
+        registerMatchingPrFor(fixture, planted.id);
+        const started = await startWith(jobRepo, fixture.github);
+        try {
+          const before = fixture.calls.getPullRequest.length;
+          const res = await postSigned(`/jobs/${planted.id}/merge`, {}, identity, started.baseUrl);
+          expect(res.status).toBe(409);
+          expect(fixture.calls.getPullRequest.length).toBe(before);
+          expect(await res.json()).toEqual({ error: `cannot merge a job in status "${name}"` });
+          expect(await jobRepo.findById(planted.id)).toEqual(planted);
+        } finally {
+          await new Promise<void>((resolve) => started.server.close(() => resolve()));
+        }
+      });
+    }
+  }
+});
+
 // GET /jobs/:jobId's credential field is absent, not null, when no credential
 // row exists for a completed job - a row completed before this lap shipped,
 // or the crash-between-two-writes residual named in the merge route.
