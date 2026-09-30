@@ -3209,11 +3209,9 @@ export function createApp(
         res.status(400).json({ error: 'body must be { filename, dataBase64 }; dataBase64 the file bytes, base64-encoded, up to 10 MB' });
         return;
       }
-      // FIX-SW4f (bugs.md SW4-05): remove old unsent uploads (at most once
-      // per UNSENT_SWEEP_INTERVAL_MS), then refuse the caller past either
-      // cap. Both run before anything is decoded or written, and after the
-      // checks above, so a stranger still gets 403 and a read-only thread
-      // 409 and neither is ever told about a quota.
+      // FIX-SW4f (bugs.md SW4-05): sweep old unsent uploads, then refuse the
+      // caller past either cap, after the checks above (a stranger still gets
+      // 403, a read-only thread 409) and before anything is decoded or written.
       await sweepUnsentUploads();
       const id = randomFileId();
       let capReached: 'job' | 'account' | null;
@@ -3229,9 +3227,7 @@ export function createApp(
         res.status(429).json({ error: unsentUploadSentence(capReached) });
         return;
       }
-      // The place reserved above is held until the row is stored (or the
-      // upload fails), so uploads arriving while this one is decoded and
-      // written are counted against the caller too.
+      // The place reserved above is held until the request ends (finally).
       try {
         let bytes: Buffer;
         try {
