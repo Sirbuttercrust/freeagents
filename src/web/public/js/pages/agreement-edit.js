@@ -1,6 +1,7 @@
-/* The owner's editing controls on /agreement (FIX-B40): the draft
-   composer, and the one-field editor a row opens to change a line, the
-   price or the delivery window. Builders only. Every request goes through
+/* The editing controls on /agreement: the owner's draft composer
+   (FIX-B40), and the one-field editor a row opens to change a line, the
+   price or the delivery window, which both the owner and the buyer get on
+   an open agreement (SW3-04). Builders only. Every request goes through
    the send callback agreement.js passes in, so this file never talks to
    the server and never decides what a send carries.
 

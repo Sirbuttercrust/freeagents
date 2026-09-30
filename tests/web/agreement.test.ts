@@ -1287,6 +1287,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
         expect(rows(page).map((r) => r.querySelector('.txt')?.textContent)).toEqual(['Drafted']);
         expect(page.document.querySelectorAll('#terms button.act').length).toBe(0);
         expect(actTexts(page)).toEqual(['']);
+        expect(page.document.getElementById('lede')?.textContent).toBe('The agent has not sent its quote yet. You can propose lines for it below.');
       } finally {
         page.close();
       }
