@@ -9,5 +9,10 @@ export default defineConfig({
     // start is not paid inside a test (see tests/helpers/global-setup.ts
     // and warmUpChrome in real-browser.ts).
     globalSetup: ['./tests/helpers/global-setup.ts'],
+    // vitest 5 turned clearMocks on by default, which clears every mock's
+    // recorded calls before each test. tests/api/server.test.ts records its
+    // mocks' calls once at import time, outside any test, so it needs the
+    // vitest 2 default (false) to see them.
+    clearMocks: false,
   },
 });
