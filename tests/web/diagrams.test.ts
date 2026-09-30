@@ -495,7 +495,13 @@ describe('(c) every word inside the diagrams meets AA at every moment of the pla
 });
 
 describe('(d) once the play ends, no frame callback runs', () => {
-  it('requestAnimationFrame is called 0 times in the second after both diagrams finish', async () => {
+  // The office footer is the page's one ambient loop (DESIGN.md 6.1): as
+  // on main, office.js fetches the avatar core when the footer comes near
+  // and animates on the core's shared ticker while the footer is on screen,
+  // and the diagrams ride that same ticker once it exists. So the count is
+  // taken with the footer out of view, where the office has stopped its
+  // loop, and every frame callback left would be the diagrams'.
+  it('requestAnimationFrame is called 0 times in the second after both diagrams finish, with the footer out of view', async () => {
     if (skipWithoutChrome()) return;
     const b = await openBrowser({
       width: 1280,
@@ -511,9 +517,16 @@ describe('(d) once the play ends, no frame callback runs', () => {
       expect(done.map((d) => d.replayShown), 'both diagrams finished').toEqual([true, true]);
       const during = await b.evaluate<number>('window.__rafCount()');
       expect(during, 'the counter saw the play run on frame callbacks').toBeGreaterThan(60);
+      await b.evaluate('window.scrollTo(0, 0)');
+      await sleep(600);
+      const office = await b.evaluate<{ live: boolean; paused: boolean }>(`
+        (function () { var o = document.querySelector('[data-office]'); return { live: o.classList.contains('is-live'), paused: o.classList.contains('is-paused') }; })()
+      `);
+      expect(office, 'the office footer is built and has paused its own loop out of view').toEqual({ live: true, paused: true });
+      const before = await b.evaluate<number>('window.__rafCount()');
       await sleep(1000);
       const after = await b.evaluate<number>('window.__rafCount()');
-      expect(after - during, 'frame callbacks requested in the second after the end').toBe(0);
+      expect(after - before, 'frame callbacks requested in one second after the end').toBe(0);
     } finally {
       await b.close();
     }

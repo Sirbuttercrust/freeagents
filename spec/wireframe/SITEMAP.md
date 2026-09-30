@@ -464,6 +464,11 @@ where the money is, what goes on whose record. No colour scale and no ordering
 from good to bad, because two of the five are ordinary outcomes that the
 grammar of a red row would misdescribe.
 
+The page leads with the diagram (DESIGN.md 5.2): the path from the deposit to
+each of the five endings, then the four things that never happen, with the
+five cards, the two clocks and the four refusals unchanged behind one "Show
+the full wording" disclosure.
+
 | ending | the money | the record |
 |---|---|---|
 | Completed | full price with the operator | verified hire, plus one merge for the buyer |
