@@ -468,15 +468,20 @@ describe('(c) every word in the three diagrams meets AA at every moment of the p
 // ------------------------------------------------------------------ (d)
 // Every requestAnimationFrame call is recorded with the script that made
 // it, and every subscription to the avatar core's shared ticker with the
-// script that took it and whether it is still held.
+// script that took it and whether it is still held. A second loop on the
+// unwrapped requestAnimationFrame counts the frames the page actually got,
+// so a pin compares the core's calls to that count instead of to a frame
+// rate this host may not reach. That loop is never recorded as a caller.
 const FRAMES = `(function () {
-  var calls = {}, subs = [];
+  var calls = {}, subs = [], seen = 0;
   function who() {
     var lines = String(new Error().stack).split('\\n').slice(2);
     for (var i = 0; i < lines.length; i++) { var m = /\\/js\\/(?:vendor\\/bot-avatars\\/)?([\\w.-]+\\.js)/.exec(lines[i]); if (m) return m[1]; }
     return 'unknown';
   }
   var raf = window.requestAnimationFrame;
+  (function count() { seen += 1; raf.call(window, count); })();
+  window.__window = function () { var r = { calls: calls, frames: seen }; calls = {}; seen = 0; return r; };
   window.requestAnimationFrame = function (cb) { var k = who(); calls[k] = (calls[k] || 0) + 1; return raf.call(window, cb); };
   var held;
   Object.defineProperty(window, 'BotAvatars', { configurable: true, get: function () { return held; }, set: function (v) {
@@ -500,13 +505,17 @@ describe('(d) one frame loop: the avatar core\u2019s ticker is the only thing th
     const b = await openBrowser({ width: 1280, height: 720, init: FRAMES });
     try {
       await b.goto(`${baseUrl}/how`, 300);
-      await b.evaluate('window.__frames()');
+      await b.evaluate('window.__window()');
       await sleep(1000);
-      const playing = await b.evaluate<Record<string, number>>('window.__frames()');
+      const playing = await b.evaluate<{ calls: Record<string, number>; frames: number }>('window.__window()');
       const subs = await b.evaluate<Record<string, number>>('window.__subs()');
       const onScreen = await b.evaluate<number>('window.__agentsOnScreen()');
-      expect(Object.keys(playing), 'every frame in the second of play was scheduled by the core').toEqual(['bot-avatars.js']);
-      expect(playing['bot-avatars.js'], 'and it ran every frame').toBeGreaterThan(30);
+      expect(Object.keys(playing.calls), 'every frame in the second of play was scheduled by the core').toEqual(['bot-avatars.js']);
+      expect(playing.frames, 'the page got frames in that second').toBeGreaterThan(0);
+      // The core asks for one frame per frame it runs, so over the same
+      // window its calls match the page's own frame count, whatever rate
+      // this host runs at. One frame of slack covers the window's edges.
+      expect(playing.calls['bot-avatars.js'], `the core asked for a frame on each of the ${playing.frames} frames the page got`).toBeGreaterThanOrEqual(playing.frames - 1);
       expect(onScreen, 'at least one agent is on the first screen').toBeGreaterThan(0);
       expect(subs, 'the play and each agent on screen ride the core\u2019s ticker').toEqual({ 'diagrams.js': 1, 'bots.js': onScreen });
 
