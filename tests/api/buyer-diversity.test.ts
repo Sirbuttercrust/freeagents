@@ -329,6 +329,7 @@ class TwoDidsOneLoginAccountRepository implements AccountRepository {
     this.byDid.set(did, {
       did,
       githubLogin,
+      unprovedGithubLogin: null,
       passkeySubject: null,
       createdAt: new Date('2026-01-01T00:00:00Z'),
       operatorAddressEvm: null,
@@ -357,6 +358,10 @@ class TwoDidsOneLoginAccountRepository implements AccountRepository {
 
   async setOperatorAddressAbt(): Promise<Account | null> {
     throw new Error('unused: this stand-in never sets an operator address');
+  }
+
+  async promoteUnprovedGithubLogin(): Promise<Account | null> {
+    throw new Error('unused: this stand-in never re-proves a login');
   }
 }
 
