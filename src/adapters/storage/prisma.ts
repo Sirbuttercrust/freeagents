@@ -1509,8 +1509,21 @@ export class PrismaPushSubscriptionRepository implements PushSubscriptionReposit
     }));
   }
 
-  async removeByEndpoint(endpoint: string): Promise<void> {
-    await db().pushSubscription.deleteMany({ where: { endpoint } });
+  async findByEndpoint(endpoint: string): Promise<PushSubscription | null> {
+    const row = await db().pushSubscription.findUnique({ where: { endpoint } });
+    if (row === null) return null;
+    return {
+      id: row.id,
+      accountDid: row.accountDid,
+      endpoint: row.endpoint,
+      p256dh: row.p256dh,
+      auth: row.auth,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async removeForAccount(accountDid: string, endpoint: string): Promise<void> {
+    await db().pushSubscription.deleteMany({ where: { endpoint, accountDid } });
   }
 }
 

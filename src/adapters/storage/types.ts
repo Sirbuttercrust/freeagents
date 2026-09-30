@@ -576,10 +576,16 @@ export interface AttachmentRepository {
 // Upsert-by-endpoint: a browser resubscribing with the SAME endpoint
 // (a rare but real event, e.g. after clearing site data) replaces the
 // prior key material rather than accumulating a stale duplicate.
+//
+// FIX-SW4b (bugs.md SW4-02): a subscription belongs to the account that
+// registered it. removeForAccount deletes the row only when that account
+// holds the endpoint and does nothing otherwise; findByEndpoint lets the
+// caller of upsert see who holds an endpoint before it takes it over.
 export interface PushSubscriptionRepository {
   upsert(subscription: PushSubscription): Promise<PushSubscription>;
   listByAccountDid(accountDid: string): Promise<readonly PushSubscription[]>;
-  removeByEndpoint(endpoint: string): Promise<void>;
+  findByEndpoint(endpoint: string): Promise<PushSubscription | null>;
+  removeForAccount(accountDid: string, endpoint: string): Promise<void>;
 }
 
 // FIX-B61a: the passkey a person made at sign-up. Keyed by the WebAuthn

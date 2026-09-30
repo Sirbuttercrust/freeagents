@@ -2813,7 +2813,9 @@ export function createApp(
 
   // POST /accounts/:did/push-subscriptions: registers a browser's Push API
   // subscription (the standard PushSubscription.toJSON() shape). Upsert
-  // by endpoint (PushSubscriptionRepository's own stance).
+  // by endpoint (PushSubscriptionRepository's own stance), except that an
+  // endpoint another account already holds is refused (FIX-SW4b, bugs.md
+  // SW4-02): a subscription belongs to the account that registered it.
   app.post('/accounts/:did/push-subscriptions', requireSessionOrSignature, async (req: Request, res: Response) => {
     const did = String(req.params.did);
     let actingParty: string | null;
@@ -2849,6 +2851,17 @@ export function createApp(
       return;
     }
     try {
+      // FIX-SW4b (bugs.md SW4-02): the upsert is keyed by endpoint alone, so
+      // without this look-up a POST naming another account's endpoint would
+      // move that row to the caller with the caller's keys. The same account
+      // posting its own endpoint again (a browser renewing its keys) passes.
+      const holder = await pushSubscriptionRepo.findByEndpoint(body.endpoint);
+      if (holder !== null && holder.accountDid !== did) {
+        res.status(409).json({
+          error: 'this push address is registered to another account; turn notifications off there, or subscribe again for a new address',
+        });
+        return;
+      }
       const row = await pushSubscriptionRepo.upsert({
         id: 'ps-' + randomBytes(8).toString('hex'),
         accountDid: did,
@@ -2884,7 +2897,10 @@ export function createApp(
       return;
     }
     try {
-      await pushSubscriptionRepo.removeByEndpoint(body.endpoint);
+      // FIX-SW4b (bugs.md SW4-02): removes the caller's own row only. The
+      // answer is 204 whether or not a row was removed, so it tells a caller
+      // nothing about an endpoint another account holds.
+      await pushSubscriptionRepo.removeForAccount(did, body.endpoint);
       res.status(204).end();
     } catch (err) {
       console.error('DELETE /accounts/:did/push-subscriptions: storage failed', err);
