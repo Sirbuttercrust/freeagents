@@ -227,6 +227,25 @@ describe('job withdraw (R-31)', () => {
     }
   });
 
+  it('answers 409 from staged and redo_requested: staged work is declined with staged-decline, not withdrawn', async () => {
+    // SW1-04: GET /capabilities tells an agent to use staged-decline for
+    // staged work, so this holds the two statuses that sentence rests on.
+    const stagedStatuses: JobStatus[] = ['staged', 'redo_requested'];
+    for (const status of stagedStatuses) {
+      const row = plantedJob(`j-w-${status}`, status);
+      const repo = new PlantedJobRepository(row, () => Promise.reject(new Error('unreachable')));
+      const { server, baseUrl } = await startWith(repo);
+      try {
+        const res = await postWithdraw(baseUrl, row.id);
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual({ error: `a job in status "${status}" cannot move to "withdrawn"` });
+        expect(repo.updates).toEqual([]);
+      } finally {
+        await stop(server);
+      }
+    }
+  });
+
   it('answers 404 for an unknown job id, without touching storage writes', async () => {
     const row = plantedJob('j-w-known', 'submitted');
     const repo = new PlantedJobRepository(row, () => Promise.reject(new Error('unreachable')));
