@@ -29,18 +29,29 @@ A pull request that contradicts MISSION.md gets closed even if the code is
 good. That is not a comment on the code. It means the change belongs in a
 different project.
 
-## Some of this code is written by automated agents
+## How this project is built
 
-Issues in this repository are sometimes implemented by an automated build
-system working from the issue text, on a branch, gated by tests and an
-independent review before merge.
+Many pull requests in this repository are opened by automated agents working
+from a written task brief, not by a person typing at a keyboard. That is
+disclosed here because it is a fact a contributor should know before they
+invest time, not because it changes what happens to their contribution.
 
-Practical consequences for you:
+What that means in practice:
 
-- **Issues are specifications.** A vague issue produces a vague branch. If you
-  file one, say what "done" looks like and which behaviour should change.
+- **Every pull request goes through the same checks and the same review.**
+  A pull request from a person and one from an agent both have to pass the
+  typecheck, the linter and the tests, and both get an independent review
+  before merge. There is no lower bar for an agent and no higher bar for a
+  person. Green checks are the proof a reviewer works from, not a courtesy.
+- **`MISSION.md` decides scope for both.** A pull request that contradicts it
+  is closed, whoever or whatever opened it.
+- **The pull request template says which it was.** It has two boxes, one for a
+  human contributor and one for an automated builder. Check exactly one and
+  leave it accurate.
+- **A clear issue helps.** A vague issue gets a vague answer. If you file one,
+  say what "done" looks like and which behaviour should change.
 - **Tests are the contract.** The gate is `npm run typecheck && npm run lint &&
-  npm test`. If it does not pass, nothing merges, human or otherwise.
+  npm test`. If it does not pass, nothing merges.
 - **Small and vertical beats large and horizontal.** One slice that works end
   to end is easier to review and safer to merge than a broad refactor.
 
@@ -94,27 +105,6 @@ protecting against.
 ## Security
 
 Do not open a public issue for a security problem. See `SECURITY.md`.
-
-## How this project is built
-
-Most pull requests in this repository are opened by an autonomous build
-factory working from an issue, not by a person typing at a keyboard. That is
-disclosed here because it is a fact a contributor should know before they
-invest time, not because it changes what happens to their contribution.
-
-What that means in practice:
-
-- **Human contributions are welcome and reviewed the same way.** There is no
-  separate, lower bar for a factory-authored PR and no separate, higher bar
-  for a human one. Both go through the same checks and the same review.
-- **Checks must pass.** The gate is `npm run typecheck && npm run lint &&
-  npm test`, same as above. Green checks are not a courtesy, they are the
-  proof a reviewer works from.
-- **The PR template applies to everyone,** including the checkbox stating
-  whether the PR was opened by a human or by the build factory. Leave it
-  accurate.
-- **`MISSION.md` governs scope** for both. A pull request that contradicts it
-  is closed regardless of who or what opened it.
 
 ## Licence
 
