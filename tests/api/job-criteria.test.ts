@@ -282,6 +282,8 @@ describe('job criteria exchange (R-8)', () => {
       ...draftBody,
       status: 'proposed',
       criteria: againBody.criteria,
+      // FIX-B74: a proposed job read back carries depositSettled (false: unpaid).
+      depositSettled: false,
     });
 
     // 6. And storage agrees: exactly one create across the whole loop.

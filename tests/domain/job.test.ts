@@ -150,6 +150,49 @@ describe('job state machine', () => {
     expect(() => decline(proposedJob({ status: 'confirmed' }), true)).toThrow(DepositSettledError);
   });
 
+  // FIX-B74: the same rule at the other two doors that reopen a paid
+  // agreement. A proposed job whose deposit settled takes neither a
+  // criteria/price proposal nor a withdraw; each refusal names itself.
+  // The flag defaults to false, so every existing call site is unchanged.
+  it('refuses a criteria proposal on a proposed job once the deposit has settled, naming the terms', () => {
+    const job = proposedJob({ criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }] });
+    const refused = () => proposeCriteria(job, proposal(), { priceUsd: '600.00' }, true);
+    expect(refused).toThrow(DepositSettledError);
+    expect(refused).toThrow(
+      'job job_1 has a settled deposit; its terms can no longer change. The buyer confirms the hire to start the work.',
+    );
+  });
+
+  it('refuses a withdraw of a proposed job once the deposit has settled, naming the way forward', () => {
+    const refused = () => recordWithdrawn(proposedJob(), true);
+    expect(refused).toThrow(DepositSettledError);
+    expect(refused).toThrow(
+      'job job_1 has a settled deposit; it can no longer be withdrawn. Confirm the hire to start the work.',
+    );
+  });
+
+  it('keeps decline\'s own refusal sentence exactly as before', () => {
+    expect(() => decline(proposedJob(), true)).toThrow(
+      'job job_1 has a settled deposit; it can no longer be declined',
+    );
+  });
+
+  it('proposes and withdraws exactly as before when the deposit flag is false or omitted', () => {
+    const job = proposedJob();
+    expect(proposeCriteria(job, proposal(), undefined, false)).toEqual(proposeCriteria(job, proposal()));
+    expect(proposeCriteria(job, proposal()).criteria).toHaveLength(2);
+    expect(recordWithdrawn(job, false).status).toBe('withdrawn');
+    expect(recordWithdrawn(job).status).toBe('withdrawn');
+  });
+
+  it('the flag is the caller\'s fact and applies to whatever job it is given: a draft or confirmed job with it set is refused too', () => {
+    expect(() => recordWithdrawn(proposedJob({ status: 'confirmed' }), true)).toThrow(DepositSettledError);
+    expect(() => proposeCriteria(proposedJob({ status: 'draft' }), proposal(), undefined, true)).toThrow(
+      DepositSettledError,
+    );
+    expect(() => recordWithdrawn(proposedJob({ status: 'completed' }), true)).toThrow(JobTransitionError);
+  });
+
   it('rejects confirming a job that is not proposed', () => {
     // The transition check fires before the content gates, so a confirmed
     // job rejects with JobTransitionError whatever its criteria hold.
