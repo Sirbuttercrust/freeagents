@@ -156,7 +156,9 @@ async function readJob(h: Harness, jobId: string): Promise<Record<string, unknow
 // Everything a change could touch, without the payableRails / depositSettled
 // keys this card is about: the job as the parties agreed it.
 function terms(job: Record<string, unknown>): unknown {
-  const { payableRails: _rails, depositSettled: _paid, ...rest } = job;
+  const rest = { ...job };
+  delete rest.payableRails;
+  delete rest.depositSettled;
   return rest;
 }
 
