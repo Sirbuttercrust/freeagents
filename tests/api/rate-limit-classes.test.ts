@@ -215,6 +215,14 @@ describe('classifyRoute: exemptions, named individually', () => {
   it('exempts GET /agentsettings, the agent settings page shell', () => {
     expect(classifyRoute('GET', '/agentsettings')).toBe('exempt');
   });
+
+  // The write-a-review page (src/web/pages/review.html) is a plain page
+  // shell too: its one write is POST /jobs/:jobId/reviews, classified in
+  // ROUTE_TABLE. Named on its own so dropping it from the list turns this
+  // red, not only the router walk.
+  it('exempts GET /review, the write-a-review page shell', () => {
+    expect(classifyRoute('GET', '/review')).toBe('exempt');
+  });
 });
 
 describe('classifyRoute: an unrecognised route (defence in depth, never silently open)', () => {

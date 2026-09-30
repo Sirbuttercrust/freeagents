@@ -130,6 +130,7 @@
     renderPullRequestCta(job);
     renderMessagesLink(job);
     renderWithdraw(job);
+    renderReviewLink(job);
   }
 
   // The job named by its own identifier, and the page's whole stance in
@@ -652,6 +653,40 @@
       if (mount) mount.hidden = false;
     });
   }
+
+  // FIX-SW12m (SITEMAP P-17, ENT-10.1): "Write a review", beside "See the
+  // receipt", only on a completed hire and only for its buyer: shown once
+  // GET /accounts/me answers 200 with this job's buyerDid, the rule
+  // renderWithdraw uses. A failed or pending read shows nothing. The link
+  // is built here rather than written into job.html, so its words exist
+  // only for the one visitor who sees it and job.html stays inside its
+  // word ceiling (tests/web/hire-journey-simple.test.ts). No nav entry
+  // reaches /review. The write route refuses everyone else whatever this
+  // page shows.
+  function renderReviewLink(job) {
+    var old = A.el("review-link");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var session = A.getStoredSession();
+    if (!session || job.status !== "completed" || typeof job.buyerDid !== "string" || typeof job.id !== "string") return;
+    A.getAuthed("/accounts/me", session.token).then(function (result) {
+      if (typeof document === "undefined" || !document) return;
+      if (result.state !== "ok" || result.value.status !== 200 || !result.value.body) return;
+      if (result.value.body.did !== job.buyerDid) return;
+      var row = A.el("credential-link") ? A.el("credential-link").parentNode : null;
+      if (!row || A.el("review-link")) return;
+      var link = document.createElement("a");
+      link.className = "btn";
+      link.id = "review-link";
+      link.setAttribute("href", "/review?job=" + encodeURIComponent(job.id));
+      link.textContent = "Write a review";
+      row.appendChild(link);
+      // A completed hire with no receipt yet still gets the link; the
+      // receipt button stays hidden until there is a receipt to open.
+      A.show(A.el("credential-link"), A.el("credential-link").hasAttribute("href"));
+      A.showById("credential-section", true);
+    });
+  }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
   } else {
