@@ -117,8 +117,9 @@ With no `DATABASE_URL` set, the server runs on in-memory storage and logs a
 warning at startup. Nothing survives a restart, which is what you want for
 trying it out. To use Postgres instead, set `DATABASE_URL` in the shell that
 starts the server, for example `DATABASE_URL=postgresql://... npm run dev`. The
-app does not read `.env` or `.env.local` files. `.env.example` is the list of
-every variable the server reads and what each one is for.
+app does not read `.env` or `.env.local` files. `.env.example` lists the
+variables that configure the server and what each one is for. It does not
+list `BLOCKLET_PORT`, which takes precedence over `PORT`.
 
 ```bash
 npm run typecheck
@@ -129,9 +130,10 @@ npm test
 The domain and adapter layers are separated on purpose: `src/domain` is plain
 TypeScript with no vendor dependency (`tests/architecture/domain-purity.test.ts`
 fails if that breaks), and `src/adapters` is where the outside world lives:
-GitHub, identity, credentials, storage and the two payment rails. An adapter
-whose environment is not configured fails closed, with a 503 on the route that
-needs it, and does not guess.
+GitHub, identity, credentials, storage and the two payment rails. The GitHub
+and payment adapters answer 503 on the routes that need them when they are not
+configured. Storage and credentials fall back to a dev mode (in-memory storage,
+a random signing key) and log a warning at startup.
 
 ## Deploying
 
