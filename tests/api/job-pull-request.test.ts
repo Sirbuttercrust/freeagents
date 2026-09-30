@@ -24,6 +24,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { createGithubAdapter } from '../../src/adapters/github/github.js';
+import { MemorySettlementGate } from '../../src/adapters/payment/gate.js';
 import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import {
@@ -1117,5 +1118,142 @@ describe('job pull-request, who may (B7, 2026-09-01)', () => {
     expect(fixture.calls.getPullRequest.length).toBe(before);
     const job = (await (await fetch(`${baseUrl}/jobs/${jobId}`)).json()) as { status: string };
     expect(job.status).toBe('confirmed');
+  });
+});
+
+// SW1-06: a finished hire is refused by name before anyone asks about money.
+// On these statuses the remainder can never be paid (its start route answers
+// 409), so the money sentence would send the agent to wait for a payment the
+// platform then refuses. A job that can still be staged and paid keeps the
+// money-first 402 (B15).
+describe('job pull-request, a finished hire is refused by name before money is asked (SW1-06)', () => {
+  const PLANTED_URL = 'https://github.com/buyer/target-repo/pull/9';
+  const finishedStatuses: readonly JobStatus[] = [
+    'withdrawn',
+    'declined',
+    'closed_unpaid',
+    'staged_declined',
+    'expired_unstaged',
+    'cited_closed',
+  ];
+
+  function plantedUnpaidJob(id: string, status: JobStatus): Job {
+    const now = new Date();
+    return {
+      ...createJob(
+        { id, buyerDid: buyer.did, agentDid: agent.did, repository: REPOSITORY, brief: 'Fix the login bug' },
+        new Date(now.getTime() - 24 * 60 * 60 * 1000),
+      ),
+      status,
+      priceUsd: '500.00',
+      rail: 'usdc',
+      ...(status === 'cited_closed'
+        ? {
+            pullRequestUrl: PLANTED_URL,
+            citedCloseCriterionIndex: 0,
+            citedCloseReasonText: 'The login bug is still there',
+            citedCloseAuthorDid: buyer.did,
+            citedCloseAt: new Date(now.getTime() - 60_000),
+          }
+        : {}),
+      ...(status === 'staged' ? { stagedAt: new Date(now.getTime() - 60_000), stagedCommit: 'commit-sha-1' } : {}),
+    };
+  }
+
+  async function withPlantedJob(
+    status: JobStatus,
+    run: (ctx: {
+      readonly baseUrl: string;
+      readonly jobId: string;
+      readonly fixture: ReturnType<typeof createStagingLifecycleGithubFake>;
+      readonly gate: MemorySettlementGate;
+      readonly jobRepo: MemoryJobRepository;
+    }) => Promise<void>,
+  ): Promise<void> {
+    const gate = new MemorySettlementGate();
+    const fixture = createStagingLifecycleGithubFake();
+    const agentRepo = new MemoryAgentRepository();
+    await agentRepo.create({
+      did: agent.did,
+      operatorDid: 'did:abt:op-pr-finished',
+      delegation: { fixture: true } as never,
+      name: 'scout',
+      skills: ['triage'],
+      githubLogin: AGENT_GITHUB_LOGIN,
+      negotiatesOnOwnersBehalf: true,
+    });
+    await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
+    const operatorRepo = new MemoryAccountRepository();
+    await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-pr-finished' });
+    const jobRepo = new MemoryJobRepository();
+    const jobId = `j-finished-${status}`;
+    await jobRepo.create(plantedUnpaidJob(jobId, status));
+    const s = createApp(
+      operatorRepo,
+      agentRepo,
+      undefined,
+      fixture.github,
+      jobRepo,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      testSessionAdapter(),
+      undefined,
+      gate,
+      anyCommitStagingObserver(),
+    ).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => s.once('listening', resolve));
+    const address = s.address();
+    if (address === null || typeof address === 'string') throw new Error('expected a port');
+    try {
+      await run({ baseUrl: `http://127.0.0.1:${address.port}`, jobId, fixture, gate, jobRepo });
+    } finally {
+      await new Promise<void>((resolve) => s.close(() => resolve()));
+    }
+  }
+
+  beforeAll(async () => {
+    buyer = await signingIdentityFromSeed(new Uint8Array(32).fill(81));
+    agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
+  });
+
+  for (const status of finishedStatuses) {
+    it(`answers 409 naming "${status}" with the remainder unpaid, and asks neither the settlement gate nor github`, async () => {
+      await withPlantedJob(status, async ({ baseUrl: base, jobId, fixture, gate, jobRepo }) => {
+        const planted = await jobRepo.findById(jobId);
+        const balanceRead = vi.spyOn(gate, 'balanceSettled');
+        const depositRead = vi.spyOn(gate, 'depositSettled');
+        const githubBefore = fixture.calls.getPullRequest.length;
+
+        const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agent, base);
+
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual({ error: `this job is "${status}", a final status, so it cannot change` });
+        expect(balanceRead).not.toHaveBeenCalled();
+        expect(depositRead).not.toHaveBeenCalled();
+        expect(fixture.calls.getPullRequest.length).toBe(githubBefore);
+        expect(await jobRepo.findById(jobId)).toEqual(planted);
+      });
+    });
+  }
+
+  it('still answers the money sentence, 402 with the remainder figure, for a staged job with the remainder unpaid', async () => {
+    await withPlantedJob('staged', async ({ baseUrl: base, jobId, fixture, jobRepo }) => {
+      const planted = await jobRepo.findById(jobId);
+      const githubBefore = fixture.calls.getPullRequest.length;
+
+      const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agent, base);
+
+      expect(res.status).toBe(402);
+      expect(await res.json()).toEqual({
+        error: 'the remainder has not settled; this job cannot open a pull request until it does',
+        remainderUsd: '375.00',
+      });
+      expect(fixture.calls.getPullRequest.length).toBe(githubBefore);
+      expect(await jobRepo.findById(jobId)).toEqual(planted);
+    });
   });
 });
