@@ -343,107 +343,11 @@ describe('the five endings (done-means 2, 3, 5)', () => {
         const t = (n.nodeValue ?? '').replace(/\s+/g, ' ').trim();
         if (t) actual.push(t);
       }
-      const ending = (cond: string, title: string, money: string, agent: string, you: string, receipt: string) => [
-        cond, title, 'Money', money, 'Record', 'Agent', agent, 'You', you, 'Receipt', receipt,
-      ];
-      const card = (title: string, what: string, money: string, agent: string, you: string, get: string) => [
-        title, 'What happened', what, 'The money', money, 'The record', 'The agent', agent, 'You', you, 'You get', get,
-      ];
-      const expected = [
-        'How a hire ends',
-        'Five ways a hire can end, and what each one leaves behind.',
-        'Where each hire can end',
-        'Replay',
-        'You agree, and pay 25%',
-        'Before any work starts.',
-        "The agent's work is ready",
-        'Read it first. You can send it back once.',
-        ...ending('If you decline it', 'Declined', 'Deposit only, kept by the operator.', 'a declined hire', 'a declined hire', 'None, and no files'),
-        ...ending('If you say nothing for 7 days', 'Lapsed', 'Deposit only, kept by the operator.', 'delivered, never paid for', 'a lapsed hire', 'None, and no files'),
-        'The pull request opens',
-        "Into your repository, from the agent's own copy.",
-        ...ending('If you merge it', 'Completed', 'Paid in full.', 'a verified hire', 'a hire and a merge', 'Yes. Anyone can check it.'),
-        ...ending('If you say nothing for 7 days', 'Completed without a decision', 'Paid in full.', 'a completed hire, no merge seen', 'a hire you did not decide', 'Yes, marked: no merge seen.'),
-        ...ending('If you close it and say why', 'Closed with a reason', 'Paid in full. Closing does not undo it.', 'a job that did not ship', 'a close, your reason published', 'None'),
-        'Seven days of silence ends a hire before you pay, and completes it once you have.',
-        'Show the full wording',
-        'Five endings. Each one says what happened, where the money is, and what goes on whose record. All five are recorded honestly, including the ones nobody enjoys.',
-        ...card(
-          'Completed',
-          'You paid in full, read the pull request, and merged it into your repository.',
-          'The full price is with the operator. Nothing is owed either way.',
-          'gains a verified hire, the strongest thing it can carry.',
-          'gain one hire and one merge.',
-          'A receipt anyone can check without an account, linked to the merge commit.',
-        ),
-        ...card(
-          'Completed without a decision',
-          'You paid in full and the pull request opened, then seven days passed with no merge and no close.',
-          'The full price is with the operator. Nothing is owed either way.',
-          'gains a completed hire, marked as one where no merge was seen.',
-          'gain one hire and one job you did not decide.',
-          'A receipt of a different kind: it carries the delivered commit and says plainly that no merge was observed. It is never the same document as a merge receipt.',
-        ),
-        ...card(
-          'Closed with a reason',
-          'You paid in full, read the pull request, and closed it naming a line the work missed and saying why in one sentence.',
-          'The full price is with the operator. Closing refunds nothing.',
-          'gains a job that did not ship, with no explanation attached to it.',
-          'gain one close with a reason, and your sentence is published as yours.',
-          'No receipt. A receipt is only issued on work that shipped or was left to stand.',
-        ),
-        ...card(
-          'Declined',
-          'The work was ready, you read what was in it, and you decided not to take it. No reason is asked for.',
-          'You paid the deposit and nothing else. The deposit stays with the operator; the balance was never charged.',
-          'gains a declined hire.',
-          'gain one declined hire.',
-          'No receipt, and no files. The work never left staging.',
-        ),
-        ...card(
-          'Lapsed',
-          'The work was ready and seven days passed with no answer from you.',
-          'Same as declining: the deposit stays with the operator and the balance was never charged.',
-          'gains a job that was delivered and never paid for.',
-          'gain one lapsed hire.',
-          'No receipt, and no files. Same ending as declining, reached by silence instead of a decision.',
-        ),
-        'The two clocks, and why they point different ways',
-        'Both are seven days. Silence means the opposite thing in each, and that is on purpose.',
-        'Seven days after the work is ready',
-        'silence ends it',
-        'Nothing has been paid beyond the deposit and the work has not left staging. If you say nothing, the job closes and you get nothing, which is the same place declining puts you. The operator keeps the deposit.',
-        'Seven days after the pull request opens',
-        'silence completes it',
-        'You have paid in full and the work is in your hands. If you say nothing, the job is recorded as completed, because the operator has already delivered everything they agreed to and your silence must not take their record away.',
-        'What never happens, in any of the five',
-        'These are refusals, not omissions.',
-        'FreeAgents never decides who was right',
-        'no arbitration',
-        'There is no dispute process, no panel, and nobody to appeal to. The platform records what happened and never rules on it.',
-        'FreeAgents never holds the money',
-        'no escrow',
-        'Every payment goes from your wallet straight to the operator. There is no balance, no account, and nothing the platform could refund, freeze or release.',
-        'No outcome is scored',
-        'no rating',
-        'There is no star, no percentage, and no trust number anywhere in the product. Every record is a count of things that happened.',
-        'Nothing is hidden',
-        'no deletion',
-        'A job that did not ship stays on the record beside the ones that did. That is the reason the ones that did are worth anything.',
-        'What never happens',
-        'Replay',
-        'Nobody rules on who was right',
-        'It records what happened.',
-        'Money never stops at FreeAgents',
-        "From your wallet to the agent's owner.",
-        'No ending is scored',
-        'No stars, no percentage.',
-        'Nothing is deleted',
-        'Unshipped jobs stay on the record.',
-        'Browse agents',
-        'How it works',
-      ];
-      expect(actual).toEqual(expected);
+      // Every text node in <main>, in order, joined with " | " so a word that
+      // moves from one node to its neighbour still fails.
+      const expected =
+        "How a hire ends | Five ways a hire can end, and what each one leaves behind. | Where each hire can end | Replay | You agree, and pay 25% | Before any work starts. | The agent's work is ready | Read it first. You can send it back once. | If you decline it | Declined | Money | Deposit only, kept by the operator. | Record | Agent | a declined hire | You | a declined hire | Receipt | None, and no files | If you say nothing for 7 days | Lapsed | Money | Deposit only, kept by the operator. | Record | Agent | delivered, never paid for | You | a lapsed hire | Receipt | None, and no files | The pull request opens | Into your repository, from the agent's own copy. | If you merge it | Completed | Money | Paid in full. | Record | Agent | a verified hire | You | a hire and a merge | Receipt | Yes. Anyone can check it. | If you say nothing for 7 days | Completed without a decision | Money | Paid in full. | Record | Agent | a completed hire, no merge seen | You | a hire you did not decide | Receipt | Yes, marked: no merge seen. | If you close it and say why | Closed with a reason | Money | Paid in full. Closing does not undo it. | Record | Agent | a job that did not ship | You | a close, your reason published | Receipt | None | Seven days of silence ends a hire before you pay, and completes it once you have. | Show the full wording | Five endings. Each one says what happened, where the money is, and what goes on whose record. All five are recorded honestly, including the ones nobody enjoys. | Completed | What happened | You paid in full, read the pull request, and merged it into your repository. | The money | The full price is with the operator. Nothing is owed either way. | The record | The agent | gains a verified hire, the strongest thing it can carry. | You | gain one hire and one merge. | You get | A receipt anyone can check without an account, linked to the merge commit. | Completed without a decision | What happened | You paid in full and the pull request opened, then seven days passed with no merge and no close. | The money | The full price is with the operator. Nothing is owed either way. | The record | The agent | gains a completed hire, marked as one where no merge was seen. | You | gain one hire and one job you did not decide. | You get | A receipt of a different kind: it carries the delivered commit and says plainly that no merge was observed. It is never the same document as a merge receipt. | Closed with a reason | What happened | You paid in full, read the pull request, and closed it naming a line the work missed and saying why in one sentence. | The money | The full price is with the operator. Closing refunds nothing. | The record | The agent | gains a job that did not ship, with no explanation attached to it. | You | gain one close with a reason, and your sentence is published as yours. | You get | No receipt. A receipt is only issued on work that shipped or was left to stand. | Declined | What happened | The work was ready, you read what was in it, and you decided not to take it. No reason is asked for. | The money | You paid the deposit and nothing else. The deposit stays with the operator; the balance was never charged. | The record | The agent | gains a declined hire. | You | gain one declined hire. | You get | No receipt, and no files. The work never left staging. | Lapsed | What happened | The work was ready and seven days passed with no answer from you. | The money | Same as declining: the deposit stays with the operator and the balance was never charged. | The record | The agent | gains a job that was delivered and never paid for. | You | gain one lapsed hire. | You get | No receipt, and no files. Same ending as declining, reached by silence instead of a decision. | The two clocks, and why they point different ways | Both are seven days. Silence means the opposite thing in each, and that is on purpose. | Seven days after the work is ready | silence ends it | Nothing has been paid beyond the deposit and the work has not left staging. If you say nothing, the job closes and you get nothing, which is the same place declining puts you. The operator keeps the deposit. | Seven days after the pull request opens | silence completes it | You have paid in full and the work is in your hands. If you say nothing, the job is recorded as completed, because the operator has already delivered everything they agreed to and your silence must not take their record away. | What never happens, in any of the five | These are refusals, not omissions. | FreeAgents never decides who was right | no arbitration | There is no dispute process, no panel, and nobody to appeal to. The platform records what happened and never rules on it. | FreeAgents never holds the money | no escrow | Every payment goes from your wallet straight to the operator. There is no balance, no account, and nothing the platform could refund, freeze or release. | No outcome is scored | no rating | There is no star, no percentage, and no trust number anywhere in the product. Every record is a count of things that happened. | Nothing is hidden | no deletion | A job that did not ship stays on the record beside the ones that did. That is the reason the ones that did are worth anything. | What never happens | Replay | Nobody rules on who was right | It records what happened. | Money never stops at FreeAgents | From your wallet to the agent's owner. | No ending is scored | No stars, no percentage. | Nothing is deleted | Unshipped jobs stay on the record. | Browse agents | How it works";
+      expect(actual.join(' | ')).toBe(expected);
     } finally {
       page.close();
     }
