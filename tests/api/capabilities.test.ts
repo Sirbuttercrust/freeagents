@@ -101,8 +101,9 @@ describe('GET /capabilities', () => {
     const body = (await res.json()) as { notice: string; capabilities: unknown[] };
     expect(body.notice).toBe(ACCESS_NOTICE);
     // FIX-B43a (ruling, 2026-09-27): agent.listing joined the capability
-    // table, so the total moved from 9 to 10.
-    expect(body.capabilities).toHaveLength(10);
+    // table, so the total moved from 9 to 10. SW1-04: the 18 steps of a
+    // hire after it opens joined it, so the total moved from 10 to 28.
+    expect(body.capabilities).toHaveLength(28);
   });
 
   it('every declared public GET answers a caller with no identity', async () => {

@@ -5,6 +5,11 @@
 // This module states that boundary as data, so a route (GET /capabilities)
 // can publish it and a test can hold it in place, before a user or an agent
 // buyer invests any effort finding it out the hard way.
+//
+// SW1-04: it also names the steps an agent takes after a hire opens (the
+// job.* entries after job.hire), each with who may take it, so the document
+// is the route list for the whole hire and not only for the identity
+// boundary at its door.
 
 export type AccessLevel = 'public' | 'identified';
 
@@ -23,6 +28,8 @@ export interface Capability {
   // caller-identity field for the server to trust or ignore. identityField
   // is therefore NOT simply "non-null iff access is identified" any more;
   // it is non-null only for the bootstrap case a proof cannot yet cover.
+  // That holds for the job.* steps after job.hire too: each acts on an
+  // existing hire, so its party is derived and identityField is null.
   readonly identityField: string | null;
   /** The limit, stated in one sentence a user reads before investing effort. */
   readonly reason: string;
@@ -131,6 +138,164 @@ export const CAPABILITIES: readonly Capability[] = [
     access: 'identified',
     identityField: null,
     reason: "Listing or unlisting an agent records who flipped it: only the agent's own operator, derived from your session or signature.",
+  },
+  // SW1-04: the steps of a hire after job.hire opens it, so an agent that
+  // reads only GET /capabilities can find every next move and who may make
+  // it. Every entry below states the same rule as job.hire: the acting party
+  // (the buyer, or the agent's side: its owner's account or its own key) is
+  // derived from the session or signature presented, never read from the
+  // body, so identityField is null. Where a route runs the negotiation gate
+  // (requireNegotiationAllowed in src/api/app.ts) the reason says the
+  // agent's own key needs its owner's permission.
+  {
+    id: 'job.read',
+    method: 'GET',
+    path: '/jobs/:jobId',
+    access: 'public',
+    identityField: null,
+    reason: 'Reading a hire needs no account: anyone with the job id can see where it stands.',
+  },
+  {
+    id: 'job.criteria.propose',
+    method: 'POST',
+    path: '/jobs/:jobId/criteria',
+    access: 'identified',
+    identityField: null,
+    reason:
+      "Either side proposes criteria; the agent's own key needs its owner's permission to negotiate; party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.changes.request',
+    method: 'POST',
+    path: '/jobs/:jobId/request-changes',
+    access: 'identified',
+    identityField: null,
+    reason:
+      "Either side requests changes; the agent's own key needs its owner's permission to negotiate; party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.criteria.accept',
+    method: 'POST',
+    path: '/jobs/:jobId/criteria/:index/accept',
+    access: 'identified',
+    identityField: null,
+    reason:
+      "Either side accepts a criterion; the agent's own key needs its owner's permission to negotiate; party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.price.accept',
+    method: 'POST',
+    path: '/jobs/:jobId/price/accept',
+    access: 'identified',
+    identityField: null,
+    reason:
+      "Either side accepts the price; the agent's own key needs its owner's permission to negotiate; party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.confirm',
+    method: 'POST',
+    path: '/jobs/:jobId/confirm',
+    access: 'identified',
+    identityField: null,
+    reason:
+      "Either side confirms the terms; the agent's own key needs its owner's permission to negotiate; party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.withdraw',
+    method: 'POST',
+    path: '/jobs/:jobId/withdraw',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may withdraw, if the hire allows it (staged work uses staged-decline); the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.decline',
+    method: 'POST',
+    path: '/jobs/:jobId/decline',
+    access: 'identified',
+    identityField: null,
+    reason:
+      "The agent's side declines a hire; its own key needs its owner's permission to negotiate; party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.payment.abt',
+    method: 'POST',
+    path: '/jobs/:jobId/payments/:leg/abt/start',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may start an ABT payment for the deposit or remainder; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.payment.usdc',
+    method: 'POST',
+    path: '/jobs/:jobId/payments/:leg/usdc/start',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may start a USDC payment for the deposit or remainder; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.payment.usdc.report',
+    method: 'POST',
+    path: '/jobs/:jobId/payments/:leg/usdc/wallet-response',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may report what the wallet answered for a USDC payment; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.stage',
+    method: 'POST',
+    path: '/jobs/:jobId/stage',
+    access: 'identified',
+    identityField: null,
+    reason: "The agent's side (its owner or its own key) stages the finished work; the party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.staged.decline',
+    method: 'POST',
+    path: '/jobs/:jobId/staged-decline',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may decline staged work before paying the remainder; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.redo',
+    method: 'POST',
+    path: '/jobs/:jobId/redo',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may ask for one redo of staged work, citing a criterion; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.redo.refuse',
+    method: 'POST',
+    path: '/jobs/:jobId/redo-refuse',
+    access: 'identified',
+    identityField: null,
+    reason: "The agent's side (its owner or its own key) may refuse a redo request; the party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.submit',
+    method: 'POST',
+    path: '/jobs/:jobId/pull-request',
+    access: 'identified',
+    identityField: null,
+    reason: "The agent's side (its owner or its own key) submits the pull request; the party comes from your session or signature, never the body.",
+  },
+  {
+    id: 'job.merge',
+    method: 'POST',
+    path: '/jobs/:jobId/merge',
+    access: 'identified',
+    identityField: null,
+    reason: 'Either side asks the platform to check whether the pull request merged; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.close.cited',
+    method: 'POST',
+    path: '/jobs/:jobId/cited-close',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may close a paid hire citing a criterion and a reason; the party comes from your session or signature, never the body.',
   },
 ];
 

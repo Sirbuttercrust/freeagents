@@ -61,6 +61,27 @@ describe('CAPABILITIES', () => {
       { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: null },
       { id: 'agent.negotiation', method: 'PUT', path: '/agents/:agentDid/negotiation', access: 'identified', identityField: null },
       { id: 'agent.listing', method: 'PUT', path: '/agents/:agentDid/listing', access: 'identified', identityField: null },
+      // SW1-04: the list grew by 18 because GET /capabilities stopped at
+      // job.hire, so an agent reading only it had no declared step after
+      // opening a hire.
+      { id: 'job.read', method: 'GET', path: '/jobs/:jobId', access: 'public', identityField: null },
+      { id: 'job.criteria.propose', method: 'POST', path: '/jobs/:jobId/criteria', access: 'identified', identityField: null },
+      { id: 'job.changes.request', method: 'POST', path: '/jobs/:jobId/request-changes', access: 'identified', identityField: null },
+      { id: 'job.criteria.accept', method: 'POST', path: '/jobs/:jobId/criteria/:index/accept', access: 'identified', identityField: null },
+      { id: 'job.price.accept', method: 'POST', path: '/jobs/:jobId/price/accept', access: 'identified', identityField: null },
+      { id: 'job.confirm', method: 'POST', path: '/jobs/:jobId/confirm', access: 'identified', identityField: null },
+      { id: 'job.withdraw', method: 'POST', path: '/jobs/:jobId/withdraw', access: 'identified', identityField: null },
+      { id: 'job.decline', method: 'POST', path: '/jobs/:jobId/decline', access: 'identified', identityField: null },
+      { id: 'job.payment.abt', method: 'POST', path: '/jobs/:jobId/payments/:leg/abt/start', access: 'identified', identityField: null },
+      { id: 'job.payment.usdc', method: 'POST', path: '/jobs/:jobId/payments/:leg/usdc/start', access: 'identified', identityField: null },
+      { id: 'job.payment.usdc.report', method: 'POST', path: '/jobs/:jobId/payments/:leg/usdc/wallet-response', access: 'identified', identityField: null },
+      { id: 'job.stage', method: 'POST', path: '/jobs/:jobId/stage', access: 'identified', identityField: null },
+      { id: 'job.staged.decline', method: 'POST', path: '/jobs/:jobId/staged-decline', access: 'identified', identityField: null },
+      { id: 'job.redo', method: 'POST', path: '/jobs/:jobId/redo', access: 'identified', identityField: null },
+      { id: 'job.redo.refuse', method: 'POST', path: '/jobs/:jobId/redo-refuse', access: 'identified', identityField: null },
+      { id: 'job.submit', method: 'POST', path: '/jobs/:jobId/pull-request', access: 'identified', identityField: null },
+      { id: 'job.merge', method: 'POST', path: '/jobs/:jobId/merge', access: 'identified', identityField: null },
+      { id: 'job.close.cited', method: 'POST', path: '/jobs/:jobId/cited-close', access: 'identified', identityField: null },
     ]);
   });
 });
