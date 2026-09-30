@@ -16,6 +16,14 @@
    from what the service actually enforces. A capability that moves from
    public to identified changes this page the moment it is deployed.
 
+   The page shows the account boundary only. SW1-04: the document also
+   names the steps of a hire after it opens (every capability whose path
+   contains /jobs/:jobId). Those are the machine's route list, one set per
+   job, and eighteen more rows of them here would make this page busy, which
+   the simplicity law (MAP.md, "Design law: simplicity") rules out. render()
+   drops them; job.hire (/jobs) is the door to a hire, not a step inside
+   one, so it stays.
+
    The list of sign-in METHODS is a different thing and is not read from
    here: GET /sign-in-methods is a separate conformance surface, and the
    three the page describes are the fixed set the project's own invariants
@@ -100,6 +108,13 @@
       return;
     }
 
+    /* The per-job hire steps are left out (see the header). The filter is on
+       the path, so a step added to access.ts under /jobs/:jobId stays off
+       the page without a change here. */
+    caps = caps.filter(function (c) {
+      return typeof c.path !== "string" || c.path.indexOf("/jobs/:jobId") === -1;
+    });
+
     var pub = caps.filter(function (c) { return c.access === "public"; });
     var ident = caps.filter(function (c) { return c.access === "identified"; });
 
@@ -161,7 +176,9 @@
      rendered underneath). tests/web/signin-polished.test.ts reads every
      rendered label back off the page and fails on any that still looks
      like an id, so the next capability added to src/domain/access.ts
-     cannot reach a person unlabelled. */
+     cannot reach a person unlabelled. The exception is a capability under
+     /jobs/:jobId: render() never draws those (see the header), so they need
+     no label here, and the same test asserts none of them reaches the page. */
   var LABELS = {
     "capabilities.read": "Read this access list",
     "agent.browse": "Read any agent's record",
