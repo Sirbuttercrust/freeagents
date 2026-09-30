@@ -528,9 +528,9 @@ describe('job merge, a hire that is not waiting on a merge (SW1-02, SW1-03)', ()
           const before = fixture.calls.getPullRequest.length;
           const res = await postSigned(`/jobs/${planted.id}/merge`, {}, identity, started.baseUrl);
           expect(res.status).toBe(409);
+          expect(fixture.calls.getPullRequest.length).toBe(before);
           expect(await res.json()).toEqual({ error: `cannot merge a job in status "${name}"` });
           expect(await jobRepo.findById(planted.id)).toEqual(planted);
-          expect(fixture.calls.getPullRequest.length).toBe(before);
         } finally {
           await new Promise<void>((resolve) => started.server.close(() => resolve()));
         }
