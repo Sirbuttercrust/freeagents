@@ -436,7 +436,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Stop listing axiom-ui': 'wireframe sample data (axiom-ui is the wireframe\u2019s one example agent); drawListing (agentsettings.js) renders the real agent\u2019s live name into this button, pinned by tests/web/agentsettings.test.ts, "listing (a) a listed agent"',
     // The wireframe's nav button points at dashboard.html under the local
     // label "Account", the same entry settings carries below.
-    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label \"Dashboard\", already excused by SHARED_NAV; this wireframe names the same button \"Account\" locally',
+    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
   },
   review: {
     // FIX-SW12m's departures, each named in the PR. The wireframe's sample
@@ -452,7 +452,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'If you have not hired this agent': 'the section describes the agent page\u2019s empty state for a visitor with no completed hire; /review does not build a second copy of it, and its own version is the not-the-buyer state (#not-buyer), pinned by tests/web/review.test.ts (d)',
     // The wireframe's nav button points at dashboard.html under the local
     // label "Account", the same entry agentsettings and settings carry.
-    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label \"Dashboard\", already excused by SHARED_NAV; this wireframe names the same button \"Account\" locally',
+    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
   },
   signin: {
     // All four excuses below share one root, already on the record: PLAN
@@ -504,7 +504,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // destination under the label "Dashboard", which is in this
     // instrument's own SHARED_NAV set; this entry reaches the shared nav
     // under this one wireframe's local label instead of "Dashboard".
-    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label \"Dashboard\", already excused by SHARED_NAV; this wireframe names the same button \"Account\" locally',
+    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
     // href="#" in the wireframe itself (settings.html:74), on the sign-in
     // method row. The auth surface is exactly /auth/github/start,
     // /auth/github/callback, /auth/passkey/register, /auth/passkey/verify
