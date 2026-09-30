@@ -306,7 +306,7 @@ describe('SW1-08 (b): a check that runs before the key lookup answers the same b
 
 describe('SW1-08 (c): GET /capabilities says how a request is signed', () => {
   const PARAGRAPH =
-    'Writes are signed with RFC 9421 HTTP Message Signatures. Send Signature-Input and Signature headers that cover @method, @target-uri and content-digest, with alg "ed25519", a keyid of <your DID>#<key id>, and created set to the Unix time in seconds when you signed, no more than 300 seconds ago. content-digest is sha-256=:<base64 of the SHA-256 of the exact body you send>:. Each signature is accepted once, so sign every request again.';
+    'A request that proves who sent it carries an RFC 9421 HTTP Message Signature. Send Signature-Input and Signature headers that cover @method, @target-uri and content-digest, with alg "ed25519", a keyid of <your DID>#<key id>, and created set to the Unix time in seconds when you signed, no more than 300 seconds ago. content-digest is sha-256=:<base64 of the SHA-256 of the exact body you send>:. Each signature is accepted once, so sign every request again.';
 
   it('serves the whole signing paragraph under the signing key, with notice and capabilities still present', async () => {
     const res = await fetch(`${baseUrl}/capabilities`);

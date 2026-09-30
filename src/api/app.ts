@@ -24,7 +24,11 @@ import {
   type PullRequestSummary,
 } from '../adapters/github/types.js';
 import { createDidAbtSigningKeyResolver, createKnownKeyStore } from '../adapters/identity/did-abt-resolver.js';
-import { verify as verifySignature } from '../adapters/identity/http-signature.js';
+import {
+  REQUEST_SIGNATURE_COMPONENTS,
+  describeSigningProfile,
+  verifyWithReason as verifySignature,
+} from '../adapters/identity/http-signature.js';
 import { CandidateKeyRejectedError, createIdentityAdapter, DidNotResolvableError, AgentKeyDerivationMismatchError } from '../adapters/identity/identity.js';
 import { PlatformSeedUnavailableError } from '../adapters/identity/identity.js';
 import type { IdentityAdapter, DidKeyPair, SignedPayload } from '../adapters/identity/types.js';
@@ -707,6 +711,12 @@ interface SignedRequest extends Request {
   signerDid?: string;
 }
 
+// SW1-08: what verifySignedRequest answers. 'absent' is an unsigned request,
+// 'unknown-key' a signature naming a key this service has never heard of, and
+// { refused } a signature that failed a check, carrying the one sentence that
+// names which.
+type SignedRequestOutcome = 'absent' | 'unknown-key' | { readonly refused: string } | { readonly did: string };
+
 function signerDidOf(req: Request): string | null {
   return (req as SignedRequest).signerDid ?? null;
 }
@@ -1192,26 +1202,30 @@ export function createApp(
   // unsigned request passes through untouched) and requireSessionOrSignature
   // (mandatory: the route below refuses outright when this returns 'absent'
   // and no session covers the gap either). A present-but-invalid signature
-  // is worse than none in both callers, so both map 'invalid' and
-  // 'unknown-key' to their own distinct 401 rather than falling through to
-  // "as if unsigned".
+  // is worse than none in both callers, so both answer a refused signature
+  // and an unknown key with their own distinct 401 rather than falling
+  // through to "as if unsigned".
   //
-  // B29 (bug ledger, C1 rehearsal s2): 'unknown-key' and 'invalid' are kept
-  // as two separate outcomes all the way out to the route layer, not
-  // folded back into one 'invalid' here. A caller who signed correctly with
-  // a key this service has simply never registered was being told their
-  // cryptography was wrong; the real fact is narrower, and callers of this
-  // function need to be able to tell the two apart to answer each with its
-  // own message.
-  async function verifySignedRequest(
-    req: Request,
-  ): Promise<'absent' | 'invalid' | 'unknown-key' | { readonly did: string }> {
+  // B29 (bug ledger, C1 rehearsal s2): 'unknown-key' and a refused signature
+  // are kept as two separate outcomes all the way out to the route layer, not
+  // folded back into one here. A caller who signed correctly with a key this
+  // service has simply never registered was being told their cryptography was
+  // wrong; the real fact is narrower, and callers of this function need to be
+  // able to tell the two apart to answer each with its own message.
+  //
+  // SW1-08: a refused signature carries the sentence for the check that
+  // failed ({ refused }), from verifyWithReason in the adapter or, for the one
+  // check the adapter never sees, the content-digest against the body
+  // received. The three writers answer 401 { error: 'invalid signature: <the
+  // sentence>' } through signatureRefusal below. 'unknown-key' keeps its own
+  // answer.
+  async function verifySignedRequest(req: Request): Promise<SignedRequestOutcome> {
     // Only a fully unsigned request is absent: absent both headers, this is
     // unchanged behaviour for every caller that exists today. Exactly one
-    // present falls through to verifySignature below, which already treats
-    // a half-signed request as invalid input (its own first check is
-    // `if (!sigInputValue || !sigValue) return 'invalid'`) -- restating that
-    // check here would just be the same 401 twice.
+    // present falls through to verifySignature below, which already refuses
+    // a half-signed request with its own sentence (its first check answers
+    // "send both the Signature-Input and Signature headers") -- restating
+    // that check here would just be the same 401 twice.
     if (req.headers['signature-input'] === undefined && req.headers['signature'] === undefined) {
       return 'absent';
     }
@@ -1220,10 +1234,10 @@ export function createApp(
     const result = await verifySignature(
       { method: req.method, targetUri, headers: req.headers },
       signingKeys,
-      { requiredComponents: ['@method', '@target-uri', 'content-digest'], spendStorage: signatureSpendStorage },
+      { requiredComponents: REQUEST_SIGNATURE_COMPONENTS, spendStorage: signatureSpendStorage },
     );
-    if (result === 'unknown-key') return 'unknown-key';
-    if (result === 'invalid') return 'invalid';
+    if (result.kind === 'unknown-key') return 'unknown-key';
+    if (result.kind === 'invalid') return { refused: result.reason };
 
     // The adapter verifies the signature bytes; it never sees the body, so
     // the digest match is this function's half -- what binds the body
@@ -1231,10 +1245,16 @@ export function createApp(
     const raw = (req as RawBodyRequest).rawBody ?? Buffer.alloc(0);
     const want = `sha-256=:${createHash('sha256').update(raw).digest('base64')}:`;
     const got = req.headers['content-digest'];
-    if (typeof got !== 'string' || got.trim() !== want) return 'invalid';
+    if (typeof got !== 'string' || got.trim() !== want) {
+      return { refused: 'content-digest does not match the request body' };
+    }
 
     return { did: result.did };
   }
+
+  // SW1-08: the one body all three writers answer for a refused signature,
+  // so the prefix a client tests for ('invalid signature') is written once.
+  const signatureRefusal = (reason: string): { error: string } => ({ error: `invalid signature: ${reason}` });
 
   // R-34: a second, optional, verifiable identity path alongside the four
   // ENT-6.2 party-exchange routes that carry it (criteria, request-changes,
@@ -1259,8 +1279,8 @@ export function createApp(
         res.status(401).json({ error: 'unknown key' });
         return;
       }
-      if (outcome === 'invalid') {
-        res.status(401).json({ error: 'invalid signature' });
+      if ('refused' in outcome) {
+        res.status(401).json(signatureRefusal(outcome.refused));
         return;
       }
       (req as SignedRequest).signerDid = outcome.did;
@@ -1332,11 +1352,11 @@ export function createApp(
   // of via a middleware that would always run first. One rule, one
   // function, two call sites: this and requireSessionOrSignature below
   // never diverge on what counts as authenticated.
-  type AuthOutcome = 'ok' | 'invalid-signature' | 'unknown-key' | 'no-proof';
+  type AuthOutcome = 'ok' | { readonly refused: string } | 'unknown-key' | 'no-proof';
   async function authenticateRequest(req: Request): Promise<AuthOutcome> {
     const sigOutcome = await verifySignedRequest(req);
-    if (sigOutcome === 'invalid') return 'invalid-signature';
     if (sigOutcome === 'unknown-key') return 'unknown-key';
+    if (typeof sigOutcome === 'object' && 'refused' in sigOutcome) return sigOutcome;
     if (sigOutcome !== 'absent') {
       (req as SignedRequest).signerDid = sigOutcome.did;
       return 'ok';
@@ -1362,8 +1382,8 @@ export function createApp(
         res.status(401).json({ error: 'unknown key' });
         return;
       }
-      if (outcome === 'invalid-signature') {
-        res.status(401).json({ error: 'invalid signature' });
+      if (typeof outcome === 'object') {
+        res.status(401).json(signatureRefusal(outcome.refused));
         return;
       }
       if (outcome === 'no-proof') {
@@ -1401,8 +1421,8 @@ export function createApp(
       res.status(401).json({ error: 'unknown key' });
       return null;
     }
-    if (outcome === 'invalid-signature') {
-      res.status(401).json({ error: 'invalid signature' });
+    if (typeof outcome === 'object') {
+      res.status(401).json(signatureRefusal(outcome.refused));
       return null;
     }
     if (outcome === 'no-proof') {
@@ -1580,6 +1600,9 @@ export function createApp(
     res.status(200).json({
       notice: ACCESS_NOTICE,
       capabilities: CAPABILITIES.map(capabilityProjection),
+      // SW1-08: how a request is signed, built from the constants the
+      // verifier enforces, so an agent learns the profile before it sends one.
+      signing: describeSigningProfile(),
     });
   });
 
