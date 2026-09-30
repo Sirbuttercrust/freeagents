@@ -228,11 +228,14 @@ describe('FIX-SW4f: a caller cannot fill the disk with uploads it never sends', 
   it('(e) an upload older than an hour stops counting against the caller', async () => {
     // The sweep is silenced so this pins the count itself; (g) pins the sweep.
     vi.spyOn(world.attachments, 'listUnsentOlderThan').mockResolvedValue([]);
+    const counted = vi.spyOn(world.attachments, 'listUnsentByUploader');
     const jobId = await openDraft();
     for (let i = 0; i < 10; i += 1) await uploadOk(jobId);
     expect((await upload(jobId)).status).toBe(429);
     vi.setSystemTime(new Date(T0.getTime() + HOUR_MS + 1000));
     expect((await upload(jobId)).status).toBe(201);
+    // The route asks the repository only for uploads younger than an hour.
+    expect(counted).toHaveBeenLastCalledWith(world.buyer.did, new Date(T0.getTime() + 1000));
   });
 
   it('(f) a message naming an upload older than an hour answers 400 and stores no message', async () => {
