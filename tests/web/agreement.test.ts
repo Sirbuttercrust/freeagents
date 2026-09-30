@@ -76,7 +76,13 @@ async function renderAgreement(
   baseUrl: string,
   jobId: string,
   session: { token: string } | null,
-  opts: { holdAccountRead?: { did: string; until: Promise<void> } } = {},
+  opts: {
+    holdAccountRead?: { did: string; until: Promise<void> };
+    // SW3-04: every POST body the page sends, in order, and a canned answer
+    // for a path (a refusal the shared server cannot be made to give).
+    posts?: Array<{ path: string; body: Record<string, unknown> }>;
+    fault?: (path: string) => Response | null;
+  } = {},
 ): Promise<Rendered> {
   const path = `/agreement?job=${encodeURIComponent(jobId)}`;
   const virtualConsole = new VirtualConsole();
@@ -101,6 +107,9 @@ async function renderAgreement(
         value: async (input: string, init?: RequestInit) => {
           const hold = opts.holdAccountRead;
           if (hold && String(input) === `/accounts/${encodeURIComponent(hold.did)}`) await hold.until;
+          if (init?.method === 'POST') opts.posts?.push({ path: String(input), body: JSON.parse(String(init.body ?? '{}')) as Record<string, unknown> });
+          const faulted = opts.fault ? opts.fault(String(input)) : null;
+          if (faulted !== null) return faulted;
           return fetch(new URL(input, baseUrl), init);
         },
       });
@@ -278,7 +287,11 @@ describe('the agreement screen, driven end to end against the real app', () => {
 
     sessionAdapterRef = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'agreement-page-buyer', id: 9101 }) });
 
-    server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapterRef).listen(0, '127.0.0.1');
+    // SW3-04 adds a block of page loads, which carried the file past the
+    // default 300 reads a minute and left late pages with no rows; the
+    // generous override is the one agreement-owner.test.ts uses.
+    server = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined,
+      { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 }, undefined, undefined, sessionAdapterRef).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
@@ -516,12 +529,15 @@ describe('the agreement screen, driven end to end against the real app', () => {
   });
 
   describe('the agreement does not claim to lock itself', () => {
-    it('the lede states the true sequence: fully agreed, then the deposit, nothing recorded before that', async () => {
+    // SW3-04: the lede used to say editing a line was "not available on this
+    // screen yet". The buyer now has the edit control, so the lede says what
+    // a change does, and still that nothing locks before the deposit settles.
+    it('the lede states the true sequence: sign or change each line, then the deposit, nothing locked before it settles', async () => {
       const page = await renderAgreement(baseUrl, 'job-half-signed', { token: buyerToken });
       try {
         const lede = page.document.querySelector('.lede')?.textContent ?? '';
+        expect(lede).toBe("Sign each line you agree with. Change any line you don't; that clears both signatures on it and sends it back. Once both of you sign every line, the deposit is next, and nothing locks until the deposit settles.");
         expect(lede.toLowerCase()).not.toContain('locks by itself');
-        expect(lede.toLowerCase()).toContain('deposit settles');
       } finally {
         page.close();
       }
@@ -1098,5 +1114,238 @@ describe('the agreement screen, driven end to end against the real app', () => {
         page.close();
       }
     });
+  });
+
+  // SW3-04, ruled 2026-08-28 ("Either side revises, line by line") and
+  // SITEMAP P-11 (price and delivery carry "the same edit control as every
+  // criterion"): on an open agreement the buyer gets the owner's edit
+  // control on every row, and a send carries the whole list with only that
+  // row changed, the window with the price, and never a rail.
+  describe('SW3-04: the buyer proposes a change to any line, the price or the window', () => {
+    const FLOOR_AGENT_DID = 'did:abt:agreement-page-floor-agent';
+    const signed = (text: string) => ({ text, proposedBy: 'agent' as const, acceptedByBuyer: true, acceptedByAgent: true });
+    const allSigned = { priceUsd: '500.00', deliveryWindowDays: 7, priceAcceptedByBuyer: true, priceAcceptedByAgent: true };
+
+    beforeAll(async () => {
+      await agentRepo.create({
+        did: FLOOR_AGENT_DID,
+        operatorDid: OPERATOR_DID,
+        delegation: delegationFixture(FLOOR_AGENT_DID, OPERATOR_DID),
+        name: 'agreement-page-floor-scout',
+        skills: ['triage'],
+        githubLogin: null,
+        floorPriceUsd: '100.00',
+      });
+      for (const id of ['sw304-rows', 'sw304-line', 'sw304-price', 'sw304-window', 'sw304-refuse']) {
+        await jobRepo.create(jobFixture({ id, agentDid: FLOOR_AGENT_DID, status: 'proposed', criteria: [signed('Alpha'), signed('Beta')], ...allSigned }));
+      }
+      await jobRepo.create(jobFixture({ id: 'sw304-confirmed', status: 'confirmed', criteria: [signed('Alpha')], ...allSigned, confirmedAt: new Date(), confirmedSpecHash: 'sha256:sw304' }));
+      await jobRepo.create(jobFixture({ id: 'sw304-draft', status: 'draft', criteria: [{ text: 'Drafted', proposedBy: 'buyer', acceptedByBuyer: false, acceptedByAgent: false }] }));
+      await jobRepo.create(jobFixture({ id: 'sw304-no-price', status: 'proposed', criteria: [{ text: 'Unpriced', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false }] }));
+    });
+
+    const rows = (page: Rendered) => Array.from(page.document.querySelectorAll('#terms > li'));
+    const settle = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms));
+    async function editRow(page: Rendered, row: number, value: string): Promise<HTMLElement> {
+      (rows(page)[row]!.querySelector('button.act') as HTMLButtonElement).click();
+      await settle(50);
+      const editor = rows(page)[row]!.querySelector('.line-edit') as HTMLElement;
+      (editor.querySelector('input') as HTMLInputElement).value = value;
+      (Array.from(editor.querySelectorAll('button')).find((b) => b.textContent === 'Save') as HTMLButtonElement).click();
+      await settle();
+      return editor;
+    }
+    // Both marks of a row: [yours, theirs], each "signed" or "waiting".
+    const marks = (row: Element) => Array.from(row.querySelectorAll('.sigcell .sig')).map((s) => (s.classList.contains('is-signed') ? 'signed' : 'waiting'));
+    const actTexts = (page: Rendered) => Array.from(page.document.querySelectorAll('#terms .act')).map((a) => a.textContent);
+
+    it('(a) the open agreement carries one edit control per row, labelled as the owner\u2019s are, and no "not yet" cell', async () => {
+      const page = await renderAgreement(baseUrl, 'sw304-rows', { token: buyerToken });
+      try {
+        const acts = Array.from(page.document.querySelectorAll('#terms button.act'));
+        expect(acts.map((b) => b.getAttribute('aria-label'))).toEqual([
+          'Propose a change to line 01',
+          'Propose a change to line 02',
+          'Propose a different price',
+          'Propose a different window',
+        ]);
+        expect(acts.map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false']);
+        expect(actTexts(page)).not.toContain('not yet');
+        (acts[0] as HTMLButtonElement).click();
+        await settle(50);
+        expect(rows(page)[0]!.querySelector('button.act')?.getAttribute('aria-expanded')).toBe('true');
+        expect((rows(page)[0]!.querySelector('.line-edit input') as HTMLInputElement).value).toBe('Alpha');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(b) a line edit sends the whole list with only that line changed and no rail; that line alone goes back to waiting on both sides', async () => {
+      const posts: Array<{ path: string; body: Record<string, unknown> }> = [];
+      const page = await renderAgreement(baseUrl, 'sw304-line', { token: buyerToken }, { posts });
+      try {
+        await editRow(page, 1, 'Beta, restated');
+        expect(posts).toEqual([
+          { path: '/jobs/sw304-line/criteria', body: { criteria: [{ text: 'Alpha', proposedBy: 'agent' }, { text: 'Beta, restated', proposedBy: 'buyer' }] } },
+        ]);
+        expect(rows(page).map((r) => r.querySelector('.txt')?.textContent)).toEqual(['Alpha', 'Beta, restated', 'Price: $500.00', 'Ready in 7 days']);
+        expect(rows(page).map(marks)).toEqual([['signed', 'signed'], ['waiting', 'waiting'], ['signed', 'signed'], ['signed', 'signed']]);
+        expect(page.document.querySelector('.line-edit')).toBeNull();
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(c) a price edit sends the price with the current window, and no rail', async () => {
+      const posts: Array<{ path: string; body: Record<string, unknown> }> = [];
+      const page = await renderAgreement(baseUrl, 'sw304-price', { token: buyerToken }, { posts });
+      try {
+        await editRow(page, 2, '650');
+        expect(posts).toEqual([
+          { path: '/jobs/sw304-price/criteria', body: { criteria: [{ text: 'Alpha', proposedBy: 'agent' }, { text: 'Beta', proposedBy: 'agent' }], priceUsd: '650.00', deliveryWindowDays: 7 } },
+        ]);
+        expect(rows(page)[2]!.querySelector('.txt')?.textContent).toBe('Price: $650.00');
+        expect(rows(page)[3]!.querySelector('.txt')?.textContent).toBe('Ready in 7 days');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(c) a window edit sends the current price with the new window, and no rail', async () => {
+      const posts: Array<{ path: string; body: Record<string, unknown> }> = [];
+      const page = await renderAgreement(baseUrl, 'sw304-window', { token: buyerToken }, { posts });
+      try {
+        await editRow(page, 3, '9');
+        expect(posts).toEqual([
+          { path: '/jobs/sw304-window/criteria', body: { criteria: [{ text: 'Alpha', proposedBy: 'agent' }, { text: 'Beta', proposedBy: 'agent' }], priceUsd: '500.00', deliveryWindowDays: 9 } },
+        ]);
+        expect(rows(page)[3]!.querySelector('.txt')?.textContent).toBe('Ready in 9 days');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(d) a price under the agent\u2019s floor shows the server\u2019s sentence in the editor\u2019s alert and keeps what was typed', async () => {
+      const page = await renderAgreement(baseUrl, 'sw304-refuse', { token: buyerToken });
+      try {
+        const editor = await editRow(page, 2, '50');
+        const error = editor.querySelector('.edit-error') as HTMLElement;
+        expect(error.getAttribute('role')).toBe('alert');
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe("proposed price 50.00 is below the agent's floor of 100.00");
+        expect((editor.querySelector('input') as HTMLInputElement).value).toBe('50');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(d) a session that ends after the page loaded gets the sign-in-again sentence', async () => {
+      const token = await mintSessionToken(sessionAdapterRef);
+      const page = await renderAgreement(baseUrl, 'sw304-refuse', { token });
+      try {
+        await fetch(`${baseUrl}/auth/signout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+        const editor = await editRow(page, 0, 'Alpha, restated');
+        expect(editor.querySelector('.edit-error')?.textContent).toBe('Your session has expired. Sign in again to send this.');
+      } finally {
+        page.close();
+      }
+    });
+
+    // The shared server never refuses the buyer with 403, 409 or 503 on this
+    // route, so those answers are canned at the page's fetch.
+    it.each([
+      ['a 403 with no sentence', 403, {}, 'This account can no longer change this agreement.'],
+      ['a 403 with the server\u2019s sentence', 403, { error: 'only a party to this job can change it' }, 'only a party to this job can change it'],
+      ['a 409', 409, {}, 'This agreement changed since the page loaded. Reload the page to see the latest state.'],
+      ['a 503', 503, {}, 'Storage is unavailable just now. Try again in a moment.'],
+    ] as const)('(d) %s shows the buyer\u2019s sentence', async (_label, status, body, sentence) => {
+      const fault = (p: string) => (p === '/jobs/sw304-refuse/criteria' ? new Response(JSON.stringify(body), { status }) : null);
+      const page = await renderAgreement(baseUrl, 'sw304-refuse', { token: buyerToken }, { fault });
+      try {
+        const editor = await editRow(page, 0, 'Alpha, restated');
+        expect(editor.querySelector('.edit-error')?.textContent).toBe(sentence);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(e) a confirmed agreement shows the buyer no edit control and no "not yet"; every act cell is empty', async () => {
+      const page = await renderAgreement(baseUrl, 'sw304-confirmed', { token: buyerToken });
+      try {
+        expect(rows(page).length).toBe(3);
+        expect(page.document.querySelectorAll('#terms button.act').length).toBe(0);
+        expect(actTexts(page)).toEqual(['', '', '']);
+        expect(page.document.getElementById('lede')?.textContent).toBe('This agreement is closed to changes.');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(e) a draft shows the buyer its lines with no row control and an empty act cell', async () => {
+      const page = await renderAgreement(baseUrl, 'sw304-draft', { token: buyerToken });
+      try {
+        expect(rows(page).map((r) => r.querySelector('.txt')?.textContent)).toEqual(['Drafted']);
+        expect(page.document.querySelectorAll('#terms button.act').length).toBe(0);
+        expect(actTexts(page)).toEqual(['']);
+        expect(page.document.getElementById('lede')?.textContent).toBe('The agent has not sent its quote yet. You can propose lines for it below.');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('before the agent names a price, the buyer gets no price row to set one', async () => {
+      const page = await renderAgreement(baseUrl, 'sw304-no-price', { token: buyerToken });
+      try {
+        expect(rows(page).map((r) => r.querySelector('.txt')?.textContent)).toEqual(['Unpriced']);
+        expect(Array.from(page.document.querySelectorAll('#terms button.act')).map((b) => b.getAttribute('aria-label'))).toEqual(['Propose a change to line 01']);
+      } finally {
+        page.close();
+      }
+    });
+
+    // Make 11: real Chrome, the buyer with a line's editor open. No
+    // sideways scroll at 320, 390 and 1280; on touch every control in the
+    // agreement is 44px or more on both axes.
+    it.each([
+      { width: 320, touch: true },
+      { width: 390, touch: true },
+      { width: 1280, touch: false },
+    ])('with a line\u2019s editor open, holds at $width', async ({ width, touch }) => {
+      if (!hasRealBrowser()) {
+        console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
+        return;
+      }
+      const browser = await RealBrowser.launch({ width, height: 900 });
+      try {
+        await browser.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: touch });
+        await browser.send('Emulation.setTouchEmulationEnabled', { enabled: touch });
+        await browser.send('Page.addScriptToEvaluateOnNewDocument', {
+          source: `window.sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify({ token: buyerToken }))});`,
+        });
+        await browser.goto(`${baseUrl}/agreement?job=sw304-rows`, 900);
+        await browser.evaluate(`document.querySelector('#terms > li:nth-child(2) button.act').click()`);
+        await new Promise((r) => setTimeout(r, 200));
+        const m = await browser.evaluate<{ scrollWidth: number; clientWidth: number; open: boolean; acts: number; small: string[] }>(`
+          (function () {
+            var controls = Array.from(document.querySelectorAll('#agreement-body button, #agreement-body input, #agreement-body a.btn'))
+              .filter(function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+            return {
+              scrollWidth: document.documentElement.scrollWidth,
+              clientWidth: document.documentElement.clientWidth,
+              open: !!document.querySelector('#terms > li:nth-child(2) .line-edit'),
+              acts: document.querySelectorAll('#terms button.act').length,
+              small: controls.filter(function (el) { var r = el.getBoundingClientRect(); return r.width < 44 || r.height < 44; })
+                .map(function (el) { var r = el.getBoundingClientRect(); return (el.id || el.className || el.tagName) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); }),
+            };
+          })()
+        `);
+        expect(m.open, `editor at ${width} did not open`).toBe(true);
+        expect(m.acts).toBe(4);
+        expect(m.scrollWidth, `${width} scrolls sideways`).toBeLessThanOrEqual(m.clientWidth);
+        if (touch) expect(m.small, `${width}: controls under 44px`).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    }, 60_000);
   });
 });

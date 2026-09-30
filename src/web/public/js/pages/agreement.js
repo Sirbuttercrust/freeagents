@@ -1,11 +1,14 @@
-/* W11 agreement (SITEMAP P-11): one page, two seats. The buyer reads and
-   signs; the agent's owner (its operator, signed in) writes the quote,
-   changes lines, the price and the window, and signs the agent's side
-   (FIX-B40). Reads GET /jobs/:jobId, marks a line via POST
+/* W11 agreement (SITEMAP P-11): one page, two seats. The buyer and the
+   agent's owner (its operator, signed in) each sign their own side of every
+   line and each can propose a change to any line, the price or the window
+   while the agreement is open (FIX-B40 for the owner; SW3-04 for the buyer,
+   after the 2026-08-28 ruling "Either side revises, line by line"). Only
+   the owner writes the first quote (the draft composer). Reads GET
+   /jobs/:jobId, marks a line via POST
    /jobs/:jobId/criteria/:index/accept or POST /jobs/:jobId/price/accept
    (the server takes the side from the session), sends lines and the price
    via POST /jobs/:jobId/criteria, and never calls POST /jobs/:jobId/confirm.
-   agreement-edit.js builds the owner's fields; every request is made here.
+   agreement-edit.js builds the fields; every request is made here.
 
    PARTY PROBE: GET /jobs/:jobId/attestations runs the job's identity gate
    (resolveJobActingParty) with no side effect: 401, 403, or a party. It
@@ -191,7 +194,9 @@
       }
     } else if (isOwner && job.status === "proposed") {
       /* No price yet (the buyer sent lines first): a row to set one, with
-         no marks, since there is nothing to sign until a price exists. */
+         no marks, since there is nothing to sign until a price exists. The
+         owner's alone: the agent names the first price, and the buyer's
+         price row appears once one exists. */
       lines.push({ kind: "price", priceUsd: null, unset: true, you: false, them: false });
     }
     return lines;
@@ -209,12 +214,18 @@
     A.show(A.el("lockbar"), !composing);
     A.show(A.el("propose-field"), isOpen(job) || (!isOwner && job.status === "draft"));
     renderComposer(job, composing);
-    if (isOwner) {
+    /* The buyer's open lede is the markup's own. A buyer's draft has no row
+       control yet (the agent has not quoted), so it says what the buyer
+       can do there instead; a closed agreement reads the same on both
+       sides. */
+    if (isOwner || !isOpen(job)) {
       A.setTextById("lede", composing
         ? "Write what you will deliver, your price and the days it takes. The buyer signs each line."
         : isOpen(job)
           ? "Sign the lines you agree with. Changing a line clears both signatures on it."
-          : "This agreement is closed to changes.");
+          : !isOwner && job.status === "draft"
+            ? "The agent has not sent its quote yet. You can propose lines for it below."
+            : "This agreement is closed to changes.");
     }
     var host = A.el("terms");
     host.textContent = "";
@@ -272,7 +283,7 @@
     });
   }
 
-  /* One POST /jobs/:jobId/criteria from the owner's side. Resolves null
+  /* One POST /jobs/:jobId/criteria from either side. Resolves null
      once the page has re-rendered from the response, or the sentence for
      a refusal (the page is left as it was). Never sends rail: the quote
      leaves the currency open and the buyer picks at checkout. */
@@ -287,11 +298,14 @@
     });
   }
 
+  /* A 403 names the remedy the reader can take: signing in as the agent's
+     owner is the owner's, and means nothing to the buyer. A 400 is the
+     server's own sentence (the floor refusal names the floor). */
   function sendRefusal(status, serverMessage) {
     if (status === 401) return "Your session has expired. Sign in again to send this.";
     if (status === 409) return "This agreement changed since the page loaded. Reload the page to see the latest state.";
     if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
-    if (status === 403) return serverMessage || "This account can no longer change this agreement. Sign in as the agent's owner.";
+    if (status === 403) return serverMessage || (isOwner ? "This account can no longer change this agreement. Sign in as the agent's owner." : "This account can no longer change this agreement.");
     return serverMessage || "That could not be sent just now. Try again in a moment.";
   }
 
@@ -304,13 +318,16 @@
     return body;
   }
 
+  /* One editor for either side. A changed line carries the reader's own
+     side as proposedBy (the route stamps the caller's seat anyway; the
+     page never claims the other side's). */
   function rowEditor(line, key, job) {
     function close() { openEdit = null; renderAll(currentJob); }
     var price = job.price || {};
     if (line.kind === "criterion") {
       return E.lineEditor("Line " + padNum(line.index + 1), line.text, function (text) {
         var criteria = currentCriteria(job);
-        criteria[line.index] = { text: text, proposedBy: "agent" };
+        criteria[line.index] = { text: text, proposedBy: isOwner ? "agent" : "buyer" };
         return sendQuote({ criteria: criteria });
       }, close);
     }
@@ -346,15 +363,15 @@
 
   /* One <li> per line, the wireframe's five-column matrix grid
      (agreement.css .terms > li: num, text, your mark, their mark, act).
-     The act column: on the owner's side of an open agreement, the edit
-     control that opens this row's editor under it (the wireframe's
-     "Propose a change to line NN"), and an empty cell once the agreement
-     is closed. The buyer's side keeps the "not yet" text, never a button,
-     because the buyer adds lines but does not rewrite the owner's. Once a
-     quote is sent a line can be changed but never removed: a send that
-     omits a line drops it while every other line keeps its signatures, so
-     a removal could lock an agreement on a set the other side never saw
-     whole. Removing a line is the draft composer's alone. */
+     The act column, the same on both sides: on an open agreement, the
+     edit control that opens this row's editor under it (the wireframe's
+     "Propose a change to line NN"), and an empty cell on any other status.
+     Both sides revise line by line (ruled 2026-08-28; SW3-04 gave the
+     buyer the control the owner already had). Once a quote is sent a line
+     can be changed but never removed: a send that omits a line drops it
+     while every other line keeps its signatures, so a removal could lock
+     an agreement on a set the other side never saw whole. Removing a line
+     is the owner's draft composer's alone. */
   function termRow(line, num, styleIndex, job) {
     var li = document.createElement("li");
     li.style.setProperty("--i", String(styleIndex));
@@ -397,9 +414,7 @@
     }
 
     var key = line.kind === "criterion" ? "c" + line.index : line.kind;
-    if (!isOwner) {
-      li.appendChild(spanWith("act", "not yet"));
-    } else if (isOpen(job)) {
+    if (isOpen(job)) {
       li.appendChild(actControl(line, num, key));
       if (openEdit === key) li.appendChild(rowEditor(line, key, job));
     } else {

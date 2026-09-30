@@ -267,12 +267,21 @@ describe('the owner\u2019s side of /agreement, driven end to end (FIX-B40)', () 
       }
     });
 
-    it('the buyer\u2019s session on the same job renders the buyer\u2019s side, with no edit control', async () => {
+    // This pin used to assert the buyer had no edit control and a "not yet"
+    // cell. The 2026-08-28 ruling ("Either side revises, line by line") and
+    // SITEMAP P-11 give the buyer the same control on every row (SW3-04), so
+    // it now asserts the buyer's side carries the owner's four labels.
+    it('the buyer\u2019s session on the same job renders the buyer\u2019s side, with the same edit control on every row', async () => {
       const page = await render(baseUrl, 'b40-seat', buyerToken);
       try {
         expect(page.document.getElementById('h-them')?.textContent).toBe('Agent');
-        expect(page.document.querySelectorAll('#terms button.act').length).toBe(0);
-        expect(rows(page)[0]!.querySelector('.act')?.textContent).toBe('not yet');
+        expect(Array.from(page.document.querySelectorAll('#terms button.act')).map((b) => b.getAttribute('aria-label'))).toEqual([
+          'Propose a change to line 01',
+          'Propose a change to line 02',
+          'Propose a different price',
+          'Propose a different window',
+        ]);
+        expect(Array.from(page.document.querySelectorAll('#terms .act')).map((a) => a.textContent)).not.toContain('not yet');
         expect(rows(page)[1]!.querySelector('.from')?.textContent).toBe('you proposed this');
       } finally {
         page.close();
