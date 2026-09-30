@@ -105,9 +105,10 @@ That last claim was false when it was first written: `criteria.html`'s four
 edit controls measured 33x44 and `confirm.html`'s two rail anchors 20x44,
 because the coarse-pointer floor for `.act` and `.steps li a` lived in
 `agreement.css`, which neither page loads. The floor now lives in `polish.css`,
-which all 33 screens load, and `verify_polish.py` measures width as well as
-height, so the sentence is checked rather than asserted. What they are NOT held
-to is live controls: `verify_polish.py` lists them in `SUPERSEDED` and skips
+which all 33 screens load, and the polish check, which is kept in the private operations repository and
+is not on disk here, measured width as well as height, so the sentence was
+checked rather than asserted. What they are NOT held
+to is live controls: that check listed them in `SUPERSEDED` and skipped
 the inert-button check, since wiring a demo to the "Accept and continue" button
 of a page that no longer exists in the flow would be the defect rather than the
 fix.
