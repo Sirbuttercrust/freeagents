@@ -138,6 +138,7 @@ import {
   requestRedo,
   RedoAllowanceExhaustedError,
   stageWork,
+  isTerminal,
   submitPullRequest,
   validateJobTransition,
   type CompletedJob,
@@ -7722,11 +7723,30 @@ export function createApp(
       }
       const ref: PullRequestRef = { owner: prOwner, repo: prRepo, number: Number(prNumberText) };
 
+      // SW1-06: a finished job (any terminal status) is refused by name
+      // before money is asked about. Its remainder can never be paid (the
+      // remainder start route answers 409 for it), so the money sentence
+      // below would send the agent to wait for a payment the platform will
+      // refuse. The sentence is the state machine's own, so one fact has
+      // one wording. No settlement read and no github read happen here.
+      if (isTerminal(current.status)) {
+        try {
+          validateJobTransition(current.status, 'submitted');
+        } catch (err) {
+          if (!(err instanceof JobTransitionError)) {
+            throw err;
+          }
+          res.status(409).json({ error: err.message });
+          return;
+        }
+      }
+
       // P4 anchor: recording a submission cannot happen until the balance
-      // is settled. This check sits in FRONT of both the state machine
-      // check and the github read below -- unchanged in position and
-      // intent from before this card, even though the route no longer
-      // performs any write of its own.
+      // is settled. For a job that is not finished this check sits in FRONT
+      // of both the state machine check and the github read below (B15: a
+      // draft, proposed, confirmed, staged or redo_requested job can still
+      // be staged and paid, so "the remainder has not settled" is a true
+      // instruction).
       let remainderIsSettled: boolean;
       try {
         remainderIsSettled = await remainderSettled(settlementGate, jobId);
@@ -7744,8 +7764,12 @@ export function createApp(
       }
 
       // Recording `submitted` is a state transition like any other: the
-      // state machine is consulted before github is ever asked, so a
-      // draft or proposed job gets its 409 without one adapter call.
+      // state machine is consulted before github is ever asked. A finished
+      // job was refused above, so this check now catches the statuses that
+      // are not finished but have no edge to `submitted` (draft, proposed,
+      // confirmed, redo_requested, and submitted or stale themselves) once
+      // the remainder reads as settled, each with its 409 and without one
+      // adapter call.
       try {
         validateJobTransition(current.status, 'submitted');
       } catch (err) {
@@ -8623,11 +8647,13 @@ export function createApp(
       }
 
       // A known status other than submitted or stale is a conflict before
-      // github is ever asked. stale falls through on purpose (D3 2026-08-22):
-      // a merge after the stale marker still completes, so its PR is still
-      // observed. A corrupted (non-enum) status is not in this list either,
-      // so it falls through to completeJob's own validator below - the same
-      // contract the pull-request route uses for its corrupted-status leg.
+      // github is ever asked, so only submitted, stale and a corrupted
+      // (non-enum) status reach the pull request read below. stale falls
+      // through on purpose (D3 2026-08-22): a merge after the stale marker
+      // still completes, so its PR is still observed. A corrupted status is
+      // not in this list either, so it falls through to completeJob's own
+      // validator below - the same contract the pull-request route uses for
+      // its corrupted-status leg.
       const nonObservationStatuses: readonly JobStatus[] = [
         'draft',
         'proposed',
@@ -8653,6 +8679,14 @@ export function createApp(
         'closed_unpaid',
         'expired_unstaged',
         'deemed_completed',
+        // SW1-02: a redo was asked on staged work, so no pull request has
+        // been opened yet and the row carries no pullRequestUrl; it used to
+        // reach the submitted-only parse and answer 500.
+        'redo_requested',
+        // SW1-03: the buyer's cited close is a final outcome already
+        // recorded. The row still carries the pull request's URL, so it
+        // used to spend a github read before it was refused.
+        'cited_closed',
       ];
       if (nonObservationStatuses.includes(current.status)) {
         res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });
@@ -8859,7 +8893,7 @@ export function createApp(
       }
       if (authorDid === null) {
         res.status(401).json({
-          error: sessionOrSignatureRequiredMessage('as the buyer on this job'),
+          error: sessionOrSignatureRequiredMessage("this job's buyer DID"),
         });
         return;
       }

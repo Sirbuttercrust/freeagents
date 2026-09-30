@@ -204,6 +204,10 @@ describe('POST /jobs/:jobId/reviews (R-22, ENT-10, issue 29)', () => {
 
     const res = await post(`/jobs/${completed.id}/reviews`, { agentDid: agent.did, text: 'Nice work.' });
     expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error:
+        "this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34); sign in, or sign the request naming this job's buyer DID",
+    });
     expect((await reviewRepo.listByAgentDid(agent.did)).some((r) => r.jobId === 'rv-anon')).toBe(false);
   });
 
