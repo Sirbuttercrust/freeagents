@@ -361,9 +361,10 @@ describe('(c) the confirm posts once, with the session, and lands on the end sta
   });
 
   it.each([
-    ['the hirer withdraws', 'wa-w-agr', buyerToken, 'withdraw', '/jobs/wa-w-agr', 'withdrawn', 'state-label', 'The buyer withdrew this hire.'],
-    ['the owner declines', 'wa-d-agr', ownerToken, 'decline', '/operatorjob?job=wa-d-agr', 'declined', 'state-lede', 'This hire was declined before work was staged.'],
-  ] as const)('/agreement: %s, and the page goes where that end state is written', async (_what, id, token, kind, dest, end, nodeId, sentence) => {
+    ['the hirer withdraws', 'wa-w-agr', 'buyer', 'withdraw', '/jobs/wa-w-agr', 'withdrawn', 'state-label', 'The buyer withdrew this hire.'],
+    ['the owner declines', 'wa-d-agr', 'owner', 'decline', '/operatorjob?job=wa-d-agr', 'declined', 'state-lede', 'This hire was declined before work was staged.'],
+  ] as const)('/agreement: %s, and the page goes where that end state is written', async (_what, id, who, kind, dest, end, nodeId, sentence) => {
+    const token = tokenFor(who);
     const page = await render(`/agreement?job=${id}`, token);
     try {
       // Only what is asked for after the press counts: the page's own
@@ -385,8 +386,8 @@ describe('(c) the confirm posts once, with the session, and lands on the end sta
   });
 
   it('a double press posts once, on both sheets', async () => {
-    for (const [path, token, kind] of [['/jobs/wa-w-double', buyerToken, 'withdraw'], ['/operatorjob?job=wa-d-double', ownerToken, 'decline']] as const) {
-      const page = await render(path, token);
+    for (const [path, who, kind] of [['/jobs/wa-w-double', 'buyer', 'withdraw'], ['/operatorjob?job=wa-d-double', 'owner', 'decline']] as const) {
+      const page = await render(path, tokenFor(who));
       try {
         await press(page, kind, true);
         expect(page.posts.length, `${path}: ${JSON.stringify(page.posts)}`).toBe(1);
@@ -464,7 +465,25 @@ describe('(d) each sheet says what happens, in whole sentences', () => {
 });
 
 // The sheet's rules live in polish.css, which /jobs and /agreement load and
-// flow.css does not reach. Measured in a real browser at the three widths
+// flow.css does not reach.
+describe('the sheet has one home', () => {
+  it('polish.css declares the sheet, keyed on dialog.sheet, and flow.css no longer does', async () => {
+    const read = async (name: string) => (await (await fetch(`${baseUrl}/css/${name}`)).text()).replace(/\/\*[\s\S]*?\*\//g, '');
+    const polish = await read('polish.css');
+    const flow = await read('flow.css');
+    expect(polish).toMatch(/(^|\n)dialog\.sheet\s*\{[^}]*width:\s*min\(520px,\s*calc\(100vw - 24px\)\)/);
+    expect(polish).toMatch(/(^|\n)dialog\.sheet::backdrop\s*\{/);
+    for (const sel of ['.sheet .shead {', '.sheet .sbody {', '.sheet .sfoot {', '.sheet .sfoot .btn {', '.sclose {']) {
+      expect(polish, `polish.css must declare ${sel}`).toContain(sel);
+      expect(flow, `flow.css still declares ${sel}: a second copy`).not.toContain(sel);
+    }
+    // A bare `.sheet {` here would reach /messages's own div.sheet.
+    expect(polish).not.toMatch(/(^|[\s}])\.sheet\s*\{/);
+    expect(flow).not.toMatch(/\.sheet\s*(::backdrop)?\s*\{/);
+  });
+});
+
+// Measured in a real browser at the three widths
 // the house checks, with the sheet OPEN: the dialog wears the sheet chrome
 // (the inset shadow and the 44px close box come only from that block), fits
 // the viewport, and every control in it clears the 44px floor on a phone.
