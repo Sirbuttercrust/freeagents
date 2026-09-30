@@ -218,6 +218,10 @@ class BarrierAccountRepository implements AccountRepository {
   setOperatorAddressAbt(did: string, operatorAddressAbt: string): Promise<Account | null> {
     return this.inner.setOperatorAddressAbt(did, operatorAddressAbt);
   }
+
+  promoteUnprovedGithubLogin(did: string, githubLogin: string): Promise<Account | null> {
+    return this.inner.promoteUnprovedGithubLogin(did, githubLogin);
+  }
 }
 
 // P8d repair round 2 (Proof review round 1, D2): the custody-fence and

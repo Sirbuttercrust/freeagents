@@ -462,3 +462,36 @@ describe('prisma, the PasskeyCredential table is declared and migrated (FIX-B61a
     expect(sql).toMatch(/CREATE INDEX\s+"PasskeyCredential_subject_idx"\s+ON\s+"PasskeyCredential"\("subject"\)/);
   });
 });
+
+// FIX-B62b: a login stored before logins needed proof moves to its own
+// column, and the migration that adds the column also moves the text and
+// clears the proved column, so nothing is deleted and githubLogin holds
+// proved logins only. Read as text, the same way the migrations above are.
+describe('prisma, Account.unprovedGithubLogin is declared and migrated (FIX-B62b)', () => {
+  const migrationsRoot = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
+  const migrationName = readdirSync(migrationsRoot).find((name) => name.endsWith('_fix_b62b_unproved_github_login'));
+
+  it('the schema declares unprovedGithubLogin as an optional String, not unique, with no default', () => {
+    const line = modelBody('Account')
+      .split('\n')
+      .find((l) => /^\s*unprovedGithubLogin\b/.test(l));
+    expect(line, 'Account declares no unprovedGithubLogin').toBeDefined();
+    expect(line).toMatch(/unprovedGithubLogin\s+String\?\s*$/);
+    expect(line).not.toMatch(/@unique/);
+    expect(line).not.toMatch(/@default/);
+    expect(modelBody('Account')).not.toMatch(/@@unique|@@index\(\[unprovedGithubLogin/);
+  });
+
+  it('a migration adds the column, then moves every stored login into it and clears githubLogin', () => {
+    expect(migrationName, 'no migration named *_fix_b62b_unproved_github_login').toBeDefined();
+    const sql = readFileSync(join(migrationsRoot, migrationName as string, 'migration.sql'), 'utf8');
+    const add = sql.search(/ALTER TABLE\s+"Account"\s+ADD COLUMN\s+"unprovedGithubLogin"\s+TEXT\s*;/);
+    const move = sql.search(
+      /UPDATE\s+"Account"\s+SET\s+"unprovedGithubLogin"\s*=\s*"githubLogin"\s*,\s*"githubLogin"\s*=\s*NULL\s+WHERE\s+"githubLogin"\s+IS NOT NULL\s*;/,
+    );
+    expect(add).toBeGreaterThanOrEqual(0);
+    expect(move).toBeGreaterThan(add);
+    // Nothing is deleted: no row-removing statement anywhere in it.
+    expect(sql).not.toMatch(/\b(DELETE|DROP|TRUN[C]ATE)\b/i);
+  });
+});

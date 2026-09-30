@@ -36,13 +36,21 @@ export interface AccountRepository {
   register(input: {
     readonly did: string;
     readonly githubLogin?: string | null;
+    // FIX-B62b: only tests pass this, to seed a row the way the migration
+    // leaves a legacy one (a typed login, githubLogin null). No route
+    // does: every new login arrives proved (a signed gist, FIX-B62a) or
+    // from a GitHub sign-in. Never checked for uniqueness, never a key.
+    readonly unprovedGithubLogin?: string | null;
     readonly passkeySubject?: string | null;
   }): Promise<Account>;
   findByDid(did: string): Promise<Account | null>;
   // R-39 completion: session resolution. A GitHub OAuth session names the
   // GitHub login the OAuth exchange proved; this is the ONLY lookup that
   // may resolve a session to an account, because githubLogin is the
-  // unique key the schema enforces. Null when no account claims that
+  // unique key the schema enforces. FIX-B62b: it matches the proved
+  // githubLogin column only, never unprovedGithubLogin, so a login a
+  // legacy row merely holds as typed text resolves to no account. Null
+  // when no account claims that
   // login, exactly like findByDid on an unknown DID. P8d: a null or
   // empty-string githubLogin must never resolve a row whose own column is
   // null (guard-without-a-test: the mutation proof for this file removes
@@ -51,6 +59,16 @@ export interface AccountRepository {
   // otherwise collide into whichever one this lookup happens to see
   // first, which is an authentication bypass, not a cosmetic bug.
   findByGithubLogin(githubLogin: string | null): Promise<Account | null>;
+  // FIX-B62b: the one way a legacy login becomes proved again. Called by
+  // a GitHub sign-in with the DID that sign-in derives for the login. When
+  // the row with that DID has githubLogin null and unprovedGithubLogin
+  // equal to the login without case, it sets githubLogin to the login as
+  // given (the spelling GitHub gave), clears unprovedGithubLogin, and
+  // returns the row. In every other case (another DID, another login,
+  // githubLogin already set, no unproved login) it changes nothing and
+  // returns null. The DID is the proof: a row with any other DID is never
+  // promoted, whatever login text it holds.
+  promoteUnprovedGithubLogin(did: string, githubLogin: string): Promise<Account | null>;
   // R-39 completion: the passkey sibling of findByGithubLogin. Null when
   // no account claims that passkey subject. The identical null-subject
   // guard applies here for the identical reason.

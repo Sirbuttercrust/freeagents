@@ -104,6 +104,7 @@ export class PrismaAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
     readonly githubLogin?: string | null;
+    readonly unprovedGithubLogin?: string | null;
     readonly passkeySubject?: string | null;
   }): Promise<Account> {
     try {
@@ -111,6 +112,7 @@ export class PrismaAccountRepository implements AccountRepository {
         data: {
           did: input.did,
           githubLogin: input.githubLogin ?? null,
+          unprovedGithubLogin: input.unprovedGithubLogin ?? null,
           passkeySubject: input.passkeySubject ?? null,
         },
       });
@@ -126,6 +128,27 @@ export class PrismaAccountRepository implements AccountRepository {
       }
       throw err;
     }
+  }
+
+  // FIX-B62b: one updateMany whose where carries every condition, so the
+  // check and the write are one statement and two racing sign-ins cannot
+  // both promote: the DID names the row, its proved githubLogin is null,
+  // and its unprovedGithubLogin equals the login without case. The stored
+  // spelling becomes the one passed. count 0 means a condition failed and
+  // nothing changed. A unique-constraint failure (the proved login is
+  // already on another row) is not caught: it is a storage fault to the
+  // caller, never two rows on one login.
+  async promoteUnprovedGithubLogin(did: string, githubLogin: string): Promise<Account | null> {
+    const result = await db().account.updateMany({
+      where: {
+        did,
+        githubLogin: null,
+        unprovedGithubLogin: { equals: githubLogin, mode: 'insensitive' },
+      },
+      data: { githubLogin, unprovedGithubLogin: null },
+    });
+    if (result.count === 0) return null;
+    return this.findByDid(did);
   }
 
   async findByDid(did: string): Promise<Account | null> {
@@ -196,6 +219,7 @@ export class PrismaAccountRepository implements AccountRepository {
 function toAccount(row: {
   did: string;
   githubLogin: string | null;
+  unprovedGithubLogin: string | null;
   passkeySubject: string | null;
   createdAt: Date;
   operatorAddressEvm: string | null;
@@ -204,6 +228,7 @@ function toAccount(row: {
   return {
     did: row.did,
     githubLogin: row.githubLogin,
+    unprovedGithubLogin: row.unprovedGithubLogin,
     passkeySubject: row.passkeySubject,
     createdAt: row.createdAt,
     operatorAddressEvm: row.operatorAddressEvm,

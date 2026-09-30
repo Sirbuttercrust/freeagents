@@ -50,12 +50,16 @@ async function provedRegistration(seedByte: number, login: string): Promise<{ di
 
 // The exact field set the service is allowed to keep, from the Operator domain
 // record: no stored field beyond this set. The public read shows all of it
-// except passkeySubject (see PUBLIC_FIELDS below).
-const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'passkeySubject', 'createdAt', 'operatorAddressEvm', 'operatorAddressAbt']);
+// except passkeySubject and unprovedGithubLogin (see PUBLIC_FIELDS below).
+// FIX-B62b: unprovedGithubLogin is stored (a login typed before logins
+// needed proof, kept so nothing is deleted) and never public, and null on
+// every row a route makes.
+const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'unprovedGithubLogin', 'passkeySubject', 'createdAt', 'operatorAddressEvm', 'operatorAddressAbt']);
 
 // B61c: the passkey's name is private to the account, so the public answer
-// is the stored set without passkeySubject.
-const PUBLIC_FIELDS = [...ALLOWED_FIELDS].filter((field) => field !== 'passkeySubject');
+// is the stored set without passkeySubject. FIX-B62b: and without
+// unprovedGithubLogin, which no answer carries.
+const PUBLIC_FIELDS = [...ALLOWED_FIELDS].filter((field) => field !== 'passkeySubject' && field !== 'unprovedGithubLogin');
 
 // Names that would mean key material leaked into storage or the wire.
 // Matched by substring, so publicKeyMultibase / privateKeyMultibase and the
@@ -143,7 +147,7 @@ describe('operator registration, invariant 2', () => {
     expect(createdBody).toEqual(readBackBody);
   });
 
-  it('stores exactly the six allowed fields and no key material', async () => {
+  it('stores exactly the seven allowed fields and no key material', async () => {
     const proved = await provedRegistration(62, 'operator-fields');
     const did = proved.did;
     await fetch(`${baseUrl}/accounts`, {
@@ -188,5 +192,26 @@ describe('operator registration, invariant 2', () => {
       [...ALLOWED_FIELDS].sort()
     );
     expect(findKeyMaterialFields(stored)).toEqual([]);
+  });
+
+  // FIX-B62b (g): a legacy row keeps its typed login in one more stored
+  // field and nothing else. Credentials name the buyer by DID only
+  // (src/adapters/credentials/credentials.ts), so a third party checking
+  // a credential never sees, needs or calls this service for that field.
+  it('a legacy row seeded with unprovedGithubLogin stores the allowed fields, no key material, and answers the five public keys', async () => {
+    const legacyDid = 'did:abt:zNLegacyInvariant2Row';
+    await repo.register({ did: legacyDid, unprovedGithubLogin: 'legacy-typed-login' });
+    const stored = await repo.findByDid(legacyDid);
+    expect(stored?.unprovedGithubLogin).toBe('legacy-typed-login');
+    expect(stored?.githubLogin).toBeNull();
+    expect(Object.keys(stored as object).sort()).toEqual([...ALLOWED_FIELDS].sort());
+    expect(findKeyMaterialFields(stored)).toEqual([]);
+
+    const res = await fetch(`${baseUrl}/accounts/${legacyDid}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual([...PUBLIC_FIELDS].sort());
+    expect(body.githubLogin).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('legacy-typed-login');
   });
 });

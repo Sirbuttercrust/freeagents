@@ -19,6 +19,13 @@ export interface Account {
   // would either collide with a stranger's future real login or answer
   // that route with a lie.
   readonly githubLogin: string | null;
+  // FIX-B62b: a login stored before logins needed proof (FIX-B62a), kept
+  // so nothing is deleted and never trusted as proof. githubLogin above
+  // holds proved logins only; this holds the typed text of a legacy row.
+  // No lookup reads it, and no answer shows it. A GitHub sign-in moves it
+  // to githubLogin only for the row whose DID that sign-in derives
+  // (AccountRepository.promoteUnprovedGithubLogin).
+  readonly unprovedGithubLogin: string | null;
   readonly passkeySubject: string | null;
   readonly createdAt: Date;
   // S3: the EVM address this account is paid at on the USDC rail, set by
