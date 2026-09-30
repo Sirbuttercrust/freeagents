@@ -160,9 +160,10 @@ describe('classifyRoute: exemptions, named individually', () => {
     expect(classifyRoute('GET', '/health')).toBe('exempt');
   });
 
-  it('exempts the two event streams (a stream is one long request)', () => {
-    expect(classifyRoute('GET', '/jobs/j-1/messages/stream')).toBe('exempt');
-    expect(classifyRoute('GET', '/accounts/did:abt:zOperator/notifications/stream')).toBe('exempt');
+  // SW4-04: an open is one request and is counted in the read bucket; the socket it holds is bounded by the stream caps.
+  it('classifies the two event streams as read (an open is one read; the held socket is capped by stream-caps)', () => {
+    expect(classifyRoute('GET', '/jobs/j-1/messages/stream')).toBe('read');
+    expect(classifyRoute('GET', '/accounts/did:abt:zOperator/notifications/stream')).toBe('read');
   });
 
   it('exempts static asset mounts: /css, /js, /assets', () => {

@@ -35,6 +35,7 @@ import type { IdentityAdapter, DidKeyPair, SignedPayload } from '../adapters/ide
 import { type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { InvalidTrustProxyError, trustProxySettingFromEnv, TRUST_PROXY_ENV_VAR } from '../adapters/config/trust-proxy.js';
 import { createClassRateLimiters, createClassRateLimitMiddleware, type ClassLimits } from './rate-limit-middleware.js';
+import { createStreamCaps, holdUntilClosed, refusalSentence, STREAM_RETRY_AFTER_SECONDS } from './stream-caps.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
 import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
 import { type StagingObserver } from '../adapters/staging/types.js';
@@ -2811,6 +2812,13 @@ export function createApp(
   // "Fallback to polling for a client that cannot hold an SSE
   // connection" is GET /jobs/:jobId/messages itself: this route adds
   // nothing that route cannot already answer, only pushes it live.
+  // The cap applies (SW4-04): a stream is one request that never ends, so
+  // the request limiter cannot bound what it holds. One caller may hold
+  // STREAM_LIMIT_PER_TARGET of these per job and STREAM_LIMIT_PER_CALLER
+  // across every stream, counted after the party check (a stranger still
+  // gets its 403) and before any header is written or any subscription is
+  // made (a refused stream never hears a message). A place comes back when
+  // the connection closes.
   app.get(
     '/jobs/:jobId/messages/stream',
     didSignature,
@@ -2819,6 +2827,14 @@ export function createApp(
       const label = 'GET /jobs/:jobId/messages/stream';
       const gate = await requireThreadParty(label, String(req.params.jobId), req, res);
       if (gate === null) return;
+      const place = streamCaps.acquire(gate.did, `thread:${gate.job.id}`);
+      if (typeof place === 'string') {
+        refuseStream(res, refusalSentence('thread', place));
+        return;
+      }
+      // The client may have left while the checks above awaited; its close
+      // event is already past, so the place is given back here instead.
+      if (!holdUntilClosed(place, res)) return;
       res.status(200);
       res.setHeader('content-type', 'text/event-stream');
       res.setHeader('cache-control', 'no-cache');
@@ -2901,7 +2917,11 @@ export function createApp(
   });
 
   // GET /accounts/:did/notifications/stream: the badge's own live update,
-  // the identical SSE shape the thread stream above uses.
+  // the identical SSE shape the thread stream above uses, and the same cap
+  // (SW4-04): at most STREAM_LIMIT_PER_TARGET for this account's
+  // notifications and STREAM_LIMIT_PER_CALLER across every stream the
+  // account holds, counted after the owner check and before any header or
+  // subscription, released when the connection closes.
   app.get('/accounts/:did/notifications/stream', requireSessionOrSignature, async (req: Request, res: Response) => {
     const did = String(req.params.did);
     let actingParty: string | null;
@@ -2916,6 +2936,13 @@ export function createApp(
       res.status(403).json({ error: 'an account may only stream its own notifications' });
       return;
     }
+    const place = streamCaps.acquire(did, `notifications:${did}`);
+    if (typeof place === 'string') {
+      refuseStream(res, refusalSentence('notifications', place));
+      return;
+    }
+    // The client may have left while the checks above awaited; see the thread stream.
+    if (!holdUntilClosed(place, res)) return;
     res.status(200);
     res.setHeader('content-type', 'text/event-stream');
     res.setHeader('cache-control', 'no-cache');
@@ -6402,6 +6429,17 @@ export function createApp(
     }
   }
 
+  // The place count for both streams above: one caller's open streams,
+  // per target and in total. In-memory and single-process like the two
+  // maps below, and for the same reason: a stream lives in this process's
+  // memory and dies with it.
+  const streamCaps = createStreamCaps();
+
+  function refuseStream(res: Response, sentence: string): void {
+    res.setHeader('retry-after', String(STREAM_RETRY_AFTER_SECONDS));
+    res.status(429).json({ error: sentence });
+  }
+
   // HT1 Part B: the live stream (SSE) and the typing signal. Both are
   // in-memory, single-process pub/sub -- the same architecture every
   // other ephemeral, non-durable signal in this codebase already uses
@@ -6410,7 +6448,9 @@ export function createApp(
   // fact); an SSE connection observes only messages written AFTER it
   // subscribed, with polling as the documented fallback for a client
   // that cannot hold the connection open (GET /jobs/:jobId/messages
-  // already answers that same fallback need).
+  // already answers that same fallback need). A stream refused by
+  // streamCaps above never subscribes, so it is the same fallback: the
+  // conversation page polls instead.
   const threadStreams = new Map<string, Set<Response>>();
   const notificationStreams = new Map<string, Set<Response>>();
 

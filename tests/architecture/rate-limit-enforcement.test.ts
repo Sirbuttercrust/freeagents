@@ -127,12 +127,14 @@ describe('classifyRoute: each named exemption is pinned by its own test (guard-w
     expect(classifyRoute('GET', '/health')).toBe('exempt');
   });
 
-  it('exempts GET /jobs/:jobId/messages/stream', () => {
-    expect(classifyRoute('GET', '/jobs/j-1/messages/stream')).toBe('exempt');
+  // SW4-04: no longer exempt; an open is one read, and the socket it holds is bounded by the stream caps.
+  it('counts GET /jobs/:jobId/messages/stream as a read, not an exemption', () => {
+    expect(classifyRoute('GET', '/jobs/j-1/messages/stream')).toBe('read');
   });
 
-  it('exempts GET /accounts/:did/notifications/stream', () => {
-    expect(classifyRoute('GET', '/accounts/did:abt:zOp/notifications/stream')).toBe('exempt');
+  // SW4-04: no longer exempt; an open is one read, and the socket it holds is bounded by the stream caps.
+  it('counts GET /accounts/:did/notifications/stream as a read, not an exemption', () => {
+    expect(classifyRoute('GET', '/accounts/did:abt:zOp/notifications/stream')).toBe('read');
   });
 
   it('exempts every static asset prefix', () => {

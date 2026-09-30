@@ -19,7 +19,9 @@ const THREAD_SENTENCE =
 const NOTIFICATION_SENTENCE =
   'Too many live connections are open for these notifications. Close another tab, or wait a moment and try again.';
 const CALLER_SENTENCE =
-  'Too many live connections are open for your account. Close another tab, or wait a moment and try again.';
+  'Too many live connections are open for this account, so this conversation did not open a live one. Close a tab on another page, or wait a moment and try again.';
+const NOTIFICATION_CALLER_SENTENCE =
+  'Too many live connections are open for this account, so the notifications did not open a live one. Close a tab on another page, or wait a moment and try again.';
 
 function delegationFixture(agentDid: string, operatorDid: string): Record<string, unknown> {
   return {
@@ -280,7 +282,7 @@ describe('SW4-04: stream caps per caller', () => {
       // Nine threads so far; the tenth place goes to the notifications.
       expectStream(await w.notifications(w.buyer.did, w.buyer));
       // No target is at 3 here (notifications holds 1), so only the total can refuse this.
-      await expectRefused(await w.notifications(w.buyer.did, w.buyer), CALLER_SENTENCE);
+      await expectRefused(await w.notifications(w.buyer.did, w.buyer), NOTIFICATION_CALLER_SENTENCE);
       // A fourth conversation is refused on the same total.
       await expectRefused(await w.stream(await w.draft(), w.buyer), CALLER_SENTENCE);
       // Another caller is not counted against this one.
