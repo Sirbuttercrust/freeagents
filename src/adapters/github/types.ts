@@ -201,6 +201,20 @@ export class NotPlatformOwnerError extends Error {
   }
 }
 
+// SW4-07: thrown, before any network call, when a string this adapter is
+// about to place in a request path as one segment (an owner, repository,
+// commit, login, gist id or branch-name part) is empty, `.` or `..`. The
+// URL parser resolves those as path steps, so sent as they are they would
+// walk the platform token's request to another API path. Carries the
+// refused value for the operator log; a route that does not map it itself
+// answers it like any other unexpected adapter failure.
+export class InvalidPathSegmentError extends Error {
+  constructor(readonly value: string) {
+    super(`refusing to use ${JSON.stringify(value)} as a GitHub path segment`);
+    this.name = 'InvalidPathSegmentError';
+  }
+}
+
 // ORG1, FIX-B36: thrown by readRepository when the platform's own token
 // cannot read the buyer's repository (404, or 403 on some GitHub
 // configurations for a repository the account was never invited to).
