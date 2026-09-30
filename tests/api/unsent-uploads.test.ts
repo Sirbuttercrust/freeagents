@@ -415,6 +415,30 @@ describe('FIX-SW4f: a caller cannot fill the disk with uploads it never sends', 
     expect(await world.attachments.listByJobId(jobId)).toHaveLength(10);
   });
 
+  it('(p) another account\'s uploads finishing while a caller\'s count is being read cause no second read for that caller', async () => {
+    const jobId = await openDraft();
+    const original = world.attachments.listUnsentByUploader.bind(world.attachments);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held = false;
+    const read = vi.spyOn(world.attachments, 'listUnsentByUploader').mockImplementation(async (did, since) => {
+      const snapshot = await original(did, since);
+      if (did === world.buyer.did && !held) {
+        held = true;
+        await gate;
+      }
+      return snapshot;
+    });
+    const slow = upload(jobId);
+    await vi.waitFor(() => expect(held).toBe(true));
+    for (let i = 0; i < 3; i += 1) expect((await upload(jobId, world.operator)).status).toBe(201);
+    expect((await upload(jobId, world.operator, 'not base64 of any file')).status).toBe(400);
+    release();
+    expect((await slow).status).toBe(201);
+    expect(read.mock.calls.filter(([did]) => did === world.buyer.did)).toHaveLength(1);
+    expect(await world.attachments.listByJobId(jobId)).toHaveLength(4);
+  });
+
   it('(o) an upload whose row is stored but whose request has not finished is counted once, not twice', async () => {
     const jobId = await openDraft();
     for (let i = 0; i < 8; i += 1) await uploadOk(jobId);

@@ -3155,35 +3155,42 @@ export function createApp(
   // An admitted upload holds a place, keyed by the caller's DID, until its
   // request ends, and the count adds held places to stored rows. Places live
   // in this process only, like the sweep's clock. The check and the hold run
-  // in one synchronous stretch after the rows return. A release during the
-  // read could leave an upload in neither the rows nor the places, so the
-  // read is repeated then.
-  const unsentUploadPlaces = new Map<string, Map<string, string>>();
-  let unsentUploadPlacesReleased = 0;
+  // in one synchronous stretch after the rows return. A release by the same
+  // DID during the read could leave an upload in neither the rows nor the
+  // places, so the read is repeated then; another DID's release never does.
+  // A DID's state lives while it holds a place or has a read in flight.
+  interface UnsentUploadState { held: Map<string, string>; released: number; reads: number }
+  const unsentUploadStates = new Map<string, UnsentUploadState>();
   async function reserveUnsentUpload(did: string, jobId: string, uploadId: string): Promise<'job' | 'account' | null> {
-    for (;;) {
-      const releasedBefore = unsentUploadPlacesReleased;
-      const stored = await attachmentRepo.listUnsentByUploader(did, new Date(Date.now() - UNSENT_UPLOAD_TTL_MS));
-      if (unsentUploadPlacesReleased !== releasedBefore) continue;
-      const held = unsentUploadPlaces.get(did) ?? new Map<string, string>();
-      const storedIds = new Set(stored.map((row) => row.id));
-      const now = new Date();
-      const pending = [...held]
-        .filter(([heldId]) => !storedIds.has(heldId))
-        .map(([, heldJobId]) => ({ jobId: heldJobId, messageId: null, createdAt: now }));
-      const reached = unsentUploadCapReached([...stored, ...pending], jobId, now);
-      if (reached !== null) return reached;
-      held.set(uploadId, jobId);
-      unsentUploadPlaces.set(did, held);
-      return null;
+    const state = unsentUploadStates.get(did) ?? { held: new Map<string, string>(), released: 0, reads: 0 };
+    unsentUploadStates.set(did, state);
+    state.reads += 1;
+    try {
+      for (;;) {
+        const releasedBefore = state.released;
+        const stored = await attachmentRepo.listUnsentByUploader(did, new Date(Date.now() - UNSENT_UPLOAD_TTL_MS));
+        if (state.released !== releasedBefore) continue;
+        const storedIds = new Set(stored.map((row) => row.id));
+        const now = new Date();
+        const pending = [...state.held]
+          .filter(([heldId]) => !storedIds.has(heldId))
+          .map(([, heldJobId]) => ({ jobId: heldJobId, messageId: null, createdAt: now }));
+        const reached = unsentUploadCapReached([...stored, ...pending], jobId, now);
+        if (reached !== null) return reached;
+        state.held.set(uploadId, jobId);
+        return null;
+      }
+    } finally {
+      state.reads -= 1;
+      if (state.reads === 0 && state.held.size === 0) unsentUploadStates.delete(did);
     }
   }
   function releaseUnsentUpload(did: string, uploadId: string): void {
-    const held = unsentUploadPlaces.get(did);
-    if (held === undefined) return;
-    held.delete(uploadId);
-    if (held.size === 0) unsentUploadPlaces.delete(did);
-    unsentUploadPlacesReleased += 1;
+    const state = unsentUploadStates.get(did);
+    if (state === undefined) return;
+    state.held.delete(uploadId);
+    state.released += 1;
+    if (state.reads === 0 && state.held.size === 0) unsentUploadStates.delete(did);
   }
 
   // POST /jobs/:jobId/attachments (attachments STEER): base64-encoded
