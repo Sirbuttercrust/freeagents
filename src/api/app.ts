@@ -71,6 +71,7 @@ import { buildWorkHistoryExtension } from '../domain/work-history-extension.js';
 import { chainIdentifiersMatch } from '../domain/chain-identifiers.js';
 import { lastHireCompletedAt, recordLastChangedAt } from '../domain/freshness.js';
 import { isHttpsUrl } from '../domain/notification.js';
+import { isOutboundDestinationAllowed } from '../domain/outbound-destination.js';
 import {
   filterBySkill,
   resolveBrowseSort,
@@ -2812,7 +2813,9 @@ export function createApp(
 
   // POST /accounts/:did/push-subscriptions: registers a browser's Push API
   // subscription (the standard PushSubscription.toJSON() shape). Upsert
-  // by endpoint (PushSubscriptionRepository's own stance).
+  // by endpoint (PushSubscriptionRepository's own stance), except that an
+  // endpoint another account already holds is refused (FIX-SW4b, bugs.md
+  // SW4-02): a subscription belongs to the account that registered it.
   app.post('/accounts/:did/push-subscriptions', requireSessionOrSignature, async (req: Request, res: Response) => {
     const did = String(req.params.did);
     let actingParty: string | null;
@@ -2836,7 +2839,29 @@ export function createApp(
       res.status(400).json({ error: 'body must be { endpoint, keys: { p256dh, auth } }, the standard PushSubscription.toJSON() shape' });
       return;
     }
+    // FIX-SW4a (bugs.md SW4-08): the endpoint is an address the platform
+    // will send to, so it must be https on the public internet. A browser's
+    // push service always is; a loopback, private, link-local or metadata
+    // address, plain http or file: is refused here, before anything is
+    // stored, and again at send time by the push sender.
+    if (!isOutboundDestinationAllowed(body.endpoint)) {
+      res.status(400).json({
+        error: "endpoint must be the https address your browser's push service gave; private, loopback and link-local addresses are refused",
+      });
+      return;
+    }
     try {
+      // FIX-SW4b (bugs.md SW4-02): the upsert is keyed by endpoint alone, so
+      // without this look-up a POST naming another account's endpoint would
+      // move that row to the caller with the caller's keys. The same account
+      // posting its own endpoint again (a browser renewing its keys) passes.
+      const holder = await pushSubscriptionRepo.findByEndpoint(body.endpoint);
+      if (holder !== null && holder.accountDid !== did) {
+        res.status(409).json({
+          error: 'this push address is registered to another account; turn notifications off there, or subscribe again for a new address',
+        });
+        return;
+      }
       const row = await pushSubscriptionRepo.upsert({
         id: 'ps-' + randomBytes(8).toString('hex'),
         accountDid: did,
@@ -2872,7 +2897,10 @@ export function createApp(
       return;
     }
     try {
-      await pushSubscriptionRepo.removeByEndpoint(body.endpoint);
+      // FIX-SW4b (bugs.md SW4-02): removes the caller's own row only. The
+      // answer is 204 whether or not a row was removed, so it tells a caller
+      // nothing about an endpoint another account holds.
+      await pushSubscriptionRepo.removeForAccount(did, body.endpoint);
       res.status(204).end();
     } catch (err) {
       console.error('DELETE /accounts/:did/push-subscriptions: storage failed', err);
@@ -4506,6 +4534,17 @@ export function createApp(
     }
     if (body.notifyWebhookUrl !== null && !isHttpsUrl(body.notifyWebhookUrl)) {
       res.status(400).json({ error: 'notifyWebhookUrl must be an https:// URL' });
+      return;
+    }
+    // FIX-SW4a (bugs.md SW4-01): an https URL is not yet a URL the platform
+    // may post to. A loopback, private, link-local or metadata address, or
+    // `localhost`, is refused here, before the party gate, and again at send
+    // time by the webhook sender (which also refuses a name that resolves to
+    // one).
+    if (body.notifyWebhookUrl !== null && !isOutboundDestinationAllowed(body.notifyWebhookUrl)) {
+      res.status(400).json({
+        error: 'notifyWebhookUrl must be an https address on the public internet; private, loopback and link-local addresses are refused',
+      });
       return;
     }
 

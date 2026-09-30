@@ -14,8 +14,21 @@
 // `npx web-push generate-vapid-keys` (the package's own documented CLI)
 // and stored as FREEAGENTS_VAPID_PUBLIC_KEY / FREEAGENTS_VAPID_PRIVATE_KEY
 // env vars -- never in code, never committed (CLAUDE.md's secrets rule).
+//
+// FIX-SW4a (bugs.md SW4-08): the platform never sends a push to a private,
+// loopback or link-local address, or to anything that is not https. send()
+// first asks the domain rule (isOutboundDestinationAllowed) about the stored
+// endpoint, which stops a row stored before that rule existed and any
+// IP-literal host, and then hands sendNotification the guarded agent (the
+// `agent` option, which web-push requires to be an https.Agent). That agent
+// refuses an endpoint host NAME that resolves to an internal address
+// (public-only-agent.ts). web-push uses https.request, which follows no
+// redirect.
+import type { Agent } from 'node:https';
 import webpush from 'web-push';
 import type { PushSubscription as StoredPushSubscription } from '../../domain/notification.js';
+import { isOutboundDestinationAllowed } from '../../domain/outbound-destination.js';
+import { createPublicOnlyAgent } from '../outbound/public-only-agent.js';
 
 export interface PushSender {
   // Fire-and-forget, same stance as the webhook sender: a push failure
@@ -59,7 +72,12 @@ export function vapidConfigFromEnv(): VapidConfig | null {
   return { subject, publicKey, privateKey };
 }
 
-export function createPushSender(config: VapidConfig | null = vapidConfigFromEnv()): PushSender {
+// `options.agent` is for tests: they inject an agent with their own resolver.
+export function createPushSender(
+  config: VapidConfig | null = vapidConfigFromEnv(),
+  options?: { readonly agent?: Agent },
+): PushSender {
+  const agent = options?.agent ?? createPublicOnlyAgent();
   if (config !== null) {
     webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey);
   }
@@ -67,16 +85,18 @@ export function createPushSender(config: VapidConfig | null = vapidConfigFromEnv
     publicKey: config?.publicKey ?? null,
     async send(subscription, payload): Promise<void> {
       if (config === null) return;
+      if (!isOutboundDestinationAllowed(subscription.endpoint)) return;
       try {
         await webpush.sendNotification(
           { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
           JSON.stringify(payload),
+          { agent },
         );
       } catch {
         // Fire-and-forget: an expired subscription (410 Gone), a
         // malformed endpoint, or a network error never propagates.
         // A caller that wants to prune dead subscriptions does so
-        // through PushSubscriptionRepository.removeByEndpoint
+        // through PushSubscriptionRepository.removeForAccount
         // separately; this method's job is only "try to deliver".
       }
     },

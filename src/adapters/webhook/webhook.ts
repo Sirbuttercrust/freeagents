@@ -12,8 +12,22 @@
 // non-2xx, timeout) is swallowed here -- this is a best-effort notify,
 // never a step a job's own state machine waits on. The caller never
 // awaits a retry; there is exactly one attempt per event.
+//
+// FIX-SW4a (bugs.md SW4-01): the platform never posts to a private,
+// loopback or link-local address. send() first asks the domain rule
+// (isOutboundDestinationAllowed) about the stored URL, which stops an
+// address stored before that rule existed and any IP-literal host, and then
+// posts with node:https through the guarded agent, which refuses a host
+// NAME that resolves to an internal address (public-only-agent.ts). fetch
+// is not used: Node's global fetch ignores an `agent` option, so the
+// resolve-time check would never run. node:https never follows a redirect,
+// so a public URL cannot bounce the request to an internal one; a 3xx
+// answer is read like any other response and dropped.
 import { createHmac } from 'node:crypto';
-import { isHttpsUrl, webhookPayloadFor, type Notification } from '../../domain/notification.js';
+import { request, type Agent } from 'node:https';
+import { webhookPayloadFor, type Notification } from '../../domain/notification.js';
+import { isOutboundDestinationAllowed } from '../../domain/outbound-destination.js';
+import { createPublicOnlyAgent } from '../outbound/public-only-agent.js';
 
 const DELIVERY_TIMEOUT_MS = 5_000;
 
@@ -52,11 +66,13 @@ export function webhookSigningSecretFromEnv(): string | null {
 
 export function createWebhookSender(options?: {
   readonly secret?: string | null;
-  readonly fetchImpl?: typeof fetch;
+  // Tests inject an agent with their own resolver; production builds the
+  // guarded agent that resolves with dns.lookup and the domain's rule.
+  readonly agent?: Agent;
   readonly timeoutMs?: number;
 }): WebhookSender {
   const secret = options?.secret ?? webhookSigningSecretFromEnv();
-  const fetchImpl = options?.fetchImpl ?? fetch;
+  const agent = options?.agent ?? createPublicOnlyAgent();
   const timeoutMs = options?.timeoutMs ?? DELIVERY_TIMEOUT_MS;
 
   return {
@@ -66,19 +82,33 @@ export function createWebhookSender(options?: {
     // caller's operator-controlled webhook endpoint being slow or down
     // must never slow down or fail the job action that triggered it.
     async send(url: string, notification: Notification): Promise<void> {
-      if (!isHttpsUrl(url)) return;
+      if (!isOutboundDestinationAllowed(url)) return;
       const body = JSON.stringify(webhookPayloadFor(notification));
-      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      const headers: Record<string, string | number> = {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      };
       if (secret !== null) {
         headers['x-freeagents-signature'] = signWebhookBody(secret, body);
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        await fetchImpl(url, { method: 'POST', headers, body, signal: controller.signal });
+        await new Promise<void>((resolve, reject) => {
+          const outgoing = request(url, { method: 'POST', headers, agent, signal: controller.signal }, (response) => {
+            // The status is deliberately not inspected; the body is drained
+            // so the socket is released.
+            response.on('error', reject);
+            response.on('end', resolve);
+            response.resume();
+          });
+          outgoing.on('error', reject);
+          outgoing.end(body);
+        });
       } catch {
-        // Fire-and-forget: a network error, a timeout, or a non-2xx
-        // response (deliberately not inspected here) never propagates.
+        // Fire-and-forget: a refused address, a network error, a timeout,
+        // or a non-2xx response (deliberately not inspected here) never
+        // propagates.
       } finally {
         clearTimeout(timer);
       }

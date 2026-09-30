@@ -98,7 +98,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   pushRepo.failUpsert = false;
-  for (const row of await pushRepo.listByAccountDid(ownDid)) await pushRepo.removeByEndpoint(row.endpoint);
+  for (const row of await pushRepo.listByAccountDid(ownDid)) await pushRepo.removeForAccount(ownDid, row.endpoint);
 });
 
 // ------------------------------------------------------------ the browser stub
