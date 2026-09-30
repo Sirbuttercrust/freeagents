@@ -303,7 +303,7 @@ describe('DID-signed hire-loop routes (R-34)', () => {
 
     expect(response.status).toBe(401);
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.error).toBe('invalid signature');
+    expect(body.error).toBe('invalid signature: the signature does not match this request; sign the exact method and URL you send, scheme included');
   });
 
   it('refuses a signature naming the wrong buyerDid with 403, not 401', async () => {
