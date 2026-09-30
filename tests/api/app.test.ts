@@ -500,6 +500,9 @@ describe('app, storage failures', () => {
     async setOperatorAddressAbt(): Promise<never> {
       throw registerError;
     }
+    async promoteUnprovedGithubLogin(): Promise<never> {
+      throw registerError;
+    }
   }
 
   let server: Server;

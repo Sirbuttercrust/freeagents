@@ -53,6 +53,7 @@ export class MemoryAccountRepository implements AccountRepository {
   async register(input: {
     readonly did: string;
     readonly githubLogin?: string | null;
+    readonly unprovedGithubLogin?: string | null;
     readonly passkeySubject?: string | null;
   }): Promise<Account> {
     // Check-then-set is safe here: Node is single-threaded and this method awaits
@@ -89,6 +90,7 @@ export class MemoryAccountRepository implements AccountRepository {
     const row: Account = {
       did: input.did,
       githubLogin: input.githubLogin ?? null,
+      unprovedGithubLogin: input.unprovedGithubLogin ?? null,
       passkeySubject: input.passkeySubject ?? null,
       createdAt: new Date(),
       operatorAddressEvm: null,
@@ -96,6 +98,29 @@ export class MemoryAccountRepository implements AccountRepository {
     };
     this.rows.set(input.did, row);
     return row;
+  }
+
+  // FIX-B62b: the memory twin of the Prisma driver's single updateMany.
+  // Every condition is checked here: the DID names the row, its proved
+  // githubLogin is null, and its unprovedGithubLogin equals the login
+  // without case. The stored spelling becomes the one passed. A proved
+  // login already held by another row throws the duplicate error the
+  // Postgres unique index would raise (P2002), so the caller sees a
+  // storage fault, never two rows on one login.
+  async promoteUnprovedGithubLogin(did: string, githubLogin: string): Promise<Account | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    if (row.githubLogin !== null) return null;
+    if (row.unprovedGithubLogin === null) return null;
+    if (row.unprovedGithubLogin.toLowerCase() !== githubLogin.toLowerCase()) return null;
+    for (const other of this.rows.values()) {
+      if (other.did !== did && other.githubLogin === githubLogin) {
+        throw new AccountAlreadyExistsError(did);
+      }
+    }
+    const promoted: Account = { ...row, githubLogin, unprovedGithubLogin: null };
+    this.rows.set(did, promoted);
+    return promoted;
   }
 
   async findByDid(did: string): Promise<Account | null> {
