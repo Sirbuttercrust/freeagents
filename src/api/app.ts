@@ -271,6 +271,13 @@ import { createPushSender, type PushSender } from '../adapters/push/push.js';
 // operatorAddressEvm and operatorAddressAbt ride both shapes the same way
 // (S3, P8c): null until the operator sets one through
 // PATCH /accounts/:did/operator-address.
+//
+// FIX-B62b: githubLogin in both shapes is the proved column, so a row
+// registered before logins needed proof shows githubLogin: null. Its
+// unprovedGithubLogin is in neither shape, for anyone, the account itself
+// included: showing it would present a typed name as the account's
+// GitHub, the claim that card removed. tests/api/account-unproved-login.test.ts
+// asserts the key set and that the text appears nowhere in an answer.
 function accountProjection(row: Account): Record<string, unknown> {
   return {
     did: row.did,
@@ -731,6 +738,20 @@ interface SessionedRequest extends Request {
 // never calls setOperatorAddressEvm or setOperatorAddressAbt, so a
 // provisioned account's payout addresses stay exactly what register()
 // itself defaults them to (null on both rails, in both storage drivers).
+//
+// FIX-B62b: a GitHub sign-in resolves only to a row holding the login in
+// the proved githubLogin column. A row registered before logins needed
+// proof holds that login as unprovedGithubLogin instead, and is never
+// found by a login lookup, so the person signing in gets the account
+// their own DID names, not the row that merely holds their name as typed
+// text. The one exception is on the taken-DID path below: the DID this
+// function derives from the login is the DID the platform itself derived
+// when a GitHub sign-in first made that account, so a row with exactly
+// that DID and that login as unproved text is the account this very
+// sign-in made earlier (the migration demoted it with every other row).
+// The GitHub OAuth session that got us here is the proof, and
+// promoteUnprovedGithubLogin re-proves that one row. A row with any
+// other DID is never promoted, whatever login text it holds.
 async function provisionAccountForSession(
   repo: AccountRepository,
   identity: IdentityAdapter,
@@ -745,8 +766,14 @@ async function provisionAccountForSession(
   } catch (err) {
     if (!(err instanceof AccountAlreadyExistsError)) throw err;
     // Someone else (a concurrent request for this same subject, or an
-    // earlier call this process already made) won the race. Fall through
-    // to the re-read below rather than treating this as a failure.
+    // earlier call this process already made) won the race, or the DID
+    // already has a row. Fall through to the re-read below rather than
+    // treating this as a failure, after the one re-proof a GitHub
+    // sign-in may do for the row its own DID names.
+    if (method === 'github-oauth') {
+      const promoted = await repo.promoteUnprovedGithubLogin(did, subject);
+      if (promoted !== null) return promoted.did;
+    }
   }
   const winner =
     method === 'passkey' ? await repo.findByPasskeySubject(subject) : await repo.findByGithubLogin(subject);
@@ -772,7 +799,12 @@ async function provisionAccountForSession(
 //   - a live session resolves through the account lookup the schema's
 //     unique githubLogin / passkeySubject constraint makes safe: two
 //     accounts can never claim the same login or subject, so this join
-//     can never resolve to two different accounts for one session. A
+//     can never resolve to two different accounts for one session.
+//     FIX-B62b: a GitHub session matches the proved githubLogin column
+//     only. A row that holds the login as unprovedGithubLogin (typed
+//     before logins needed proof) is not found here, so that session
+//     lands in provisioning and gets the account its own derived DID
+//     names; the one row provisioning re-proves is described there. A
 //     passkey session's subject is proven by the stored passkey (the
 //     adapter mints it only after a registration it saved or an
 //     authentication checked against the saved key), never by a name a

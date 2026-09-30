@@ -19,6 +19,7 @@ const mock = vi.hoisted(() => ({
   create: vi.fn(),
   findUnique: vi.fn(),
   update: vi.fn(),
+  updateMany: vi.fn(),
   agentCreate: vi.fn(),
   agentFindUnique: vi.fn(),
   agentFindMany: vi.fn(),
@@ -191,6 +192,7 @@ describe('PrismaAccountRepository', () => {
     vi.mocked(mock.create).mockReset();
     vi.mocked(mock.findUnique).mockReset();
     vi.mocked(mock.update).mockReset();
+    vi.mocked(mock.updateMany).mockReset();
   });
 
   it('register: a created row comes back as the operator projection, nothing more', async () => {
@@ -198,6 +200,7 @@ describe('PrismaAccountRepository', () => {
     vi.mocked(mock.create).mockResolvedValue({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
+      unprovedGithubLogin: null,
       passkeySubject: null,
       createdAt,
       operatorAddressEvm: null,
@@ -211,19 +214,86 @@ describe('PrismaAccountRepository', () => {
     });
 
     // The data sent to the database is exactly the supplied facts.
+    // FIX-B62b: unprovedGithubLogin is written too, null unless a test
+    // seeds a legacy row; no route passes it.
     expect(mock.create).toHaveBeenCalledWith({
-      data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1', passkeySubject: null },
+      data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1', unprovedGithubLogin: null, passkeySubject: null },
     });
-    // And the projection is exactly the six stored fields.
+    // And the projection is exactly the seven stored fields.
     expect(row).toEqual({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
+      unprovedGithubLogin: null,
       passkeySubject: null,
       createdAt,
       operatorAddressEvm: null,
       operatorAddressAbt: null,
     });
-    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm', 'passkeySubject']);
+    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm', 'passkeySubject', 'unprovedGithubLogin']);
+  });
+
+  // FIX-B62b (d), Prisma driver: the mocked client cannot evaluate a where
+  // clause, so each condition is pinned by asserting the where clause
+  // carries it (dropping any one turns exactly that test red), and count 0
+  // is pinned as "nothing changed, nothing re-read".
+  describe('promoteUnprovedGithubLogin', () => {
+    const DID = 'did:abt:prisma-promote';
+    const createdAt = new Date('2026-08-20T05:00:00.000Z');
+    const promotedRow = {
+      did: DID,
+      githubLogin: 'Some-Login',
+      unprovedGithubLogin: null,
+      passkeySubject: null,
+      createdAt,
+      operatorAddressEvm: null,
+      operatorAddressAbt: null,
+    };
+
+    function whereOfPromote(): Record<string, unknown> {
+      const call = vi.mocked(mock.updateMany).mock.calls[0]?.[0] as { where: Record<string, unknown> } | undefined;
+      if (call === undefined) throw new Error('updateMany was not called');
+      return call.where;
+    }
+
+    it('names the row by DID, so a different DID is refused', async () => {
+      vi.mocked(mock.updateMany).mockResolvedValue({ count: 0 });
+      const row = await new PrismaAccountRepository().promoteUnprovedGithubLogin(DID, 'Some-Login');
+      expect(row).toBeNull();
+      expect(whereOfPromote().did).toBe(DID);
+      expect(mock.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('requires the unproved login to equal the login without case, so a different login is refused', async () => {
+      vi.mocked(mock.updateMany).mockResolvedValue({ count: 0 });
+      await new PrismaAccountRepository().promoteUnprovedGithubLogin(DID, 'Some-Login');
+      expect(whereOfPromote().unprovedGithubLogin).toEqual({ equals: 'Some-Login', mode: 'insensitive' });
+    });
+
+    it('requires githubLogin to be null, so a row that already has a proved login is refused', async () => {
+      vi.mocked(mock.updateMany).mockResolvedValue({ count: 0 });
+      await new PrismaAccountRepository().promoteUnprovedGithubLogin(DID, 'Some-Login');
+      expect(Object.prototype.hasOwnProperty.call(whereOfPromote(), 'githubLogin')).toBe(true);
+      expect(whereOfPromote().githubLogin).toBeNull();
+    });
+
+    it('carries no condition beyond the three, and writes the passed spelling and clears the unproved login', async () => {
+      vi.mocked(mock.updateMany).mockResolvedValue({ count: 0 });
+      await new PrismaAccountRepository().promoteUnprovedGithubLogin(DID, 'Some-Login');
+      expect(Object.keys(whereOfPromote()).sort()).toEqual(['did', 'githubLogin', 'unprovedGithubLogin']);
+      expect(mock.updateMany).toHaveBeenCalledWith({
+        where: { did: DID, githubLogin: null, unprovedGithubLogin: { equals: 'Some-Login', mode: 'insensitive' } },
+        data: { githubLogin: 'Some-Login', unprovedGithubLogin: null },
+      });
+    });
+
+    it('promotes: one row updated, then read back and returned', async () => {
+      vi.mocked(mock.updateMany).mockResolvedValue({ count: 1 });
+      vi.mocked(mock.findUnique).mockResolvedValue(promotedRow);
+      const row = await new PrismaAccountRepository().promoteUnprovedGithubLogin(DID, 'Some-Login');
+      expect(mock.findUnique).toHaveBeenCalledWith({ where: { did: DID } });
+      expect(row?.githubLogin).toBe('Some-Login');
+      expect(row?.unprovedGithubLogin).toBeNull();
+    });
   });
 
   it('register: a P2002 unique-constraint failure is the domain duplicate error', async () => {

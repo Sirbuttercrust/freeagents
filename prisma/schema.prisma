@@ -95,6 +95,16 @@ model Account {
   // before this card already carries a real login, and no backfill writes
   // one here.
   githubLogin    String?  @unique
+  // FIX-B62b: a login stored before logins needed proof (FIX-B62a), kept so
+  // nothing is deleted and never trusted as proof. The migration moved every
+  // then-stored githubLogin here and cleared githubLogin, so githubLogin
+  // holds only logins someone proved (a signed gist, or a GitHub sign-in).
+  // Nullable, not unique (two legacy rows may hold the same typed name, and
+  // that is exactly why it is not a key), no default. Nothing resolves a
+  // session or serves a public answer from this column; the one reader is
+  // the re-proof a GitHub sign-in runs for the row whose DID that sign-in
+  // derives (AccountRepository.promoteUnprovedGithubLogin).
+  unprovedGithubLogin String?
   passkeySubject String?  @unique
   createdAt      DateTime @default(now())
   // S3: the EVM address this account is paid at on the USDC rail, set by

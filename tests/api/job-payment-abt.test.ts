@@ -1211,6 +1211,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         findByPasskeySubject: repo.findByPasskeySubject.bind(repo),
         setOperatorAddressEvm: repo.setOperatorAddressEvm.bind(repo),
         setOperatorAddressAbt: repo.setOperatorAddressAbt.bind(repo),
+        promoteUnprovedGithubLogin: repo.promoteUnprovedGithubLogin.bind(repo),
         findByDid: async (did: string) => {
           const row = await repo.findByDid(did);
           if (did !== operatorDid) return row;
