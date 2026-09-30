@@ -54,6 +54,21 @@ export function fakeGitHubConfig(): { readonly clientId: string; readonly client
   };
 }
 
+// SW4-06: a GitHub sign-in completes only in the browser that began it. The
+// start sets the fa_oauth_state cookie and the callback wants it back, so a
+// test that drives the callback starts through the real GET
+// /auth/github/start and keeps the cookie the way a browser's jar would.
+// `cookie` is the Cookie request header value (name=value, no attributes).
+export async function startGitHubSignIn(baseUrl: string): Promise<{ readonly state: string; readonly cookie: string }> {
+  const res = await fetch(`${baseUrl}/auth/github/start`);
+  const body = (await res.json()) as { state: string };
+  const set = res.headers.getSetCookie().find((line) => line.startsWith('fa_oauth_state='));
+  if (set === undefined) {
+    throw new Error('startGitHubSignIn: GET /auth/github/start set no fa_oauth_state cookie');
+  }
+  return { state: body.state, cookie: set.split(';')[0]! };
+}
+
 // R-39 follow-up (issue 83, route enforcement): a ready-to-use session
 // adapter plus a helper that mints a real, live bearer token through the
 // same GitHub OAuth round trip session.test.ts exercises. Shared by every

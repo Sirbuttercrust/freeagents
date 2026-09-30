@@ -970,6 +970,22 @@ async function withBuyerGithubLogins(
   }));
 }
 
+// SW4-06: the cookie that ties a GitHub sign-in to the browser that began
+// it (see GET /auth/github/start and /auth/github/callback below).
+const OAUTH_STATE_COOKIE = 'fa_oauth_state';
+const OAUTH_STATE_COOKIE_PATH = '/auth/github/callback';
+
+// One cookie's value from a Cookie request header, or null when it is
+// absent. Nothing else in this app reads a cookie, so this is not a parser.
+function readCookie(header: string | undefined, name: string): string | null {
+  if (header === undefined) return null;
+  for (const part of header.split(';')) {
+    const pair = part.trim();
+    if (pair.startsWith(`${name}=`)) return pair.slice(name.length + 1);
+  }
+  return null;
+}
+
 export function createApp(
   repo: AccountRepository = createAccountRepository(),
   agentRepo: AgentRepository = createAgentRepository(),
@@ -1585,8 +1601,36 @@ export function createApp(
   // (src/adapters/identity/session-github-passkey.ts) already mints the
   // state, exchanges the callback, and issues the Session; this route is
   // the mount point, not a second implementation.
+  //
+  // SW4-06: the start also binds the sign-in to the browser that began it.
+  // It sets one cookie, fa_oauth_state, holding the state it returns, and
+  // the callback below completes a sign-in only when that cookie comes back
+  // equal to the state in the query. Without it a callback link begun in
+  // one browser would sign whoever opened it into the account that finished
+  // GitHub's step. The cookie authorizes nothing (the session stays a
+  // bearer token) and only the callback route reads it.
+  //   - HttpOnly: no page script needs it.
+  //   - SameSite=Lax, not Strict: the return from GitHub is a cross-site
+  //     top-level GET, which a Strict cookie is withheld from and a Lax one
+  //     is sent with.
+  //   - Path=/auth/github/callback: sent nowhere else.
+  //   - Max-Age=600: the state's own ten minute life
+  //     (DEFAULT_OAUTH_STATE_TTL_MS in the session adapter).
+  //   - Secure exactly when the redirect_uri inside the answer's own
+  //     redirectUrl is https. That is read from the URL the browser is about
+  //     to follow, so it holds behind a proxy that ends TLS whatever
+  //     FREEAGENTS_TRUST_PROXY says, and plain-http local development keeps
+  //     working.
   app.get('/auth/github/start', (_req: Request, res: Response, next: NextFunction) => {
     void session.beginGitHubOAuth().then((start) => {
+      const redirectUri = new URL(start.redirectUrl).searchParams.get('redirect_uri');
+      res.cookie(OAUTH_STATE_COOKIE, start.state, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: OAUTH_STATE_COOKIE_PATH,
+        maxAge: 10 * 60 * 1000,
+        secure: redirectUri !== null && redirectUri.startsWith('https://'),
+      });
       res.status(200).json(start);
     }, next);
   });
@@ -1776,6 +1820,29 @@ export function createApp(
           }
           sendProofOutcome(outcome, completion.agentDid);
         })().catch(next);
+        return;
+      }
+
+      // SW4-06: the sign-in branch completes only in the browser that began
+      // it. The proof branch above is exempt on purpose: its start is
+      // POST /agents/:agentDid/github-proof/start, called through
+      // FAApi.postAuthed, which fetches with credentials omitted, so a
+      // cookie set on that answer is never stored and requiring one would
+      // break every proof (the proof flow's own binding is a separate
+      // card). Here a missing cookie, or one that differs from the query's
+      // state, answers what an invalid state answers, BEFORE
+      // completeGitHubOAuth runs, so a refused attempt leaves its state
+      // unused. The two values come from the same request and the state is
+      // a random token, so the comparison is plain and exact. Every answer
+      // from here on clears the cookie, so a finished or refused attempt
+      // leaves nothing behind.
+      res.clearCookie(OAUTH_STATE_COOKIE, { path: OAUTH_STATE_COOKIE_PATH });
+      if (readCookie(req.headers.cookie, OAUTH_STATE_COOKIE) !== state) {
+        if (wantsHtml) {
+          res.status(401).set('Content-Type', 'text/html; charset=utf-8').send(web.renderAuthCallbackErrorPage());
+          return;
+        }
+        res.status(401).json({ error: 'invalid or expired sign-in attempt' });
         return;
       }
 

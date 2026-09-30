@@ -14,7 +14,7 @@ import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 import { createRateLimiter } from '../../src/adapters/identity/verify-rate-limit.js';
-import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch, startGitHubSignIn } from '../helpers/session-fixtures.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
@@ -95,8 +95,8 @@ describe('GET /auth/github/callback', () => {
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
 
-    const start = await sessionAdapter.beginGitHubOAuth();
-    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`);
+    const start = await startGitHubSignIn(baseUrl);
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, { headers: { Cookie: start.cookie } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({
@@ -160,12 +160,12 @@ describe('GET /auth/github/callback', () => {
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
 
-    const first = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`);
+    const first = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, { headers: { Cookie: start.cookie } });
     expect(first.status).toBe(200);
 
-    const replay = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`);
+    const replay = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, { headers: { Cookie: start.cookie } });
     expect(replay.status).toBe(401);
   });
 
@@ -180,10 +180,10 @@ describe('GET /auth/github/callback', () => {
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
 
     now += 1001;
-    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`);
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, { headers: { Cookie: start.cookie } });
     expect(res.status).toBe(401);
   });
 
@@ -192,9 +192,9 @@ describe('GET /auth/github/callback', () => {
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
 
-    const res = await fetch(`${baseUrl}/auth/github/callback?code=bad-code&state=${encodeURIComponent(start.state)}`);
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=bad-code&state=${encodeURIComponent(start.state)}`, { headers: { Cookie: start.cookie } });
     expect(res.status).toBe(401);
   });
 
@@ -242,10 +242,10 @@ describe('GET /auth/github/callback, driven by a browser', () => {
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
 
     const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, {
-      headers: { Accept: HTML },
+      headers: { Accept: HTML, Cookie: start.cookie },
     });
     expect(res.status).toBe(200);
     expect(String(res.headers.get('content-type'))).toContain('text/html');
@@ -275,10 +275,10 @@ describe('GET /auth/github/callback, driven by a browser', () => {
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
 
     const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, {
-      headers: { Accept: HTML },
+      headers: { Accept: HTML, Cookie: start.cookie },
     });
     expect(res.headers.get('location')).toBeNull();
     const body = await res.text();
@@ -337,9 +337,9 @@ describe('GET /auth/github/callback, driven by a browser', () => {
     const baseUrl = await listen(
       createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, sessionAdapter),
     );
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
 
-    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`);
+    const res = await fetch(`${baseUrl}/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`, { headers: { Cookie: start.cookie } });
     expect(res.status).toBe(200);
     expect(String(res.headers.get('content-type'))).toContain('application/json');
     const body = (await res.json()) as Record<string, unknown>;
@@ -672,13 +672,16 @@ describe('P8b anchor: sign in over HTTP, then drive both hire-loop gate shapes w
     // over HTTP, against the real route.
     const startRes = await fetch(`${baseUrl}/auth/github/start`);
     expect(startRes.status).toBe(200);
+    const cookie = String(startRes.headers.getSetCookie()[0]).split(';')[0]!;
     const { redirectUrl } = (await startRes.json()) as { redirectUrl: string };
     expect(redirectUrl).toContain('https://github.com/login/oauth/authorize');
     const state = new URL(redirectUrl).searchParams.get('state');
     expect(state).not.toBeNull();
 
     // GitHub redirects back with a code and the same state.
-    const callbackRes = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state!)}`);
+    const callbackRes = await fetch(`${baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(state!)}`, {
+      headers: { Cookie: cookie },
+    });
     expect(callbackRes.status).toBe(200);
     const session = (await callbackRes.json()) as { token: string };
     expect(typeof session.token).toBe('string');

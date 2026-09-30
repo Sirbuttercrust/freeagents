@@ -17,7 +17,7 @@ import { createKnownKeyStore } from '../../src/adapters/identity/did-abt-resolve
 import { MemoryAgentRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
-import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, failingGitHubFetch, startGitHubSignIn } from '../helpers/session-fixtures.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 import { NotImplementedError } from '../../src/adapters/not-implemented.js';
 import type { CreateGistInput, CreateGistResult, DeleteGistInput, DeleteGrantInput, Gist, GithubAdapter } from '../../src/adapters/github/types.js';
@@ -599,8 +599,10 @@ describe('GET /auth/github/callback, the one-click proof branch: route-level cro
   it('a sign-in state presented at the callback never completes a proof and mints no session-shaped body for a proof caller: falls through to the ordinary sign-in success shape', async () => {
     const booted = await bootWithDerivableAgent('octo-crossover-signin-state');
     try {
-      const signInStart = await booted.sessionAdapter.beginGitHubOAuth();
-      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(signInStart.state)}`);
+      const signInStart = await startGitHubSignIn(booted.baseUrl);
+      const res = await fetch(`${booted.baseUrl}/auth/github/callback?code=any-code&state=${encodeURIComponent(signInStart.state)}`, {
+        headers: { Cookie: signInStart.cookie },
+      });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       // The ordinary sign-in shape (a Session), never a proof outcome.
