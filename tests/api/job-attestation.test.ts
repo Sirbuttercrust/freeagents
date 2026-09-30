@@ -6,7 +6,7 @@
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/api/app.js';
-import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { depositSettledGate } from '../helpers/settlement-fixtures.js';
 import { anyCommitStagingObserver, fixedStagingObserverFor } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
@@ -109,7 +109,7 @@ async function startApp(options: {
     undefined,
     undefined,
     undefined,
-    alwaysSettledGate(),
+    depositSettledGate(),
     options.stagingObserver ?? createUnwiredStagingObserver(),
     attestationRepo,
   );
@@ -487,7 +487,7 @@ describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot
       undefined,
       undefined,
       undefined,
-      alwaysSettledGate(),
+      depositSettledGate(),
       anyCommitStagingObserver(),
       attestationRepo,
     );
