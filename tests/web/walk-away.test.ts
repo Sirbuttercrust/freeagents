@@ -15,7 +15,9 @@
 // is pinned to show neither control for that reason.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -592,6 +594,13 @@ describe('the sheets, open, at 320, 390 and 1280', () => {
           if (phone) {
             expect(m.small, `${where}: sheet controls under 44px`).toEqual([]);
             expect(m.openBtn, `${where}: the control that opens the sheet is under 44px`).toBeGreaterThanOrEqual(44);
+          }
+          // Set WALK_AWAY_CAPTURE_DIR to also save each open sheet at 390.
+          const dir = process.env['WALK_AWAY_CAPTURE_DIR'];
+          if (dir && width === 390) {
+            const shot = (await browser.send('Page.captureScreenshot', { format: 'png' })) as { result?: { data?: string } };
+            const name = `${path.replace(/[^a-z]+/gi, '-').replace(/^-|-$/g, '')}-${kind}-390.png`;
+            writeFileSync(join(dir, name), Buffer.from(shot.result?.data ?? '', 'base64'));
           }
         }
       }
