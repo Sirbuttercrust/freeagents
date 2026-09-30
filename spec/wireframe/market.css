@@ -576,7 +576,7 @@
 }
 
 /* TAP TARGETS on the new marketplace components. Measured under a real touch
-   profile by verify_polish.py, which is the only way these show up: a narrow
+   profile by the polish check, which is the only way these show up: a narrow
    desktop window does not match (pointer: coarse).
 
    A card title and an identity value are standalone controls, not words in a
