@@ -111,10 +111,21 @@ import { DELEGATION_TYPE } from '../../src/domain/agent.js';
 import { defaultAvatar } from '../../src/domain/avatar-spec.js';
 import { signRequest, signingIdentityFromSeed, signingIdentityFromWallet, type SigningIdentity } from '../helpers/sign-request.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
-import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
+import { MemorySettlementGate } from '../../src/adapters/payment/gate.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
 import { createStagingLifecycleGithubFake, registerAgentForkPullRequest } from '../helpers/github-staging-fixtures.js';
 
+// FIX-B74 rule: a deposit that has settled locks a proposed job's terms, so
+// the smoke app can no longer answer "deposit settled" for every job before
+// anyone paid. A job's deposit reads settled only once the run pays it
+// (markDepositSettled, at the payment step just before that job's confirm);
+// the balance leg keeps reading settled for every job, as before.
+class SmokeSettlementGate extends MemorySettlementGate {
+  override async balanceSettled(_jobId: string): Promise<boolean> {
+    return true;
+  }
+}
+const smokeGate = new SmokeSettlementGate();
 let server: Server;
 let base: string;
 let authHeader: Record<string, string> = {};
@@ -448,7 +459,7 @@ beforeAll(async () => {
     undefined,
     sessionAdapter,
     undefined,
-    alwaysSettledGate(),
+    smokeGate,
     anyCommitStagingObserver(),
   );
   server = await new Promise<Server>((resolve, reject) => {
@@ -1066,7 +1077,9 @@ describe('the API starts and answers', () => {
     const read = await get(`/jobs/${jobId}`);
     expect(read.status).toBe(200);
     const readBack = (await read.json()) as Record<string, unknown>;
-    expect(readBack).toEqual({ ...draftBody, status: 'proposed', criteria: againBody.criteria });
+    // FIX-B74: a proposed job read back carries depositSettled (false: nobody
+    // paid in this test); every other key is still compared whole.
+    expect(readBack).toEqual({ ...draftBody, status: 'proposed', criteria: againBody.criteria, depositSettled: false });
   });
 
   it('confirms a job on the agreed criteria and locks it (R-9)', async () => {
@@ -1129,6 +1142,7 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
 
     // 5. Confirm: status flips, specHash appears, confirmedAt rides beside it.
+    smokeGate.markDepositSettled(jobId); // FIX-B74: the deposit is paid here; the gate reads settled only after this
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
     expect(confirmed.status).toBe(200);
     const confirmedBody = (await confirmed.json()) as Record<string, unknown>;
@@ -1254,6 +1268,7 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
+    smokeGate.markDepositSettled(jobId); // FIX-B74: the deposit is paid here; the gate reads settled only after this
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
 
     // 6. Fork and open the PR: the job lands on submitted with the URL and
@@ -1340,6 +1355,7 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/criteria/1/accept`, {}, agentIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, buyerIdentity)).status).toBe(200);
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
+    smokeGate.markDepositSettled(jobId); // FIX-B74: the deposit is paid here; the gate reads settled only after this
     expect((await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity)).status).toBe(200);
     const staged = await postSigned(`/jobs/${jobId}/stage`, { stagedCommit: 'commit-sha-e2e-merge' }, agentIdentity);
     expect(staged.status).toBe(200);
@@ -1600,6 +1616,7 @@ describe('the API starts and answers', () => {
     expect((await postSigned(`/jobs/${jobId}/price/accept`, {}, agentIdentity)).status).toBe(200);
 
     // 7. Confirm, signed: the issue's acceptance line.
+    smokeGate.markDepositSettled(jobId); // FIX-B74: the deposit is paid here; the gate reads settled only after this
     const confirmed = await postSigned(`/jobs/${jobId}/confirm`, {}, buyerIdentity);
     expect(confirmed.status).toBe(200);
     const confirmedBody = (await confirmed.json()) as Record<string, unknown>;

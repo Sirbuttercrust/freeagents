@@ -5284,6 +5284,23 @@ export function createApp(
         return;
       }
     }
+    // FIX-B74: `depositSettled` (boolean) rides GET /jobs/:jobId only, and
+    // only on a 'proposed' job, so a page can word the paid state (the
+    // agreement is locked against changes and only the buyer's confirm is
+    // left). Read from the settlement repository payableRailsFor reads.
+    // Absent on every other status (a confirmed job's deposit is settled
+    // by definition) and never in jobProjection, so no write route and no
+    // POST /jobs response carries it.
+    let depositSettledKey: { readonly depositSettled: boolean } | Record<string, never> = {};
+    if (row.status === 'proposed') {
+      try {
+        depositSettledKey = { depositSettled: (await settlementRepo.findByJobAndLeg(row.id, 'deposit')) !== null };
+      } catch (err) {
+        console.error('GET /jobs/:jobId: storage failed', err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+    }
     // Only a completed or deemed-completed job can carry a credential, so
     // every other row never pays for the lookup. P6 widens this guard:
     // deemed_completed carries a distinct credential type but no
@@ -5291,7 +5308,7 @@ export function createApp(
     // observed), so the mergeCommit-only guard from before this card
     // would silently skip the lookup for every deemed-completed job.
     if (row.mergeCommit === null && row.status !== 'deemed_completed') {
-      res.status(200).json({ ...jobProjection(row), ...accessNeeded, ...payableRails });
+      res.status(200).json({ ...jobProjection(row), ...accessNeeded, ...payableRails, ...depositSettledKey });
       return;
     }
     let credential: IssuedCredentialDocument | null;
@@ -5829,9 +5846,11 @@ export function createApp(
         res.status(409).json({ error: err.message });
         return;
       }
-      // DEP1 (B24 ruling, 2026-09-23): the deposit has settled,
-      // so decline is refused -- a state conflict, the same 409 shape
-      // every other domain refusal above already answers with.
+      // DEP1 (B24 ruling, 2026-09-23), extended by FIX-B74 to withdraw and
+      // criteria: the deposit has settled, so decline, withdraw and a
+      // change to the terms are refused -- a state conflict, the same 409
+      // shape every other domain refusal above already answers with. The
+      // error carries its own sentence, naming the action it stopped.
       if (err instanceof DepositSettledError) {
         res.status(409).json({ error: err.message });
         return;
@@ -6429,6 +6448,27 @@ export function createApp(
       // without permission never even learns its own floor was consulted.
       if (!(await requireNegotiationAllowed('POST /jobs/:jobId/criteria', res, current, gate.did, gate.party))) return;
 
+      // FIX-B74 (bugs.md B74): the third door DEP1 left open. A proposed
+      // job whose deposit has settled takes no change to its lines or its
+      // price, from either side: a change would clear marks the buyer paid
+      // against. The gate is read only at 'proposed' (a draft has no
+      // deposit; every other status is refused by the transition table
+      // first, unchanged), after the party and negotiation gates and before
+      // any floor read or write. A gate failure is 503, never a guess. The
+      // refusal comes out of proposeCriteria below as DepositSettledError,
+      // and applyAndPersist maps it to 409 without running onPersisted, so
+      // no quote row and no notification is written.
+      let depositIsSettled = false;
+      if (current.status === 'proposed') {
+        try {
+          depositIsSettled = await settlementGate.depositSettled(current.id);
+        } catch (err) {
+          console.error('POST /jobs/:jobId/criteria: settlement gate failed', err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+      }
+
       let priceProposal: PriceProposal | undefined;
       if (priceNamed) {
         // Well-formed by the guard above; re-narrow so the domain call
@@ -6487,7 +6527,7 @@ export function createApp(
         'POST /jobs/:jobId/criteria',
         res,
         current,
-        (job) => proposeCriteria(job, attributedInput, priceProposal),
+        (job) => proposeCriteria(job, attributedInput, priceProposal, depositIsSettled),
         undefined,
         // HT1 Part B: "system events (quote sent...) are rows in the same
         // thread... a quote event carries the price, window, and criteria
@@ -6967,6 +7007,15 @@ export function createApp(
   // The buyer withdraws an open job (R-31, D3 2026-08-22): recorded
   // withdrawn, terminal, a timing fact. Body-less like request-changes;
   // every rule lives in recordWithdrawn, the route only names the label.
+  //
+  // FIX-B74 (bugs.md B74): once the buyer's deposit has settled, a
+  // proposed job can no longer be withdrawn; the buyer's way forward is
+  // confirm. Same rule as decline and criteria below and above: three
+  // doors, one rule. The settlement gate is asked only at 'proposed'
+  // (any other status is the transition table's call, unchanged) and the
+  // answer is threaded into recordWithdrawn, which throws
+  // DepositSettledError, mapped to 409 by applyAndPersist. A gate
+  // failure is 503, never a guess.
   app.post(
     '/jobs/:jobId/withdraw',
     didSignature,
@@ -6975,7 +7024,17 @@ export function createApp(
       const label = 'POST /jobs/:jobId/withdraw';
       const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
       if (gate === null) return;
-      await applyAndPersist(label, res, gate.job, recordWithdrawn);
+      let depositIsSettled = false;
+      if (gate.job.status === 'proposed') {
+        try {
+          depositIsSettled = await settlementGate.depositSettled(gate.job.id);
+        } catch (err) {
+          console.error(`${label}: settlement gate failed`, err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+      }
+      await applyAndPersist(label, res, gate.job, (job) => recordWithdrawn(job, depositIsSettled));
     }),
   );
 
@@ -6992,7 +7051,9 @@ export function createApp(
   // domain throws DepositSettledError, which this route maps to 409 with
   // a plain-words reason, the same state-conflict shape JobTransitionError
   // already answers with. A gate failure is 503, never a silent guess,
-  // matching every other settlement-gate call site in this file.
+  // matching every other settlement-gate call site in this file. FIX-B74
+  // applies the same rule to withdraw (above) and criteria: three doors,
+  // one rule.
   app.post(
     '/jobs/:jobId/decline',
     didSignature,

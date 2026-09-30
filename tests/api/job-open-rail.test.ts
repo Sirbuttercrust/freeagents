@@ -166,13 +166,17 @@ describe('confirm on an open quote: the settlement gate says settled but no reco
     // and rule 5 both forbid.
     active = await startOpenRailApp();
     const jobId = await walkToOpenQuoteAccepted(active);
-    await recordDeposit(active, jobId, 'usdc');
+    // FIX-B74 rule: once a deposit is recorded, the agreed terms no longer
+    // change, so the unaccepted price is reached BEFORE the deposit is
+    // recorded. Re-proposing the price (no rail named) resets both
+    // acceptances; only then does the deposit settle.
     const reproposed = await postSigned(active.baseUrl, `/jobs/${jobId}/criteria`, {
       criteria: OPEN_QUOTE_CRITERIA,
       priceUsd: '600.00',
     }, active.agent);
     expect(reproposed.status).toBe(200);
     expect((await reproposed.json() as { price: { acceptedByBuyer: boolean } }).price.acceptedByBuyer).toBe(false);
+    await recordDeposit(active, jobId, 'usdc');
     const confirmed = await postSigned(active.baseUrl, `/jobs/${jobId}/confirm`, {}, active.buyer);
     expect(confirmed.status).toBe(409);
     const body = (await confirmed.json()) as { error: string };

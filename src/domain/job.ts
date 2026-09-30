@@ -272,12 +272,28 @@ export class JobPriceError extends Error {
 
 // DEP1 (B24 ruling, 2026-09-23, answering "yes" to the recommendation):
 // once the buyer's deposit has settled, the agent can no longer simply
-// decline. A state conflict, the same 409 shape JobTransitionError and
-// JobPriceError already answer with -- the caller sent nothing malformed,
-// the AGREEMENT (and the money already paid on it) is what refuses this.
+// decline. FIX-B74 (bugs.md B74) applies the same rule to the other two
+// doors that reopen a paid agreement: three doors, one rule. A proposed
+// job whose deposit has settled takes no decline, no criteria/price
+// proposal and no withdraw. A state conflict, the same 409 shape
+// JobTransitionError and JobPriceError already answer with -- the caller
+// sent nothing malformed, the AGREEMENT (and the money already paid on
+// it) is what refuses this. Each refusal names the action it stopped;
+// the two the buyer or the agent can meet after paying also name the
+// next step, the buyer's confirm.
+export type DepositSettledAction = 'decline' | 'change its terms' | 'withdraw';
+
+const DEPOSIT_SETTLED_SENTENCES: Record<DepositSettledAction, (jobId: string) => string> = {
+  decline: (jobId) => `job ${jobId} has a settled deposit; it can no longer be declined`,
+  'change its terms': (jobId) =>
+    `job ${jobId} has a settled deposit; its terms can no longer change. The buyer confirms the hire to start the work.`,
+  withdraw: (jobId) =>
+    `job ${jobId} has a settled deposit; it can no longer be withdrawn. Confirm the hire to start the work.`,
+};
+
 export class DepositSettledError extends Error {
-  constructor(jobId: string) {
-    super(`job ${jobId} has a settled deposit; it can no longer be declined`);
+  constructor(jobId: string, action: DepositSettledAction = 'decline') {
+    super(DEPOSIT_SETTLED_SENTENCES[action](jobId));
     this.name = 'DepositSettledError';
   }
 }
@@ -1022,8 +1038,19 @@ export function recordStale(job: Job): Job {
 // Records that the buyer withdrew the job (R-31, D3 2026-08-22): a
 // timing fact, never a judgement of the work. Terminal: a withdrawn
 // job has no further outcomes to observe.
-export function recordWithdrawn(job: Job): Job {
+//
+// FIX-B74: a job whose deposit has settled cannot be withdrawn
+// (DepositSettledError; the buyer's way forward is confirm). The deposit
+// fact is the caller's to supply, like decline() below, and defaults to
+// false so every other caller, confirm's sibling loop included, behaves
+// as before. The route asks the gate only for a PROPOSED job, the one
+// status where a paid deposit and an open agreement coexist; from
+// 'confirmed' on, a withdraw stays a recorded fact.
+export function recordWithdrawn(job: Job, depositSettled = false): Job {
   validateJobTransition(job.status, 'withdrawn');
+  if (depositSettled) {
+    throw new DepositSettledError(job.id, 'withdraw');
+  }
   return { ...job, status: 'withdrawn' };
 }
 
@@ -1061,7 +1088,9 @@ export function completeJob(
 // settled refuses with DepositSettledError, a state conflict the route
 // maps to 409. The only way left to abandon a paid job is to never stage
 // it, which expireUnstaged below turns into expired_unstaged -- the
-// operator's own walked-away fact, not the agent's decline.
+// operator's own walked-away fact, not the agent's decline. Withdraw
+// (recordWithdrawn) and a re-proposal (proposeCriteria) take the same
+// flag and refuse the same way from 'proposed' (FIX-B74).
 export function decline(job: Job, depositSettled = false): Job {
   validateJobTransition(job.status, 'declined');
   if (depositSettled) {
@@ -1141,11 +1170,23 @@ export interface PriceProposal {
 // resetting to unaccepted). Omitting the price argument entirely leaves
 // whatever price is already stored untouched, so a re-propose that only
 // touches criteria text does not disturb an already-agreed price.
+//
+// FIX-B74: a re-propose on a job whose deposit has settled is refused
+// with DepositSettledError before anything is diffed: a changed line or
+// price would clear marks the buyer paid against. The deposit fact is
+// the caller's to supply (like decline()) and defaults to false; the
+// route asks the gate only for a PROPOSED job, so the first propose from
+// a draft and the transition table's own refusal for every other status
+// are unchanged.
 export function proposeCriteria(
   job: Job,
   input: ReadonlyArray<{ readonly text: string; readonly proposedBy: string }>,
   price?: PriceProposal,
+  depositSettled = false,
 ): Job {
+  if (depositSettled) {
+    throw new DepositSettledError(job.id, 'change its terms');
+  }
   if (input.length === 0) {
     throw new JobError('a proposal needs at least one acceptance criterion');
   }
