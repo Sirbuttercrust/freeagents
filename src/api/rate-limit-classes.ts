@@ -224,6 +224,10 @@ export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   // writes through PATCH /agents/:agentDid, already classified in
   // ROUTE_TABLE.
   '/agentsettings',
+  // FIX-SW12m: the write-a-review page shell. It paints static markup and
+  // writes through POST /jobs/:jobId/reviews, already classified in
+  // ROUTE_TABLE.
+  '/review',
 ];
 
 // FIX-S7 round 2 (qa proof r1, defect 1): the four GET routes src/web/

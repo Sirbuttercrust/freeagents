@@ -20,9 +20,12 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { MemoryJobRepository } from '../../src/adapters/storage/memory.js';
+import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
+import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
+import type { Delegation } from '../../src/domain/agent.js';
 import { jobPageReady, settled } from '../helpers/page-settled.js';
+import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '../..');
@@ -439,5 +442,147 @@ describe('STATE_SENTENCES in job.js covers exactly the JobStatus values prisma/s
       .sort();
 
     expect(sentenceKeys, 'STATE_SENTENCES keys do not match the JobStatus enum members').toEqual(schemaStatuses);
+  });
+});
+
+// FIX-SW12m (SW3-08, SITEMAP P-17, ENT-10.1): on a completed hire, its
+// buyer sees "Write a review" beside "See the receipt", linking to
+// /review?job=<id>. Nobody else sees it, on no other status, and a failed
+// /accounts/me read shows nothing. Its own app, with real sessions for the
+// buyer, the agent's owner and a stranger. Each negative case also names
+// what the page DID do for that visitor, so a page that never read the
+// account cannot pass as "no link".
+describe('(e) Write a review, for the buyer of a completed hire only', () => {
+  const AGENT = 'did:abt:jr-agent';
+  const OWNER = 'did:abt:jr-owner';
+  const BUYER = 'did:abt:jr-buyer';
+  const STRANGER = 'did:abt:jr-stranger';
+  const tokens: Record<'buyer' | 'owner' | 'stranger', string> = { buyer: '', owner: '', stranger: '' };
+  let srv: Server;
+  let url: string;
+
+  beforeAll(async () => {
+    const agents = new MemoryAgentRepository();
+    const delegation: Delegation = {
+      '@context': ['https://www.w3.org/2018/credentials/v1'],
+      id: `urn:uuid:delegation-for-${AGENT}`,
+      type: ['VerifiableCredential', 'AgentDelegation'],
+      issuer: OWNER,
+      issuanceDate: '2026-01-01T00:00:00Z',
+      credentialSubject: { id: AGENT },
+      proof: { type: 'Ed25519Signature2020', created: '2026-01-01T00:00:00Z', verificationMethod: `${AGENT}#key-1`, proofPurpose: 'assertionMethod', proofValue: 'zfixture' },
+    };
+    await agents.create({ did: AGENT, operatorDid: OWNER, delegation, name: 'jr-scout', skills: ['triage'], githubLogin: null, floorPriceUsd: null });
+    const accounts = new MemoryAccountRepository();
+    for (const [did, login] of [[OWNER, 'jr-owner'], [BUYER, 'jr-buyer'], [STRANGER, 'jr-stranger']] as const) {
+      await accounts.register({ did, githubLogin: login });
+    }
+    const jobs = new MemoryJobRepository();
+    const base = (id: string, over: Partial<Job>): Job => ({ ...createJob({ id, buyerDid: BUYER, agentDid: AGENT, repository: 'buyer/jr-repo', brief: 'Fix it' }, RECENT), ...over });
+    const pr = { pullRequestUrl: 'https://github.com/buyer/jr-repo/pull/3', submittedAt: RECENT };
+    await jobs.create(base('jr-completed', { status: 'completed', ...pr, mergeCommit: 'jrmerge', mergedAt: RECENT }));
+    await jobs.create(base('jr-submitted', { status: 'submitted', ...pr }));
+    let login = 'jr-owner';
+    const adapter = createSessionAdapter({
+      github: fakeGitHubConfig(),
+      fetchImpl: ((input: string, init?: RequestInit) => fakeGitHubFetch({ login, id: login.length })(input, init)) as typeof fetch,
+    });
+    srv = createApp(accounts, agents, undefined, undefined, jobs, undefined, undefined, undefined,
+      { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 }, undefined, undefined, adapter).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => srv.once('listening', resolve));
+    url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    tokens.owner = await mintSessionToken(adapter);
+    login = 'jr-buyer';
+    tokens.buyer = await mintSessionToken(adapter);
+    login = 'jr-stranger';
+    tokens.stranger = await mintSessionToken(adapter);
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  });
+
+  // Renders /jobs/<id> with the given session and waits until every read
+  // the page started has answered. `reads` lists the paths it fetched.
+  async function open(id: string, who: keyof typeof tokens | null, failMe = false): Promise<{ document: Document; reads: string[]; close: () => void }> {
+    const markup = await (await fetch(`${url}/jobs/${id}`, { headers: { Accept: HTML } })).text();
+    const reads: string[] = [];
+    let inflight = 0;
+    let last = Date.now();
+    const dom = new JSDOM(markup, {
+      url: `${url}/jobs/${id}`,
+      runScripts: 'dangerously',
+      resources: 'usable',
+      pretendToBeVisual: true,
+      virtualConsole: new VirtualConsole(),
+      beforeParse(window) {
+        if (who !== null) window.sessionStorage.setItem('fa_session', JSON.stringify({ token: tokens[who] }));
+        Object.defineProperty(window, 'fetch', {
+          writable: true,
+          value: (input: string, init?: RequestInit) => {
+            reads.push(input);
+            inflight += 1;
+            const done = <T>(v: T): T => { inflight -= 1; last = Date.now(); return v; };
+            if (failMe && input === '/accounts/me') return Promise.resolve(new Response('{}', { status: 503 })).then(done);
+            return fetch(new URL(input, url), init).then(done, (e: unknown) => { done(null); throw e; });
+          },
+        });
+      },
+    });
+    await new Promise<void>((resolve) => {
+      if (dom.window.document.readyState === 'complete') resolve();
+      else dom.window.addEventListener('load', () => resolve());
+    });
+    await settled(dom.window.document, jobPageReady, `/jobs/${id}`);
+    const deadline = Date.now() + 8000;
+    while (inflight > 0 || Date.now() - last < 150) {
+      if (Date.now() > deadline) throw new Error(`/jobs/${id} kept reading past 8s`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return { document: dom.window.document, reads, close: () => dom.window.close() };
+  }
+
+  const reviewLinks = (d: Document): Element[] =>
+    Array.from(d.querySelectorAll('a, button')).filter((el) => /review/i.test(el.textContent ?? '') && !/review the work/i.test(el.textContent ?? ''));
+
+  it('the buyer of a completed hire sees "Write a review" beside "See the receipt", linking to /review?job=<id>', async () => {
+    const page = await open('jr-completed', 'buyer');
+    try {
+      const links = reviewLinks(page.document);
+      expect(links.map((a) => [a.textContent, a.getAttribute('href'), a.className])).toEqual([['Write a review', '/review?job=jr-completed', 'btn']]);
+      expect(links[0]!.closest('[hidden]'), 'the link sits in a shown section').toBeNull();
+      expect(links[0]!.parentElement).toBe(page.document.getElementById('credential-link')?.parentElement);
+      expect(page.document.querySelector('.nav a[href^="/review"]'), 'no nav entry reaches /review').toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+
+  it.each([
+    ['the agent\u2019s owner', 'jr-completed', 'owner'],
+    ['a signed-in stranger', 'jr-completed', 'stranger'],
+    ['a signed-out visitor', 'jr-completed', null],
+    ['the buyer, on a submitted hire', 'jr-submitted', 'buyer'],
+  ] as const)('%s sees no review link', async (_who, id, who) => {
+    const page = await open(id, who);
+    try {
+      expect(page.document.getElementById('claim')?.textContent, 'the hire rendered').toContain('buyer/jr-repo');
+      // open() waits for every read to answer, so for a signed-in visitor
+      // the account read has landed before the check below.
+      expect(page.reads.includes('/accounts/me'), 'the account read ran for a signed-in visitor').toBe(who !== null);
+      expect(reviewLinks(page.document)).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('the buyer sees no review link while the account read fails', async () => {
+    const page = await open('jr-completed', 'buyer', true);
+    try {
+      expect(page.reads).toContain('/accounts/me');
+      expect(reviewLinks(page.document)).toEqual([]);
+    } finally {
+      page.close();
+    }
   });
 });
