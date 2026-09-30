@@ -3162,6 +3162,49 @@ export function createApp(
     }
   }
 
+  // FIX-SW4f (bugs.md SW4-05): makes the quota and the admission one step.
+  // The upload route decodes, re-encodes and writes for a while before its
+  // row exists, so a count taken only from stored rows lets every upload
+  // that arrives in that time see the same count and pass. An upload that
+  // passed the count therefore holds a place here, keyed by the caller's
+  // DID, from the moment it is admitted until its row is stored or it fails,
+  // and the count adds the places held to the stored rows. The held places
+  // live in this process only, like the sweep's clock: a second process
+  // serving the same database does not see them.
+  //
+  // The check and the reservation run in one synchronous stretch after the
+  // rows come back, so two uploads cannot both take the last place. A place
+  // released while the rows were being read could leave an upload that the
+  // read missed in neither the rows nor the places, so the read is repeated
+  // when any place was released during it.
+  const unsentUploadPlaces = new Map<string, Map<string, string>>();
+  let unsentUploadPlacesReleased = 0;
+  async function reserveUnsentUpload(did: string, jobId: string, uploadId: string): Promise<'job' | 'account' | null> {
+    for (;;) {
+      const releasedBefore = unsentUploadPlacesReleased;
+      const stored = await attachmentRepo.listUnsentByUploader(did, new Date(Date.now() - UNSENT_UPLOAD_TTL_MS));
+      if (unsentUploadPlacesReleased !== releasedBefore) continue;
+      const held = unsentUploadPlaces.get(did) ?? new Map<string, string>();
+      const storedIds = new Set(stored.map((row) => row.id));
+      const now = new Date();
+      const pending = [...held]
+        .filter(([heldId]) => !storedIds.has(heldId))
+        .map(([, heldJobId]) => ({ jobId: heldJobId, messageId: null, createdAt: now }));
+      const reached = unsentUploadCapReached([...stored, ...pending], jobId, now);
+      if (reached !== null) return reached;
+      held.set(uploadId, jobId);
+      unsentUploadPlaces.set(did, held);
+      return null;
+    }
+  }
+  function releaseUnsentUpload(did: string, uploadId: string): void {
+    const held = unsentUploadPlaces.get(did);
+    if (held === undefined) return;
+    held.delete(uploadId);
+    if (held.size === 0) unsentUploadPlaces.delete(did);
+    unsentUploadPlacesReleased += 1;
+  }
+
   // POST /jobs/:jobId/attachments (attachments STEER): base64-encoded
   // upload, checked from its own bytes (assertAttachmentAllowed), never
   // its declared filename or content type. Images are decoded and
@@ -3191,99 +3234,105 @@ export function createApp(
       // checks above, so a stranger still gets 403 and a read-only thread
       // 409 and neither is ever told about a quota.
       await sweepUnsentUploads();
-      let unsent: readonly Attachment[];
+      const id = randomFileId();
+      let capReached: 'job' | 'account' | null;
       try {
-        unsent = await attachmentRepo.listUnsentByUploader(gate.did, new Date(Date.now() - UNSENT_UPLOAD_TTL_MS));
+        capReached = await reserveUnsentUpload(gate.did, gate.job.id, id);
       } catch (err) {
         console.error(`${label}: storage failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
         return;
       }
-      const capReached = unsentUploadCapReached(unsent, gate.job.id, new Date());
       if (capReached !== null) {
         res.setHeader('retry-after', String(UNSENT_UPLOAD_RETRY_AFTER_SECONDS));
         res.status(429).json({ error: unsentUploadSentence(capReached) });
         return;
       }
-      let bytes: Buffer;
+      // The place reserved above is held until the row is stored (or the
+      // upload fails), so uploads arriving while this one is decoded and
+      // written are counted against the caller too.
       try {
-        bytes = Buffer.from(body.dataBase64, 'base64');
-      } catch {
-        res.status(400).json({ error: 'dataBase64 is not valid base64' });
-        return;
-      }
-      let kind;
-      try {
-        kind = assertAttachmentAllowed(bytes);
-      } catch (err) {
-        if (err instanceof AttachmentError) {
-          res.status(400).json({ error: err.message });
+        let bytes: Buffer;
+        try {
+          bytes = Buffer.from(body.dataBase64, 'base64');
+        } catch {
+          res.status(400).json({ error: 'dataBase64 is not valid base64' });
           return;
         }
-        throw err;
-      }
-      const dir = attachmentsDirFromEnv();
-      const id = randomFileId();
-      let storedPath: string;
-      let thumbnailPath: string | null = null;
-      if (isImageKind(kind)) {
-        let reencoded;
+        let kind;
         try {
-          reencoded = await reencodeImage(bytes, kind === 'image/heic');
+          kind = assertAttachmentAllowed(bytes);
         } catch (err) {
-          if (err instanceof ImageReencodeError) {
-            console.error(`${label}: image re-encode failed`, err.detail);
+          if (err instanceof AttachmentError) {
             res.status(400).json({ error: err.message });
             return;
           }
           throw err;
         }
-        storedPath = await writeAttachmentFile(dir, id, reencoded.bytes);
-        thumbnailPath = await writeAttachmentFile(dir, id + '-thumb', reencoded.thumbnailBytes);
-      } else {
-        // A PDF has no EXIF/GPS payload to strip (the domain's own
-        // header comment); the uploaded bytes, already verified by
-        // their magic bytes above, are stored verbatim.
-        storedPath = await writeAttachmentFile(dir, id, bytes);
-      }
-      let attachment: Attachment;
-      try {
-        attachment = await attachmentRepo.create({
-          id,
-          jobId: gate.job.id,
-          uploaderDid: gate.did,
-          kind,
-          originalFilename: body.filename,
-          sizeBytes: bytes.length,
-          path: storedPath,
-          thumbnailPath,
-          messageId: null,
-          createdAt: new Date(),
-        });
-      } catch (err) {
-        console.error(`${label}: storage failed`, err);
-        // FIX-SW4f: the files were written before the row, so a row that
-        // could not be stored would leave files nothing names and nothing
-        // would ever remove.
-        for (const orphan of thumbnailPath === null ? [storedPath] : [storedPath, thumbnailPath]) {
+        const dir = attachmentsDirFromEnv();
+        let storedPath: string;
+        let thumbnailPath: string | null = null;
+        if (isImageKind(kind)) {
+          let reencoded;
           try {
-            await removeAttachmentFile(orphan);
-          } catch (removeErr) {
-            console.error(`${label}: could not remove the file of an upload that was not stored`, removeErr);
+            reencoded = await reencodeImage(bytes, kind === 'image/heic');
+          } catch (err) {
+            if (err instanceof ImageReencodeError) {
+              console.error(`${label}: image re-encode failed`, err.detail);
+              res.status(400).json({ error: err.message });
+              return;
+            }
+            throw err;
           }
+          storedPath = await writeAttachmentFile(dir, id, reencoded.bytes);
+          thumbnailPath = await writeAttachmentFile(dir, id + '-thumb', reencoded.thumbnailBytes);
+        } else {
+          // A PDF has no EXIF/GPS payload to strip (the domain's own
+          // header comment); the uploaded bytes, already verified by
+          // their magic bytes above, are stored verbatim.
+          storedPath = await writeAttachmentFile(dir, id, bytes);
         }
-        res.status(503).json({ error: 'storage unavailable' });
-        return;
+        let attachment: Attachment;
+        try {
+          attachment = await attachmentRepo.create({
+            id,
+            jobId: gate.job.id,
+            uploaderDid: gate.did,
+            kind,
+            originalFilename: body.filename,
+            sizeBytes: bytes.length,
+            path: storedPath,
+            thumbnailPath,
+            messageId: null,
+            createdAt: new Date(),
+          });
+        } catch (err) {
+          console.error(`${label}: storage failed`, err);
+          // FIX-SW4f: the files were written before the row, so a row that
+          // could not be stored would leave files nothing names and nothing
+          // would ever remove.
+          for (const orphan of thumbnailPath === null ? [storedPath] : [storedPath, thumbnailPath]) {
+            try {
+              await removeAttachmentFile(orphan);
+            } catch (removeErr) {
+              console.error(`${label}: could not remove the file of an upload that was not stored`, removeErr);
+            }
+          }
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        res.status(201).json({
+          id: attachment.id,
+          jobId: attachment.jobId,
+          kind: attachment.kind,
+          contentType: contentTypeFor(attachment.kind),
+          originalFilename: attachment.originalFilename,
+          sizeBytes: attachment.sizeBytes,
+          createdAt: attachment.createdAt.toISOString(),
+        });
+      } finally {
+        releaseUnsentUpload(gate.did, id);
       }
-      res.status(201).json({
-        id: attachment.id,
-        jobId: attachment.jobId,
-        kind: attachment.kind,
-        contentType: contentTypeFor(attachment.kind),
-        originalFilename: attachment.originalFilename,
-        sizeBytes: attachment.sizeBytes,
-        createdAt: attachment.createdAt.toISOString(),
-      });
     }),
   );
 

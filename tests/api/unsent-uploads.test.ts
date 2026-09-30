@@ -7,6 +7,7 @@ import type { Server } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -357,5 +358,60 @@ describe('FIX-SW4f: a caller cannot fill the disk with uploads it never sends', 
     expect(res.status).toBe(201);
     expect((await world.messages.listByJobId(jobId)).map((m) => m.body)).toEqual(['sent']);
     expect(errors.mock.calls.some((call) => String(call[0]).includes('markSent'))).toBe(true);
+  });
+
+  // The uploads below are fired together. A count that is read and then acted
+  // on after the re-encode and the writes lets every request see the same
+  // count, so these pin that the count and the admission are one step per
+  // caller. The images are noise so the re-encode takes real time.
+  async function noisePng(): Promise<string> {
+    const raw = randomBytes(700 * 700 * 3);
+    return (await sharp(raw, { raw: { width: 700, height: 700, channels: 3 } }).png().toBuffer()).toString('base64');
+  }
+
+  it('(l) thirty uploads fired together on one job admit exactly ten, refuse twenty, and leave ten rows with their files', async () => {
+    const jobId = await openDraft();
+    const image = await noisePng();
+    const answers = await Promise.all(Array.from({ length: 30 }, () => upload(jobId, world.buyer, image)));
+    const bodies = await Promise.all(answers.map(async (res) => ({ status: res.status, retryAfter: res.headers.get('retry-after'), body: (await res.json()) as Record<string, unknown> })));
+    const refused = bodies.filter((answer) => answer.status === 429);
+    expect(bodies.filter((answer) => answer.status === 201)).toHaveLength(10);
+    expect(refused).toHaveLength(20);
+    for (const answer of refused) expect(answer).toEqual({ status: 429, retryAfter: '60', body: { error: JOB_SENTENCE } });
+    expect(await world.attachments.listByJobId(jobId)).toHaveLength(10);
+    expect(filesOnDisk()).toHaveLength(20);
+  });
+
+  it('(m) thirty-six uploads fired together across three jobs admit exactly twenty, and the account cap refuses the rest', async () => {
+    const jobs = [await openDraft(), await openDraft(), await openDraft()];
+    const image = await noisePng();
+    const answers = await Promise.all(Array.from({ length: 36 }, (_, i) => upload(jobs[i % 3]!, world.buyer, image)));
+    const statuses = answers.map((res) => res.status);
+    expect(statuses.filter((status) => status === 201)).toHaveLength(20);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(16);
+    const rows = (await Promise.all(jobs.map((jobId) => world.attachments.listByJobId(jobId)))).flat();
+    expect(rows).toHaveLength(20);
+    expect(filesOnDisk()).toHaveLength(40);
+  });
+
+  it('(n) an upload whose count was read before another upload stored its row does not use that stale count', async () => {
+    const jobId = await openDraft();
+    for (let i = 0; i < 9; i += 1) await uploadOk(jobId);
+    const original = world.attachments.listUnsentByUploader.bind(world.attachments);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const read = vi.spyOn(world.attachments, 'listUnsentByUploader').mockImplementationOnce(async (did, since) => {
+      const snapshot = await original(did, since);
+      await gate;
+      return snapshot;
+    });
+    const slow = upload(jobId);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    expect((await upload(jobId)).status).toBe(201);
+    release();
+    const refused = await slow;
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toEqual({ error: JOB_SENTENCE });
+    expect(await world.attachments.listByJobId(jobId)).toHaveLength(10);
   });
 });
