@@ -63,7 +63,7 @@
 .rail li.done { color: var(--fg-2); border-top-color: var(--line-2); }
 
 /* THE CURRENT STEP IS --fg, NOT --accent, and this was a real finding from
-   verify_flow.py against the tree that had just passed everything else.
+   the payment-flow check against the tree that had just passed everything else.
    "You are on step 3" is navigation state, not witnessed work, so under
    DESIGN.md 2.2 it has no claim on the reserved colour. The rail already
    separates its three states by text colour (--fg, --fg-2, --fg-3); the
@@ -208,8 +208,8 @@
    --fg-3 keeps only the jobs that paint no characters at all: the dashed
    unsigned ring, hairlines, hover borders, and the input placeholder colour.
 
-   This is now enforced by verify_ink.py, which makes every glyph transparent,
-   photographs the page, and measures each text run against the pixel actually
+   This was enforced by the ink check (kept in the private operations repository), which made every glyph transparent,
+   photographed the page, and measured each text run against the pixel actually
    behind it. It does not consult a list of allowed classes, so the argument
    about what counts as structure cannot be had again: 45 real failures across
    agreement and deposit at both viewports, and the gate names each one.
@@ -387,7 +387,7 @@ button.mark:focus-visible { outline: 2px solid var(--action); outline-offset: -8
 
    The numeric overflow gate could not see this. Every element stayed inside
    320px horizontally, which is all that gate measures. A screenshot found it,
-   and verify_flow.py now carries an overlap assertion so it cannot come back
+   and the payment-flow check (kept in the private operations repository) carried an overlap assertion so it could not come back
    silently. A clean overflow number says nothing about whether two things are
    stacked on each other. */
 @media (max-width: 560px) {
