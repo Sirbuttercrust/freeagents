@@ -1,6 +1,7 @@
 import { NotImplementedError } from '../not-implemented.js';
 import {
   GistNotFoundError,
+  InvalidPathSegmentError,
   NotPlatformOwnerError,
   RepositoryEmptyError,
   RepositoryNotAccessibleError,
@@ -77,6 +78,23 @@ export interface CreateGithubAdapterOptions {
   // app, one pair of credentials, never a second registration.
   readonly oauthClientId?: string;
   readonly oauthClientSecret?: string;
+}
+
+// SW4-07: a caller's string (or GitHub's own, such as a default branch) is
+// exactly one path segment of the request the platform token makes, never
+// a path. The URL parser resolves `.` and `..` even when percent-encoded,
+// so those and the empty string are refused before any network call, and
+// everything else is encoded so `/`, `?`, `#` and `%` stay inside the
+// segment.
+function pathSegment(value: string): string {
+  if (value === '' || value === '.' || value === '..') throw new InvalidPathSegmentError(value);
+  return encodeURIComponent(value);
+}
+
+// A git branch name may hold `/` (release/1.0): each part is one segment,
+// rejoined with `/`, and a part that is empty, `.` or `..` is refused.
+function branchPath(branch: string): string {
+  return branch.split('/').map(pathSegment).join('/');
 }
 
 interface GitHubErrorBody {
@@ -270,7 +288,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     platformLogin,
     async getPullRequest(ref: PullRequestRef): Promise<PullRequestSummary> {
       const tok = requireToken();
-      const response = await githubRequest(fetchImpl, apiBase, tok, `/repos/${ref.owner}/${ref.repo}/pulls/${String(ref.number)}`);
+      const response = await githubRequest(fetchImpl, apiBase, tok, `/repos/${pathSegment(ref.owner)}/${pathSegment(ref.repo)}/pulls/${String(ref.number)}`);
       await requireOk(response, 'getPullRequest');
       const raw = (await response.json()) as RawPullRequest;
       return {
@@ -308,7 +326,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // an unconfigured deployment should announce itself uniformly).
     async getPublicGist(ref: { readonly id: string }): Promise<Gist> {
       const tok = requireToken();
-      const response = await githubRequest(fetchImpl, apiBase, tok, `/gists/${ref.id}`);
+      const response = await githubRequest(fetchImpl, apiBase, tok, `/gists/${pathSegment(ref.id)}`);
       if (response.status === 404) {
         // R-5 (ENT-5.3): a deleted gist is not a platform outage, it is the
         // check's answer. The route maps this to the downgrade path.
@@ -373,7 +391,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         fetchImpl,
         apiBase,
         tok,
-        `/repos/${input.owner}/${input.repo}/collaborators/${input.githubLogin}`,
+        `/repos/${pathSegment(input.owner)}/${pathSegment(input.repo)}/collaborators/${pathSegment(input.githubLogin)}`,
         { method: 'PUT', body: { permission: 'push' } },
       );
       await requireOk(response, 'grant push');
@@ -396,7 +414,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         fetchImpl,
         apiBase,
         tok,
-        `/repos/${input.owner}/${input.repo}/collaborators/${input.githubLogin}/permission`,
+        `/repos/${pathSegment(input.owner)}/${pathSegment(input.repo)}/collaborators/${pathSegment(input.githubLogin)}/permission`,
       );
       await requireOk(response, 'get collaborator permission');
       const raw = (await response.json()) as { readonly permission: string };
@@ -409,7 +427,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // any repository the token can see, including the buyer's).
     async getCommit(input: GetCommitInput): Promise<CommitInfo> {
       const tok = requireToken();
-      const response = await githubRequest(fetchImpl, apiBase, tok, `/repos/${input.owner}/${input.repo}/git/commits/${input.sha}`);
+      const response = await githubRequest(fetchImpl, apiBase, tok, `/repos/${pathSegment(input.owner)}/${pathSegment(input.repo)}/git/commits/${pathSegment(input.sha)}`);
       await requireOk(response, 'get commit');
       const raw = (await response.json()) as {
         readonly sha: string;
@@ -455,7 +473,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // RepositoryEmptyError.
     async readRepository(ref: StagingRepoRef): Promise<RepositoryFacts> {
       const tok = requireToken();
-      const repoResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${ref.owner}/${ref.repo}`);
+      const repoResponse = await githubRequest(fetchImpl, apiBase, tok, `/repos/${pathSegment(ref.owner)}/${pathSegment(ref.repo)}`);
       if (repoResponse.status === 404 || repoResponse.status === 403) {
         throw new RepositoryNotAccessibleError(ref.owner, ref.repo, repoResponse.status);
       }
@@ -471,7 +489,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         fetchImpl,
         apiBase,
         tok,
-        `/repos/${ref.owner}/${ref.repo}/git/ref/heads/${repo.default_branch}`,
+        `/repos/${pathSegment(ref.owner)}/${pathSegment(ref.repo)}/git/ref/heads/${branchPath(repo.default_branch)}`,
       );
       if (refResponse.status === 409) {
         throw new RepositoryEmptyError(ref.owner, ref.repo);
@@ -499,7 +517,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
         fetchImpl,
         apiBase,
         tok,
-        `/repos/${input.owner}/${input.repo}/compare/${input.base}...${input.head}`,
+        `/repos/${pathSegment(input.owner)}/${pathSegment(input.repo)}/compare/${pathSegment(input.base)}...${pathSegment(input.head)}`,
       );
       await requireOk(response, 'compare commits');
       const raw = (await response.json()) as RawCompareResponse;
@@ -553,7 +571,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
     // publishing it is revoked.
     async deleteGist(input: DeleteGistInput): Promise<void> {
       const callerToken = requireCallerToken(input.token);
-      const response = await githubRequestAsCaller(callerToken, `/gists/${input.id}`, { method: 'DELETE' });
+      const response = await githubRequestAsCaller(callerToken, `/gists/${pathSegment(input.id)}`, { method: 'DELETE' });
       await requireOk(response, 'delete gist');
     },
 
