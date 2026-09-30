@@ -98,6 +98,17 @@ describe('SW1-04: GET /capabilities names every step of a hire after it opens', 
     expect(named.filter((route) => HIRE_LOOP_ROUTES.includes(route))).toEqual(HIRE_LOOP_ROUTES);
   });
 
+  it('the served job.withdraw reason matches the route: any hire but a proposed one whose deposit has settled', async () => {
+    const res = await fetch(`${baseUrl}/capabilities`);
+    const body = (await res.json()) as { capabilities: Array<{ id: string; reason: string }> };
+    // The route asks the settlement gate only for a proposed job
+    // (recordWithdrawn in src/domain/job.ts); tests/api/job-withdraw.test.ts
+    // withdraws a submitted and a stale job with a 200.
+    expect(body.capabilities.find((c) => c.id === 'job.withdraw')?.reason).toBe(
+      'Only the buyer may withdraw, except from a proposed hire whose deposit has settled; the party comes from your session or signature, never the body.',
+    );
+  });
+
   it('every identified per-job capability answers an unsigned request 401 with the route\'s own sentence, and the job is unchanged', async () => {
     const perJob = CAPABILITIES.filter((cap) => cap.access === 'identified' && cap.path.startsWith('/jobs/:jobId'));
     expect(perJob.map((cap) => `${cap.method} ${cap.path}`)).toEqual(HIRE_LOOP_ROUTES.slice(1));

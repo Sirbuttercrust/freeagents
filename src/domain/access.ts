@@ -206,7 +206,7 @@ export const CAPABILITIES: readonly Capability[] = [
     path: '/jobs/:jobId/withdraw',
     access: 'identified',
     identityField: null,
-    reason: 'Only the buyer may withdraw a hire before the deposit is paid; the party comes from your session or signature, never the body.',
+    reason: 'Only the buyer may withdraw, except from a proposed hire whose deposit has settled; the party comes from your session or signature, never the body.',
   },
   {
     id: 'job.decline',
