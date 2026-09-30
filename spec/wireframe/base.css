@@ -449,8 +449,8 @@ body.notes-on .notetoggle { background: var(--action); color: var(--action-fg); 
    host, where no z-index inside the host could reach it.
 
    The second rule gives every following section its own stacking context
-   above the layer. Proven by verify_agents_below.py, which walks each screen
-   at six scroll positions, and for every agent-over-text overlap asks
+   above the layer. Proven by a layering check (kept in the private operations repository), which walked each screen
+   at six scroll positions, and for every agent-over-text overlap asked
    elementsFromPoint which one the browser actually paints on top.
 
    THE LIFT IS FOR FLOW CONTENT, NOT FOR CHROME THAT POSITIONS ITSELF.

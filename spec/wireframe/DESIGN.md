@@ -399,8 +399,8 @@ number in a normative document that nothing recomputes is a number that is
 already wrong.
 
 Measured with a real browser, not eyeballed, and by an instrument that does
-not guess at the background: `verify_ink.py` makes every glyph transparent,
-photographs the page, and reads the pixel where the characters sit. Sampling
+not guess at the background: the ink check (kept in the private operations repository and not on disk here) made every glyph transparent,
+photographed the page, and read the pixel where the characters sat. Sampling
 "near" text instead reads glyph antialiasing, a button's own fill, or an
 uncomposited alpha, and produces confident wrong numbers in both directions.
 Anything reporting `lab()` or `oklch()` must be converted before comparison;
@@ -828,13 +828,13 @@ that one did fails a gate instead of shipping.
 finding tagged with its kind, and each sweeping gate declares in `HANDLED`
 which kinds it consumes. Two instruments enforcing one law with two
 definitions is how the weaker of the two goes unnoticed: see section 10, where
-`verify_mobile_coverage.py` compares those declarations rather than counting
+the mobile-coverage check (kept in the private operations repository and not on disk here) compared those declarations rather than counting
 screen names.
 
 **And both gates read the probe through one state walk** (`tapfloor.sweep`),
 which opens every disclosure and each dialog alone and tags each finding with
 the state it was reachable in. Declaring a kind says nothing about the states
-it is asserted in: `verify_flow.py` declared all three and read two of them
+it is asserted in: the payment-flow check (kept in the private operations repository and not on disk here) declared all three and read two of them
 from the page as it loads, so the `.chrome` contract above was unenforced
 inside every sheet in the payment flow. Planting a static `.chrome` element
 inside `#paybal` on `staged.html` passed; the identical element rendered on
@@ -935,7 +935,7 @@ callback, which redirects in under a second) it is absent.
 long as they obey the visibility law: below content, never over text or a
 control.
 
-Verified by `verify_flow_motion.py`, which samples the transform twice in each
+Verified by the flow-motion check (kept in the private operations repository and not on disk here), which sampled the transform twice in each
 motion mode. A bound animation that never moves and a stranded invisible
 element both look identical in a screenshot, so neither is checked by eye.
 
@@ -946,8 +946,8 @@ element both look identical in a screenshot, so neither is checked by eye.
 Covered by the `no-ai-writing` skill, which binds every word in the product.
 The parts that are specifically visual:
 
-- **No em dashes anywhere.** Enforced by `verify_housestyle.py`, which reads
-  every file in this directory rather than a list of them, and adds the en
+- **No em dashes anywhere.** Enforced by the house-style check (kept in the private operations repository and not on disk here), which read
+  every file in this directory rather than a list of them, and added the en
   dash and the AI writing tells. Do not enforce this with a shell grep: the
   one this line used to name could not fail on bash 3.2, which does not
   expand the `\u` escape inside a dollar-quoted string.
@@ -1100,65 +1100,66 @@ one. A gate a reviewer cannot run is a claim, not a check.
 python3 devserver.py 3111 &
 curl -s http://127.0.0.1:3111/healthz     # says which tree is being served
 
-# 2. every gate, one table, exit 0 only if all of them pass
-python3 verify_all.py http://127.0.0.1:3111
+# 2. the gates that stay in this repository, each exit 0 only if it passes
+python3 verify_designmd.py
+python3 verify_reduced_motion.py
 
-# 3. and prove the gates can FAIL, on the bugs they were written for.
-#    Run separately: these edit files and take several minutes.
-#    A GLOB, not a list of names. This block named the suites individually
-#    and had to be edited every round, which is the same defect the suites
-#    themselves exist to catch: a list cannot fail on the entry it does not
-#    mention. The ones that take no url ignore the argument.
-for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
+# 3. the rest of the gates, and the mutation suites that proved they can FAIL
+#    on the bugs they were written for, are kept in the private operations repository and not on disk here.
+#    The suites were run as a GLOB, not a list of names. This block named them
+#    individually and had to be edited every round, which is the same defect
+#    the suites themselves exist to catch: a list cannot fail on the entry it
+#    does not mention.
 
-# house rule: zero em dashes, enforced across EVERY file here.
+# house rule: zero em dashes, enforced across EVERY file here by the
+# house-style check (kept in the private operations repository and not on disk here).
 # Run the gate, not a grep. The grep this line used to name,
 #   grep -o $'\u2014' *.html *.css *.js *.md | wc -l
 # cannot fail on bash 3.2: it does not expand \u inside $'...', so that
 # greps for six literal characters and returns the lines quoting the command
 # itself whether or not a real em dash exists anywhere in the tree.
-python3 verify_housestyle.py
 ```
 
-Exit codes: `0` pass, `1` a real failure, `3` no browser on this machine,
-which is neither. The suite never folds a missing browser into a pass.
+The gate runner's exit codes were: `0` pass, `1` a real failure, `3` no browser
+on this machine, which is neither. The runner never folded a missing browser
+into a pass.
 
-`verify_all.py` runs the table below, and checks that claim rather than
-asserting it: the runner compares this table against its own list and fails on
+The gate runner (kept in the private operations repository and not on disk here) ran the table below, and checked that claim rather than
+asserting it: the runner compared this table against its own list and failed on
 any disagreement in either direction. The count is deliberately not written
 here, because a number in prose goes stale the moment a gate is added and
-nothing checks a number. Run `python3 verify_all.py` to see it. Each gate can
-also be run alone, and each takes the base url except the ones needing no
-browser.
+nothing checks a number. Of the gates in the table, only `verify_designmd.py`
+and `verify_reduced_motion.py` are on disk in this repository; the others are
+kept in the private operations repository and are not on disk here.
 
 | gate | what it covers |
 |---|---|
-| `verify_flow.py` | 320px overflow closed AND with every dialog open, rows overlapping, tap targets on a real touch profile, dead controls, accent discipline, reduced-motion end state, em dashes |
-| `verify_links.py` | every local link resolves, every live page reachable |
-| `verify_sitemap.py` | SITEMAP build claims match the directory, and no page is served without a page id |
-| `verify_tokens.py` | WCAG ratios computed by hand, no browser, no server |
-| `verify_ink.py` | every rendered character against AA at both viewports, with ink composited over the pixel measured behind it |
-| `verify_names.py` | no two controls a person can reach at the same time answer to the same accessible name, no control is nameless, and no name exists only in a `placeholder` or a `title`. Every name read from `Accessibility.getFullAXTree` rather than computed from the markup, and every control the markup selector collects is either checked or reported: collected and checked are printed side by side and must match |
-| `verify_money.py` | every dollar figure on every screen derives from one model of the deal |
-| `verify_rail.py` | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
-| `verify_pickers.py` | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
-| `verify_primary.py` | no surface ever shows two accent-filled primaries at once |
-| `verify_polish.py` | the polish layer loads on every screen, every icon paints, every generated avatar is painted BY THE SWARM GENERATOR rather than by the older fallback engine, no button is inert, and 320px holds with 44px targets |
-| `verify_profile_header.py` | the profile header never clips its banner and the verified badge reads as a stamp |
-| `verify_agents_below.py` | the decorative agents never paint over text, asked of the browser at six scroll positions |
+| the payment-flow check | 320px overflow closed AND with every dialog open, rows overlapping, tap targets on a real touch profile, dead controls, accent discipline, reduced-motion end state, em dashes |
+| the links check | every local link resolves, every live page reachable |
+| the sitemap check | SITEMAP build claims match the directory, and no page is served without a page id |
+| the tokens check | WCAG ratios computed by hand, no browser, no server |
+| the ink check | every rendered character against AA at both viewports, with ink composited over the pixel measured behind it |
+| the names check | no two controls a person can reach at the same time answer to the same accessible name, no control is nameless, and no name exists only in a `placeholder` or a `title`. Every name read from `Accessibility.getFullAXTree` rather than computed from the markup, and every control the markup selector collects is either checked or reported: collected and checked are printed side by side and must match |
+| the money check | every dollar figure on every screen derives from one model of the deal |
+| the rail check | the headline total, the fee and the pay button follow the chosen rail, including inside the scan sheet |
+| the pickers check | every picker row traces to a real agreement line with matching text, and every omitted line is explained on screen |
+| the primary-control check | no surface ever shows two accent-filled primaries at once |
+| the polish check | the polish layer loads on every screen, every icon paints, every generated avatar is painted BY THE SWARM GENERATOR rather than by the older fallback engine, no button is inert, and 320px holds with 44px targets |
+| the profile-header check | the profile header never clips its banner and the verified badge reads as a stamp |
+| the agents-below check | the decorative agents never paint over text, asked of the browser at six scroll positions |
 | `verify_reduced_motion.py` | every animation has a dignified static end state under `prefers-reduced-motion` |
-| `verify_flow_motion.py` | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
-| `verify_blast_preview.py` | hovering an edit control previews the exact signatures that edit would clear |
-| `verify_mobile_coverage.py` | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes, AND every sweeper's source reaches for the shared state walk rather than for the raw probe, so no instrument quietly measures fewer states than the other and a state added to the walk reaches both the day it lands. A screen visited by an instrument that drops a law is reported as the hole it is rather than counted as covered. What this gate does NOT read is written beside it below. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
-| `verify_kept.py` | the brand's accessible name survives the wordmark collapse on all 33 screens, read from the accessibility tree rather than from the attribute, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
-| `verify_housestyle.py` | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
-| `verify_sampledata.py` | every screen showing an invented name or a dollar figure says on it that the data is sample data |
-| `verify_linknames.py` | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
-| `verify_coverage.py` | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
+| the flow-motion check | the dashboard pipeline actually moves, and stops when reduced motion is asked for |
+| the blast-preview check | hovering an edit control previews the exact signatures that edit would clear |
+| the mobile-coverage check | every screen in the directory appears in at least one 320px sweep, AND every sweeper consumes every assertion the shared probe makes, AND every sweeper's source reaches for the shared state walk rather than for the raw probe, so no instrument quietly measures fewer states than the other and a state added to the walk reaches both the day it lands. A screen visited by an instrument that drops a law is reported as the hole it is rather than counted as covered. What this gate does NOT read is written beside it below. Both directions of the probe's own declaration are checked too: a kind in `tapfloor.KINDS` its JavaScript never pushes, and a kind pushed but never declared. No browser, no server |
+| the kept-elements check | the brand's accessible name survives the wordmark collapse on all 33 screens, read from the accessibility tree rather than from the attribute, and the facts a designed element carried still render somewhere in the set, with disclosures opened |
+| the house-style check | no em dash or en dash in ANY file in this directory, plus the AI writing tells in prose files. No browser, no server |
+| the sample-data check | every screen showing an invented name or a dollar figure says on it that the data is sample data |
+| the link-names check | a link whose text names its destination names it correctly, checked against what the destination page calls itself |
+| the coverage check | no gate names its own screens, in a list OR inline in a goto. Every gate's scope is derived from the directory, so a screen added later cannot sit unmeasured behind a green table. No browser, no server |
 | `verify_designmd.py` | every value THIS FILE states is the value the tree ships: tokens against every `:root` block, contrast ratios and durations recomputed. Both sides derived, so a token added next month is compared the day it exists. Also section 2.1 read in the direction it points, at screens: every colour literal in every html, js and css file, in every spelling a browser renders, classified by the position it is parsed in rather than by a window of characters, including a screen's own `<style>` block and its `style=` attributes. The renderer exemption is read from 2.1's own table, and a renderer's declared copy of a token is recomputed against it. No browser, no server |
 
 **A gate's SCOPE is derived, never written down.** This table used to say
-`verify_ink.py` covered "every rendered character at both viewports" while
+the ink check covered "every rendered character at both viewports" while
 that gate named eight screens, so twenty-five screens on disk had never been
 measured against the rule above at all. Widening the list would have fixed
 that instance and left the shape: a list of names cannot fail on a file it
@@ -1166,14 +1167,14 @@ does not mention, and the next screen added would have reopened the hole in
 silence.
 
 So `population.py` computes each gate's population from the directory, and
-`verify_coverage.py` fails any gate that goes back to naming its screens. The
+the coverage check (kept in the private operations repository and not on disk here) failed any gate that went back to naming its screens. The
 general 320px sweep takes the COMPLEMENT of the payment sweep rather than a
 second list, so a new screen is measured by default instead of forgotten by
 default. A gate that is narrow on purpose stays narrow, but by rule:
-`verify_profile_header.py` measures the screens that HAVE a profile header
+the profile-header check (kept in the private operations repository and not on disk here) measured the screens that HAVE a profile header
 rather than the two that had one the day it was written.
 
-**What the coverage gate reads, and where its reach stops.** It parses each
+**What the coverage gate reads, and where its reach stops.** This describes the coverage check as built, which is kept in the private operations repository and not on disk here. It parses each
 sweeper's source and asks what that source reaches for: `tapfloor.sweep`, or
 the raw probe with a walk of its own. That is provenance, read statically, and
 provenance is all of it. Two limits, both established by control rather than
@@ -1185,9 +1186,9 @@ by reasoning about the code:
   with the same plant inside dialog `#paybal` on `staged.html`:
 
   ```
-  verify_flow.py unmodified               exit 1, names the element
-  the same plant, plus a closed-state     verify_mobile_coverage.py  exit 0
-    filter in that gate's own chrome      verify_flow.py             exit 0
+  payment-flow check unmodified           exit 1, names the element
+  the same plant, plus a closed-state     mobile-coverage check      exit 0
+    filter in that gate's own chrome      payment-flow check         exit 0
     comprehension, still calling sweep
   ```
 
@@ -1209,8 +1210,8 @@ a sweeper's source points, and nothing further.
 
 **A gate that says it asks the browser can be reading the file, and the cost
 is a name nobody on the screen can see.** Round 11 found one instance of that
-in `verify_kept.py`. Round 12 found the class's other half in
-`verify_names.py`, which computed the accessible name for every control on
+in the kept-elements check, which is kept in the private operations repository and not on disk here. Round 12 found the class's other half in
+the names check, which computed the accessible name for every control on
 all 33 screens with its own JavaScript ladder, ending in two rungs that name
 a control with something a person cannot reach:
 
@@ -1246,9 +1247,9 @@ on any placeholder would condemn every well-labelled field in the set, and the
 first person to hit a false failure stops reading the gate. What fails is a
 name that exists ONLY in an invisible source, which is why the assertion is
 written against the winning source rather than against the attribute.
-`verify_round12_mutation.py` plants a placeholder beside a real label, a title
+The round 12 mutation suite (kept in the private operations repository and not on disk here) planted a placeholder beside a real label, a title
 beside an `aria-label`, and a title on a radio named by its wrapping label
-inside a dialog, and requires silence on all three.
+inside a dialog, and required silence on all three.
 
 **And a name census is the reason those two were found at all.** A review had
 named one field on one screen. Asking the same question of the population
@@ -1256,7 +1257,7 @@ found the second on a different screen with a different source, and closed
 both with one rule.
 
 **A ROLE STRING IS A POPULATION, AND THAT GATE'S WAS EIGHT SHORT.** Round 13.
-`CONTROL_ROLES` in `verify_names.py` listed `"disclosure triangle"`, compared
+`CONTROL_ROLES` in the names check listed `"disclosure triangle"`, compared
 by equality against what Chrome returns, which is `DisclosureTriangle`. The
 strings never matched, so all eight account-menu `<summary>` controls were
 collected by the markup selector, dropped by the role filter, and checked for
@@ -1282,8 +1283,8 @@ and a gate that prints only what it admitted cannot produce that line at all.
 
 **A NUMBER IN A NORMATIVE DOCUMENT IS A CLAIM, AND THIS ONE REPRODUCED
 NOWHERE.** The same round found that the census three paragraphs above, also
-stated in `BUILD-STATE.md`, `verify_names.py` and
-`verify_round12_mutation.py`, said `574 controls: 460 contents, 66
+stated in `BUILD-STATE.md`, the names check and
+the round 12 mutation suite, said `574 controls: 460 contents, 66
 aria-label, 46 an associated label`. The shipped gate printed `536`, `433` and
 `35`, and no counting method reproduces the documented figures: not with
 dialog contents folded into the page scope, not with them out, not before
@@ -1300,11 +1301,11 @@ The numbers now state what the gate prints, and the gate's own docstring names
 the command that prints them instead of carrying a copy. A measurement written
 down is a measurement that stops being one the next time the tree moves.
 
-`verify_round13_mutation.py` proves both halves. It reproduces the reviewer's
+The round 13 mutation suite (kept in the private operations repository and not on disk here) proved both halves. It reproduced the reviewer's
 positive control in this tree (the account menu loses its `aria-label`, and
 against the pre-round-13 instrument that nameless control passes at exit 0),
-drops the role from the vocabulary and requires the reconciliation to name all
-eight, plants a clickable control inside an `aria-hidden` subtree, and puts
+dropped the role from the vocabulary and required the reconciliation to name all
+eight, planted a clickable control inside an `aria-hidden` subtree, and put
 the OLD spelling back to require SILENCE, which is the assertion that
 separates fixing a class from widening a list by one name.
 
@@ -1336,9 +1337,9 @@ as "nothing to derive" and meant "a population of one that nothing can see".
 Each now derives its screens from the markup its assertion needs: the rail
 radio, the signature chip, the travelling spark, the picker list. A second
 screen that grows one of those components is measured the day it exists.
-`verify_coverage.py` walks the whole syntax tree, so both shapes fail, and
-`verify_round5_mutation.py` restores each of the four to the exact form it
-shipped in and proves the gate names the file and the reason.
+The coverage check walked the whole syntax tree, so both shapes failed, and
+the round 5 mutation suite restored each of the four to the exact form it
+shipped in and proved the gate named the file and the reason. Both are kept in the private operations repository and not on disk here.
 
 **And THIS FILE was the last thing nothing read.** Every gate above measures
 the screens. Round 6 planted `#FF00FF` in the normative token row of section
@@ -1362,24 +1363,24 @@ The ratios in 2.5 and 2.7 are **recomputed on every run** rather than typed.
 That is the difference between a document that goes stale and one that cannot:
 a number nothing recalculates is already wrong, it just has not been read yet.
 
-The six polished gates plus the coverage check are run by `verify_all.py` with
-the rest. They drive the same committed `wirebrowse.py` as the others, so the
-whole suite is still one command against a clone with no environment set up.
+The six polished gates plus the coverage check were run by the gate runner with
+the rest, which is kept in the private operations repository and not on disk here. They drove the same committed `wirebrowse.py` as the others, so the
+whole suite was one command against a clone with no environment set up.
 
 Supporting files, also committed: `wirebrowse.py` (the driver, standard
 library only) and `devserver.py` (the preview server).
 
-`verify_contrast.py` is **superseded** and exits 2 with an explanation. It
+The contrast check was **superseded** and exited 2 with an explanation; it is kept in the private operations repository and not on disk here. It
 sampled the pixel behind a text run, which cannot read a filled button or a
 translucent surface, so its findings had to be filtered by hand and the filter
-became a place for real defects to hide. `verify_ink.py` replaces it by making
+became a place for real defects to hide. The ink check replaced it by making
 every glyph transparent and photographing the page, so the background is
 measured rather than guessed.
 
-**Keep this table and `verify_all.py` in step.** A gate missing from the
+**Keep this table and the gate runner in step.** A gate missing from the
 runner does not get run, and a gate listed here that is not in the runner is a
-claim of coverage that nothing backs. This is checked, not merely asked for:
-`verify_all.py` compares this table against its own list and fails on any
+claim of coverage that nothing backs. This was checked, not merely asked for:
+the gate runner (kept in the private operations repository and not on disk here) compared this table against its own list and failed on any
 disagreement in either direction.
 
 `measure_density.py` and `calibrate_density.py` are referenced by section 4.1

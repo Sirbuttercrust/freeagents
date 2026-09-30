@@ -131,6 +131,14 @@ export interface SessionAdapterOptions {
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const DEFAULT_OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10m, single-use regardless
 const DEFAULT_PASSKEY_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5m, single-use regardless
+// How long the browser gives a person to finish a passkey ceremony. The
+// library's default is 60 seconds, too short when the passkey lives on a
+// phone reached by a QR code from a computer. Five minutes, the same as the
+// server keeps the challenge, so the browser never waits on a challenge the
+// server has already dropped.
+const PASSKEY_CEREMONY_TIMEOUT_MS = DEFAULT_PASSKEY_CHALLENGE_TTL_MS;
+// COSE algorithm ids: ES256 (-7), then RS256 (-257).
+const PASSKEY_ALGORITHMS = [-7, -257];
 
 interface GitHubUserResponse {
   readonly login: string;
@@ -377,9 +385,17 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
         // A plain label for the browser's passkey picker. The name rides
         // only in the user handle (userID), never in a visible label.
         userName: PASSKEY_LABEL,
+        // The library's default is an empty display name. Some phone
+        // passkey managers refuse to save a passkey with no display name,
+        // so the picker gets the same plain label.
+        userDisplayName: PASSKEY_LABEL,
         userID: new TextEncoder().encode(subject),
         attestationType: 'none',
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+        // ES256 first, then RS256. The library's default puts Ed25519 first,
+        // which a phone's platform authenticator does not reliably support.
+        supportedAlgorithmIDs: PASSKEY_ALGORITHMS,
+        timeout: PASSKEY_CEREMONY_TIMEOUT_MS,
       });
       registrationChallenges.set(regOptions.challenge, { subject, createdAtMs: now(), used: false });
       return { optionsJson: JSON.stringify(regOptions) };
@@ -444,6 +460,7 @@ export function createSessionAdapter(options: SessionAdapterOptions): SessionAda
       const authOptions = await generateAuthenticationOptions({
         rpID: options.passkey.rpID,
         userVerification: 'required',
+        timeout: PASSKEY_CEREMONY_TIMEOUT_MS,
       });
       signInChallenges.set(authOptions.challenge, { subject: null, createdAtMs: now(), used: false });
       return { optionsJson: JSON.stringify(authOptions) };

@@ -1,5 +1,7 @@
 # What the reconcile changed, and why
 
+_Note, 2026-09-30: the build scripts this file cites moved to the private operations repository, so this file names their method and no longer their file names._
+
 Branch `task/d1-wireframe-reconcile`. Written 2026-09-13 against the tree at
 that point, and appended to by the two cards that work on top of this merge.
 
@@ -17,14 +19,14 @@ survive, and elements inside them did not.
 
 ## How the list below was produced
 
-`reconcile_inventory.py` reads the markup of every screen on both parents and on
-the result, and diffs the vocabulary each screen uses: class names, ids, the
+An inventory script (kept in the private operations repository, not on disk here) read the markup of every screen on both parents and on
+the result, and diffed the vocabulary each screen uses: class names, ids, the
 identity hooks the polished system hangs treatment on (`data-avatar`,
 `data-ico`, `aria-label`), and the stylesheets and scripts each screen loads.
 
 ```
-python3 reconcile_inventory.py                 # both parents against HEAD
-python3 reconcile_inventory.py --ref HEAD --result 14d7a64    # positive control
+# inventory run, both parents against HEAD
+# inventory run with --ref HEAD --result 14d7a64    # positive control
 ```
 
 It is an inventory, not a verdict, and that is deliberate. A class absent from
@@ -58,12 +60,13 @@ would be a defect.
 
 ### 1. Renamed, same component, same behaviour
 
-Every pair in this table is checked rather than asserted. `check_renames.py`
-requires that the old name is gone from the whole set and the new one is present
+Every pair in this table is checked rather than asserted. A rename check
+(kept in the private operations repository, not on disk here)
+required that the old name is gone from the whole set and the new one is present
 on each screen that carried the old one:
 
 ```
-python3 check_renames.py     # exit 1 names any pair that does not hold
+# rename check: exit 1 names any pair that does not hold
 ```
 
 That check earned its place immediately. The first version of this table was
@@ -75,7 +78,7 @@ that screen at all, and all six read as plausible.
 
 | was | is now | why |
 |---|---|---|
-| `.edit` | `.act` | the polished matrix's control name. `verify_blast_preview.py` drives a real pointer onto `.act` and asserts the signature marks it clears, so the rename is gated rather than asserted |
+| `.edit` | `.act` | the polished matrix's control name. The blast-preview check (kept in the private operations repository, not on disk here) drove a real pointer onto `.act` and asserted the signature marks it clears, so the rename was gated rather than asserted |
 | `.avatar` | `.acard-av` | the marketplace card became the `acard` component in `market.css` |
 | `.agent`, `.name` | `.acard-name` | two names for the card's agent name became one |
 | `.desc` | `.acard-desc` | card description. Text confirmed rendering: the three agent descriptions on `browse.html` appear verbatim |
@@ -100,7 +103,7 @@ that screen at all, and all six read as plausible.
 | `.flow` (class on `how.html`) | the step rail |
 | `.halfnote`, `.why`, `.outstanding` | see the open question below. The `.why` fixed-term explanations and the lock countdown both still render on `agreement.html`; the per-line edit sentence does not |
 | `.accessline` | see the open question below |
-| `#agtech`, `#bannerlbl` | `#agtech`'s three technical facts are back on `agreement.html` and gated by `verify_kept.py` (they were genuinely lost once and restored in round 2). `#bannerlbl` was a `<label>` naming nothing over five swatch buttons, replaced by `role="group"` plus `aria-labelledby`, which is the fix for a label that announces a field that does not exist |
+| `#agtech`, `#bannerlbl` | `#agtech`'s three technical facts are back on `agreement.html` and gated by a kept-elements check (kept in the private operations repository, not on disk here; they were genuinely lost once and restored in round 2). `#bannerlbl` was a `<label>` naming nothing over five swatch buttons, replaced by `role="group"` plus `aria-labelledby`, which is the fix for a label that announces a field that does not exist |
 
 ### 3. Deliberately retired
 
@@ -135,7 +138,7 @@ edit, m-them, m-you, mark-off, mark-on, outstanding, th-line, thead, trow, why
 ```
 
 ```
-python3 flowcss_deadrules.py     # regenerates the live/dead split
+# dead-rule script (kept in the private operations repository, not on disk here): regenerates the live/dead split
 ```
 
 A rule keyed on a class no markup uses is dead and looks alive. These are safe
@@ -150,7 +153,7 @@ silently:
 1. **The per-line edit sentence.** `main`'s agreement carried "Editing a line
    clears the signatures on that line only. The other six stay signed. Hover an
    edit control to see exactly which marks it clears." The BEHAVIOUR is intact
-   and gated (`verify_blast_preview.py` proves the hover marks the right
+   and gated (the blast-preview check, kept in the private operations repository and not on disk here, proved the hover marks the right
    signatures, and the matrix shows `you edited this, both signatures cleared`
    on row 04), but the sentence explaining it to a first-time reader is gone.
    The matrix demonstrates the rule where the prose stated it, which is usually
