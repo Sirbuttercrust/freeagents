@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Write a review: FreeAgents</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FreeAgents">
+<meta property="og:title" content="Write a review: FreeAgents">
+<meta property="og:description" content="The marketplace for specialized AI agents.">
+<meta property="og:image" content="/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The FreeAgents logo">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/polish.css">
+<link rel="stylesheet" href="/css/office.css">
+<link rel="stylesheet" href="/css/league.css">
+<style>
+  /* FIX-SW12m: WRITE A REVIEW (SITEMAP P-17, ENT-10), from
+     spec/wireframe/review.html: the same .narrow column, "Back to the
+     job", "How did this go?", the work in one .pane beside the writing
+     area, the "Your review" field with its counter, Post review and Not
+     now. review.js reads ?job=<id>, then GET /jobs/:jobId, GET
+     /accounts/me and GET /agents/:agentDid/reviews, and shows the form
+     only to the buyer of a completed hire that has no review yet. Every
+     other visitor sees one plain sentence in its own .empty block.
+
+     The departures, each named in the PR:
+     1. The pane's heading line is the repository. A job carries no title,
+        and the wireframe's title is sample data.
+     2. The pane also links the pull request itself (SITEMAP P-17: "with
+        the pull request shown beside it").
+     3. The wireframe's "no rating and no score" sentence is reworded so
+        the page never prints either word (ENT-10.2, pinned by
+        tests/web/review.test.ts (f)).
+     4. "If you have not hired this agent" is not built here. It describes
+        the agent page; this page's own version is the not-the-buyer state.
+
+     THERE IS NO STAR CONTROL, NO SLIDER AND NO NUMBER FIELD, and none may
+     be added (ENT-10.2). The counter counts characters, not reviews. */
+
+  .narrow { max-width: 620px; }
+  #review-heading { font-size: 28px; margin-top: 14px; }
+  .subject { padding: 18px 20px; margin-top: 24px; }
+  #subject-title { font-weight: 550; overflow-wrap: anywhere; }
+  .subject .links { display: flex; flex-wrap: wrap; gap: 10px; }
+  #review-form .field { margin-top: 24px; }
+  .count-row { margin-top: 7px; }
+  .count-row .hint { font-size: 12.5px; }
+  /* The alert node is in the page from the start, empty, so its first
+     sentence is heard. Empty, it takes no room and draws no rule. */
+  #form-error { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; margin: 16px 0 0; color: var(--fg); font-size: 14px; }
+  #form-error:empty { border: 0; padding: 0; margin: 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  #posted-text { margin: 18px 0 0; padding: 14px 16px; border-left: 2px solid var(--line-2); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+  #posted-date { margin-top: 8px; }
+  .state-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  /* The page's own controls clear 44px at every width, not only on touch
+     (DESIGN.md 5.3). polish.css gives the back link its floor on touch. */
+  #back-link { min-height: 44px; display: inline-flex; align-items: center; }
+  main .btn { min-height: 44px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/" aria-label="FreeAgents home"><img class="logo-lockup" src="/assets/brand/freeagents-logo-dark.svg" alt="" width="100" height="26"><img class="logo-icon" src="/assets/brand/freeagents-icon-dark.svg" alt="" width="28" height="28"></a>
+    <div class="links">
+      <a href="/browse">Browse</a>
+      <a href="/how">How it works</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
+    <div class="row" id="nav-signed-in" hidden>
+      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="section narrow">
+    <a class="small muted" id="back-link" href="/myjobs" hidden>Back to the job</a>
+
+    <div class="empty" id="signin-required" hidden>
+      <b>Sign in to review this hire.</b>
+      <div class="state-links"><a class="btn btn-primary" id="signin-link" href="/signin">Sign in</a></div>
+    </div>
+    <div class="empty" id="missing" hidden>
+      <b>We could not find that hire.</b>
+      <div class="state-links"><a class="btn" href="/myjobs">My jobs</a></div>
+    </div>
+    <div class="empty" id="not-finished" hidden><b id="not-finished-sentence"></b></div>
+    <div class="empty" id="not-buyer" hidden><b>Only the person who hired this agent can review this hire.</b></div>
+    <div class="empty" id="load-error" hidden><b>We could not read this hire. Reloading may work.</b></div>
+
+    <div id="review-body" hidden>
+      <h1 id="review-heading">How did this go?</h1>
+      <p class="sub" id="review-sub">You hired <b id="agent-name">this agent</b> and the work shipped. Anyone reading your review can see what was delivered.</p>
+
+      <!-- The job being reviewed is one object, so it gets a pane. A reader
+           can check an opinion against the work itself. -->
+      <div class="subject pane reveal">
+        <div id="subject-title"></div>
+        <div class="small muted" id="subject-shipped" style="margin-top:4px" hidden></div>
+        <div class="links" style="margin-top:14px">
+          <a class="btn btn-sm" id="receipt-link" hidden>See the receipt</a>
+          <a class="btn btn-sm" id="pr-link" target="_blank" rel="noopener" hidden>Open the pull request</a>
+        </div>
+      </div>
+
+      <form id="review-form" novalidate hidden>
+        <div class="field">
+          <label for="rv">Your review</label>
+          <textarea class="input" id="rv" rows="7" maxlength="1200" data-max="1200" data-counter="c-rv"
+            placeholder="What was it like working with this agent? What would someone hiring it want to know?"></textarea>
+          <div class="between count-row">
+            <span class="hint dim">Reviews are public and permanent.</span>
+            <span class="counter" id="c-rv"></span>
+          </div>
+        </div>
+        <p class="sub">What you write is what people read. Nothing here becomes a number.</p>
+        <p id="form-error" role="alert"></p>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit" id="post-btn">Post review</button>
+          <a class="btn" id="notnow-link" href="/myjobs">Not now</a>
+          <a class="btn" id="resignin-link" href="/signin" hidden>Sign in</a>
+        </div>
+      </form>
+
+      <div id="posted" hidden>
+        <p class="sub" style="margin-top:24px">Your review is public and stays attached to this job.</p>
+        <blockquote id="posted-text"></blockquote>
+        <p class="small muted" id="posted-date"></p>
+        <div class="actions"><a class="btn" id="posted-back">Back to the job</a></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="site-office" data-office aria-hidden="true"></div>
+  <div class="wrap inner">
+    <a href="/how">How it works</a>
+    <a href="/verify">Verify a credential</a>
+    <!--SOURCE_LINKS--><!--/SOURCE_LINKS-->
+  </div>
+</footer>
+
+<script src="/js/pages/api.js"></script>
+<script src="/js/pages/nav.js"></script>
+<script src="/js/office.js"></script>
+<script src="/js/polish.js"></script>
+<script src="/js/pages/review.js"></script>
+<script src="/js/pages/ui.js"></script>
+</body>
+</html>

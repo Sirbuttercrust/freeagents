@@ -209,6 +209,10 @@ const PAGES: ReadonlyArray<readonly [label: string, path: string]> = [
   ['agentsettings', '/agentsettings'],
   ['agentsettings, the owner of a listed agent', `/agentsettings?agent=${encodeURIComponent(OWN_LISTED_DID)}`],
   ['agentsettings, the owner of an unlisted agent', `/agentsettings?agent=${encodeURIComponent(OWN_UNLISTED_DID)}`],
+  // Signed in as the completed hire's buyer, so the form draws; the form,
+  // the posted review and the job page's link are measured at 320, 390
+  // and 1280 in tests/web/review.test.ts.
+  ['review', `/review?job=${JOB_ID}`],
   ['incoming', '/incoming'],
   ['conduct', '/conduct?account=m1-buyer-login'],
   ['dashboard', '/dashboard'],

@@ -443,6 +443,22 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // label "Account", the same entry settings carries below.
     'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
   },
+  review: {
+    // FIX-SW12m's departures, each named in the PR. The wireframe's sample
+    // title and "Shipped to vercel/commerce" line are not headings or
+    // controls, so they need no entry: the built pane draws the job's own
+    // repository and merge date (review.js drawSubject).
+    //
+    // The wireframe's second section describes what the AGENT page shows a
+    // visitor with no completed hire. /review does not build a copy of it:
+    // this page's own version is its not-the-buyer state (#not-buyer,
+    // "Only the person who hired this agent can review this hire."),
+    // pinned by tests/web/review.test.ts (d).
+    'If you have not hired this agent': 'the section describes the agent page\u2019s empty state for a visitor with no completed hire; /review does not build a second copy of it, and its own version is the not-the-buyer state (#not-buyer), pinned by tests/web/review.test.ts (d)',
+    // The wireframe's nav button points at dashboard.html under the local
+    // label "Account", the same entry agentsettings and settings carry.
+    'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
+  },
   signin: {
     // All four excuses below share one root, already on the record: PLAN
     // 2026-09-08 (the P8 close-out) names five wireframed screens that
