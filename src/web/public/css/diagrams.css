@@ -61,7 +61,16 @@
   background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-2);
 }
 .dg-plate .ico { width: 18px; height: 18px; }
+/* A guide agent's plate. Until js/diagrams.js has drawn the agent it is an
+   ordinary plate holding an icon; .has-bot gives the canvas the plate's
+   whole box and a little more, with no chrome. */
+.dg-bot { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.dg-plate.is-bot.has-bot { width: 48px; height: 48px; margin: -6px; background: none; border: 0; }
 .dg-txt { min-width: 0; }
+.dg-eyebrow {
+  display: block; margin-bottom: 4px; font-size: 12px; line-height: 1.3;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
+}
 .dg-step h3, .dg-end h3, .dg-nope h3 { font-size: 15px; line-height: 1.3; }
 .dg-step p, .dg-nope p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--fg-2); max-width: none; }
 
@@ -129,6 +138,38 @@
 .dg-strike { position: absolute; left: -1px; top: -1px; width: calc(100% + 2px); height: calc(100% + 2px); overflow: visible; }
 .dg-strike path { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
 
+/* ------------------------------------------------------------ two lanes
+   You on the left, the agent on the right, and a zig wire every time the
+   next move changes hands. The width of the pair is fixed so the wires
+   between the lanes stay short enough to follow. */
+.dg-lanes { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; }
+.dg-lanes .dg-stage { align-items: stretch; }
+.dg-lanes .dg-lane-l { align-self: flex-start; width: 300px; }
+.dg-lanes .dg-lane-r { align-self: flex-end; width: 300px; }
+
+/* ----------------------------------------------------------- proof rows
+   Three kinds of proof as three small graphs. The strongest is a chain of
+   four links; the middle is two records pointing at each other; the
+   weakest is one dashed node joined to nothing. The empty space around it
+   is the argument (DESIGN.md 1.1). */
+.dg-tiers { display: flex; flex-direction: column; gap: 22px; width: 100%; }
+.dg-tier-row { display: grid; grid-template-columns: 200px minmax(0, 1fr) 150px; column-gap: 22px; align-items: center; width: 100%; }
+.dg-tier-head .tier { font-size: 14px; }
+.dg-tier-head p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--fg-2); }
+.dg-graph { display: flex; align-items: center; gap: 34px; min-width: 0; }
+.dg-mini {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; flex: none;
+  min-height: 34px; padding: 0 12px; border-radius: 999px; font-size: 13px; line-height: 1; color: var(--fg);
+  background: var(--bg-1); border: 1px solid var(--pane-rim);
+}
+.dg-mini .ico { width: 14px; height: 14px; color: var(--fg-2); }
+.dg-mini.is-claim { color: var(--fg-3); background: none; border: 1.5px dashed var(--line-2); }
+.dg-forge { text-align: right; font-size: 13px; line-height: 1.4; color: var(--fg-2); }
+.dg-forge b { display: block; margin-top: 4px; font-size: 14px; color: var(--fg); font-weight: 550; }
+/* A claim is quieter than a checked fact; the missing emphasis is the
+   message, the same rule the profile follows. */
+.dg-tier-row.is-claim .dg-tier-head p, .dg-tier-row.is-claim .dg-forge b { color: var(--fg-3); }
+
 /* --------------------------------------------------------------- narrow
    One rail down the left and branches into the cards. The plate centre is
    the rail, so the same anchors serve both layouts. */
@@ -141,6 +182,14 @@
   .dg-facts > div { display: block; margin-top: 10px; }
   .dg-k { display: block; line-height: 16px; }
   .dg-nopes { grid-template-columns: 1fr; }
+  /* The lanes fold into one column and every zig becomes a drop on the
+     rail (data-route-m="drop"). The eyebrow on each step still says whose
+     move it is. */
+  .dg-lanes .dg-lane-l, .dg-lanes .dg-lane-r { align-self: stretch; width: 100%; }
+  .dg-tier-row { grid-template-columns: minmax(0, 1fr); row-gap: 12px; }
+  .dg-graph { flex-wrap: wrap; gap: 22px; }
+  .dg-forge { text-align: left; }
+  .dg-forge b { display: inline; margin: 0 0 0 8px; }
   /* The step a labelled wire lands on gets 22px more room above it, so the
      label sits between the card above and that step with air on both sides. */
   .dg-stage [data-via][data-route="drop"], .dg-stage [data-via][data-route-m="drop"] { margin-top: 22px; }
@@ -196,6 +245,16 @@
   .dg-js .dg-stage .dg-node:not(.is-wait) * { transition: color var(--dur-2) var(--ease-out-q); }
   .dg-stage > .dg-via.is-wait {
     color: var(--fg-3);
+    border-color: color-mix(in srgb, var(--line-2) calc(var(--g, 1) * 100%), transparent);
+  }
+  /* A proof row's small nodes dim their pill the same way; the dashed
+     claim keeps no fill at all. */
+  .dg-mini.dg-node.is-wait {
+    background: color-mix(in srgb, var(--bg-1) calc(var(--g, 1) * 100%), transparent);
+    border-color: color-mix(in srgb, var(--pane-rim) calc(var(--g, 1) * 100%), transparent);
+  }
+  .dg-mini.is-claim.dg-node.is-wait {
+    background: none;
     border-color: color-mix(in srgb, var(--line-2) calc(var(--g, 1) * 100%), transparent);
   }
 }

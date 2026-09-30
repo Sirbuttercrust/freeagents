@@ -21,13 +21,39 @@
    data-t         when the node arrives, in seconds from the start of the play
    data-from      the data-id it hangs from; its wire finishes at data-t
    data-route     drop (straight down the rail), fan (out of the right edge,
-                  along a trunk) or rail (the phone form of fan)
+                  along a trunk), rail (the phone form of fan), zig (from the
+                  bottom middle of one node, across, down into the top
+                  middle of the next: a step that changes lanes) or across
+                  (right edge to left edge on one line; a zig when the two
+                  sit on different lines because a row wrapped)
    data-route-m   the route to use at 900px and under
    data-wd        seconds the light takes to run the wire (default 0.7)
    data-via       a label that sits on the wire ("Say nothing for 7 days")
    data-via-ico   the icon name beside it
    A .dg-coin with data-t fills in at that second. A .dg-strike with data-t
    draws its line across its plate.
+
+   Two forms are layout only (css/diagrams.css) and ride the same contract:
+     .dg-lanes on the section, .dg-lane-l and .dg-lane-r on its steps: two
+       lanes, you on the left and the agent on the right, joined by zig
+       wires; on a phone one column, joined by drop wires on the rail.
+     .dg-tiers holding .dg-tier-row nodes, each a .dg-tier-head, a
+       .dg-graph of .dg-mini nodes joined by across wires, and a .dg-forge;
+       .is-claim on the weakest row and its one mini.
+
+   A GUIDE AGENT sits in a step's plate:
+     <span class="dg-plate is-bot"><span class="dg-bot" data-shape="droid"
+       data-colour="c9" data-face="eyes"><span class="ico" data-ico="..."></span></span></span>
+   Until an agent is drawn the plate is an ordinary plate showing that
+   icon, which is also its picture when the avatar core never loads. The
+   agent is mounted through FABots.mount (js/bots.js), which draws it
+   still under reduced motion and animates it on the core's shared ticker
+   otherwise, so an agent never starts a frame loop of its own. This file
+   never loads the core. A page whose agents should be alive at first view
+   loads the vendored core and bots.js before this file, as /how does; on
+   any other page the plates keep their icon until the core arrives (the
+   office footer fetches it when the footer comes near), and the agents
+   are mounted then.
 
    A NODE WAITING TO ARRIVE STAYS READABLE. Its surface (fill, rim, plate,
    coins) is dimmed and its text sits at --fg-3, which clears AA on every
@@ -194,6 +220,15 @@
     rail: function (s, e, plx) {
       var x = s.x + plx, y1 = e.y + Math.min(e.h / 2, 27);
       return [[x, s.y + s.h], [x, y1], [e.x, y1]];
+    },
+    zig: function (s, e) {
+      var x0 = s.x + s.w / 2, x1 = e.x + e.w / 2, y0 = s.y + s.h, y1 = e.y, ym = (y0 + y1) / 2;
+      return [[x0, y0], [x0, ym], [x1, ym], [x1, y1]];
+    },
+    across: function (s, e) {
+      var sy = s.y + s.h / 2, ey = e.y + e.h / 2;
+      if (Math.abs(sy - ey) > 12) return ROUTES.zig(s, e);
+      return [[s.x + s.w, sy], [e.x, ey]];
     }
   };
 
@@ -218,13 +253,19 @@
 
   /* Where a wire's label sits. On a phone only a drop keeps its label (the
      cards under a fan say "If you ..." themselves), and it goes just above
-     the step the wire lands on, to the right of the rail. */
+     the step the wire lands on, to the right of the rail. On a zig it sits
+     on the run across between the two lanes, starting just right of its
+     middle, as a label on a drop does. */
   function viaAt(name, pts, nar, e) {
     var n = pts.length;
     if (nar) return { x: pts[0][0] + 14, y: e.y - 28, left: true };
-    if (name === "fan") {
+    if (name === "fan" || name === "across") {
       var a = pts[n - 2], b = pts[n - 1];
       return { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 };
+    }
+    if (name === "zig" && n >= 3) {
+      var za = pts[1], zb = pts[2];
+      return { x: (za[0] + zb[0]) / 2, y: (za[1] + zb[1]) / 2 };
     }
     var a2 = pts[0], b2 = pts[1] || pts[0];
     return { x: (a2[0] + b2[0]) / 2, y: (a2[1] + b2[1]) / 2 };
@@ -256,7 +297,7 @@
         w.via.style.left = at.x.toFixed(1) + "px";
         w.via.style.top = at.y.toFixed(1) + "px";
         w.via.classList.toggle("is-left", !!at.left);
-        w.via.classList.toggle("is-drop", name === "drop");
+        w.via.classList.toggle("is-drop", name === "drop" || name === "zig");
         w.viaKey = null;
       }
     });
@@ -434,6 +475,52 @@
     if (unsub) { var u = unsub; unsub = null; u(); }
   }
 
+  /* ------------------------------------------------------------- agents
+     A guide agent is drawn by js/bots.js on the vendored core's shared
+     ticker, still under reduced motion (bots.js reads the setting on every
+     frame and follows it both ways). This file only asks for it, and never
+     schedules a frame on its behalf. Until the core and bots.js are both
+     on the page, and in a DOM that cannot draw at all, the plate keeps its
+     icon. */
+
+  var BOT_SIZE = 48;
+  var botWait = null;
+
+  function canDrawBots() {
+    return !!(window.FABots && typeof window.FABots.mount === "function" && window.BotAvatars &&
+      typeof window.CanvasRenderingContext2D === "function" && typeof window.Path2D === "function");
+  }
+
+  function mountBots() {
+    each(document.querySelectorAll("[data-diagram] .dg-bot[data-shape]"), function (host) {
+      if (host.__faBot) return;
+      var spec = {
+        shape: host.getAttribute("data-shape"),
+        face: host.getAttribute("data-face") || "eyes",
+        colour: host.getAttribute("data-colour") || "c1"
+      };
+      window.FABots.mount(host, "diagram-guide-" + spec.shape, { spec: spec, size: BOT_SIZE, follow: false, flips: false, still: forceStill });
+      if (host.querySelector("canvas") && host.parentNode) host.parentNode.classList.add("has-bot");
+    });
+  }
+
+  /* Mount now if the core is here. If not, listen for scripts arriving
+     (office.js adds the core and bots.js to <head> when the footer comes
+     near) and mount once both have loaded. A script's load event does not
+     bubble, so the listener is on the capture phase. */
+  function whenBots() {
+    if (!document.querySelector("[data-diagram] .dg-bot[data-shape]")) return;
+    if (canDrawBots()) { mountBots(); return; }
+    if (botWait) return;
+    botWait = function () {
+      if (!canDrawBots()) return;
+      document.removeEventListener("load", botWait, true);
+      botWait = null;
+      try { mountBots(); } catch (e) { setTimeout(function () { throw e; }, 0); }
+    };
+    document.addEventListener("load", botWait, true);
+  }
+
   /* --------------------------------------------------------------- start */
 
   function schedule() {
@@ -458,6 +545,11 @@
   }
 
   function init() {
+    /* The agents first, on their own: the finished picture shows them too,
+       so a diagram that falls back below still gets its agents. A drawn
+       agent's plate keeps the box an icon plate has, so nothing measured
+       below moves. */
+    try { whenBots(); } catch (e) { setTimeout(function () { throw e; }, 0); }
     try {
       each(document.querySelectorAll("[data-diagram]"), build);
       if (!models.length) return;

@@ -288,6 +288,7 @@ describe('(b) under reduced motion and with scripts off, the finished picture sh
         })
       `);
       expect(before, 'each plate shows its icon, not an agent').toEqual(Array(3).fill({ canvas: false, icon: true, hasBot: false }));
+      await b.evaluate("document.querySelector('[data-diagram]').scrollIntoView({ block: 'end' })");
       const done = await waitFinished(b, 20_000);
       expect(done[0]!.replayShown, 'the hiring diagram played to the end without the core').toBe(true);
       await b.evaluate(`(function () { window.__release = true; var s = document.createElement('script'); s.src = '/js/bots.js?late'; document.head.appendChild(s); })()`);
@@ -448,12 +449,14 @@ describe('(c) every word in the three diagrams meets AA at every moment of the p
     const b = await openBrowser({ width, height });
     try {
       const got = await contrastAt(b, `/how${q}`);
-      // Every visible text run in the three diagrams was measured, and
-      // there are at least as many as the diagrams hold words: the six
-      // steps' eyebrows, titles and lines, the proof rows' labels and
-      // small nodes, and the refusals.
-      expect(got.total, 'the diagrams hold their text').toBeGreaterThanOrEqual(60);
-      expect(got.measured, 'the walk measured every visible text run in the three diagrams').toBe(got.total);
+      // 52 visible text runs: the hiring diagram's title, six steps of
+      // eyebrow, title and line, "Pay the rest" and its note (21); the
+      // proof diagram's title, three rows of tier, line, "Could it be
+      // faked?" and answer, seven small nodes, its note and "Show the exact
+      // terms" (22); the refusals' title and four cards of title and line
+      // (9). Replay is hidden while a diagram is frozen by ?t.
+      expect(got.total, 'the three diagrams hold 52 visible text runs').toBe(52);
+      expect(got.measured, 'the walk measured every one of them').toBe(got.total);
       expect(got.transparent, 'no word is hidden outright while it waits').toEqual([]);
       expect(got.failures, 'text runs under AA against the pixels behind them').toEqual([]);
     } finally {
@@ -484,10 +487,15 @@ const FRAMES = `(function () {
   } });
   window.__frames = function () { var c = calls; calls = {}; return c; };
   window.__subs = function () { var n = {}; subs.forEach(function (s) { if (s.live) n[s.by] = (n[s.by] || 0) + 1; }); return n; };
+  // bots.js runs an agent only while it is on screen, so this is how many
+  // should be riding the ticker at this scroll position.
+  window.__agentsOnScreen = function () {
+    return Array.from(document.querySelectorAll('.dg-bot canvas')).filter(function (c) { var r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).length;
+  };
 })();`;
 
 describe('(d) one frame loop: the avatar core\u2019s ticker is the only thing that schedules a frame', () => {
-  it('while the hiring diagram plays with its agents alive, every frame is the core\u2019s and the play and the agents both ride it; once all three finish only the agents hold it, and with them off screen no frame runs', async () => {
+  it('while the hiring diagram plays with its agents alive, every frame is the core\u2019s and the play and the agents on screen both ride it; once all three finish only the agents hold it, and with them off screen no frame runs', async () => {
     if (skipWithoutChrome()) return;
     const b = await openBrowser({ width: 1280, height: 720, init: FRAMES });
     try {
@@ -496,9 +504,11 @@ describe('(d) one frame loop: the avatar core\u2019s ticker is the only thing th
       await sleep(1000);
       const playing = await b.evaluate<Record<string, number>>('window.__frames()');
       const subs = await b.evaluate<Record<string, number>>('window.__subs()');
+      const onScreen = await b.evaluate<number>('window.__agentsOnScreen()');
       expect(Object.keys(playing), 'every frame in the second of play was scheduled by the core').toEqual(['bot-avatars.js']);
       expect(playing['bot-avatars.js'], 'and it ran every frame').toBeGreaterThan(30);
-      expect(subs, 'the play and the three agents on screen each ride the core\u2019s ticker').toEqual({ 'diagrams.js': 1, 'bots.js': 3 });
+      expect(onScreen, 'at least one agent is on the first screen').toBeGreaterThan(0);
+      expect(subs, 'the play and each agent on screen ride the core\u2019s ticker').toEqual({ 'diagrams.js': 1, 'bots.js': onScreen });
 
       await readDown(b);
       const done = await waitFinished(b, 40_000);
@@ -520,7 +530,9 @@ describe('(d) one frame loop: the avatar core\u2019s ticker is the only thing th
       await b.evaluate('window.__frames()');
       await sleep(1000);
       expect(Object.keys(await b.evaluate<Record<string, number>>('window.__frames()')), 'back in view, only the core\u2019s loop runs').toEqual(['bot-avatars.js']);
-      expect(await b.evaluate('window.__subs()'), 'and only the agents hold it').toEqual({ 'bots.js': 3 });
+      const backOnScreen = await b.evaluate<number>('window.__agentsOnScreen()');
+      expect(backOnScreen, 'the agents on the first screen are back in view').toBeGreaterThan(0);
+      expect(await b.evaluate('window.__subs()'), 'and only the agents on screen hold it').toEqual({ 'bots.js': backOnScreen });
     } finally {
       await b.close();
     }
@@ -709,7 +721,18 @@ describe('(g) on a touch phone and a touch desktop: no sideways scroll, 44 px co
         const left = out.lanes.find((l) => l.side === 'l')!;
         const right = out.lanes.find((l) => l.side === 'r')!;
         expect(left.right, 'the lanes are two columns apart').toBeLessThan(right.left);
-        for (const xs of out.wireXs) expect(new Set(xs).size, 'each wire crosses from one lane to the other').toBe(2);
+        // A zig leaves the middle of one step and lands on the middle of
+        // the next, whichever lane each sits in (s2 to s3 stays in the
+        // agent's lane; the other four cross). A wire's points are in the
+        // stage's own coordinates. Within 1 px of rounding.
+        const mid = (l: { left: number; right: number }) => (l.left + l.right) / 2 - out.stage[0]!;
+        out.wireXs.forEach((xs, i) => {
+          const from = out.lanes[i]!;
+          const to = out.lanes[i + 1]!;
+          const ends = [xs[0]!, xs[xs.length - 1]!];
+          expect(Math.abs(ends[0]! - mid(from)) <= 1 && Math.abs(ends[1]! - mid(to)) <= 1,
+            `wire ${i + 1} runs from ${from.id}'s middle (${mid(from)}) to ${to.id}'s (${mid(to)}), got ${ends.join(' to ')}`).toBe(true);
+        });
       }
     } finally {
       await b.close();

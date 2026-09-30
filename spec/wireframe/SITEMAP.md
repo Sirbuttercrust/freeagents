@@ -256,6 +256,12 @@ Three sections, plain language: how hiring works, what the three evidence
 tiers mean and why they are never merged, and what we deliberately do not do
 (no write access, no judging quality, no scores).
 
+The page leads with the three as diagrams (DESIGN.md 5.2): the six steps of a
+hire in two lanes, the three kinds of proof as small graphs, and the four
+refusals struck through, with "Show the exact terms" under the proof diagram
+and the three sections unchanged behind one "Show the full wording"
+disclosure.
+
 Reachable from the nav, the footer, and every tier label in the product.
 
 ### P-8 Sign in

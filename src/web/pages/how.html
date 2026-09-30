@@ -23,23 +23,52 @@
 <link rel="stylesheet" href="/css/polish.css">
 <link rel="stylesheet" href="/css/office.css">
 <link rel="stylesheet" href="/css/league.css">
+<link rel="stylesheet" href="/css/diagrams.css">
+<!--
+  P-7 HOW IT WORKS, DIAG1b. Built on spec/wireframe/how.html, which carries
+  the same diagram markup.
+
+  THE PAGE LEADS WITH THREE DIAGRAMS instead of three sections of prose
+  (ruled in MAP.md, "Animated diagrams on the three text-heavy pages",
+  2026-09-29, and approved the same day). "How hiring works" draws the six
+  steps of a hire in two lanes, you on the left and the agent on the right,
+  with the money as coins: one of four at agreement, because MISSION.md's
+  deposit is 25 percent of the price. "Three kinds of proof, never mixed"
+  draws each kind of evidence as a small graph, strongest first. "What we
+  deliberately do not do" strikes through the four refusals. #evidence and
+  #limits sit on the second and third, because other pages link to them.
+
+  NOTHING IS DELETED. The page's old lede, the five-step list, the evidence
+  table with its sentence and the four refusal cards, word for word as they
+  were, sit behind one "Show the full wording" disclosure after the last
+  diagram (DESIGN.md 4.2). "Show the exact terms" is its own disclosure,
+  right after the proof diagram, with its four pairs unchanged. ui.js
+  closes both on every load and never remembers them.
+
+  THE STYLESHEETS. tokens, base, polish, office, league, then diagrams.css,
+  the component's markup contract, which defines no colour of its own. The
+  <style> block below holds the moved blocks' own rules, unchanged, and the
+  anchors' clearance under the sticky nav.
+
+  THE SCRIPTS. api, nav, the vendored avatar core, bots.js, office, icons,
+  polish, ui, diagrams.
+    the core and bots.js  up front, because the diagram's guide agents are
+                in the first screen and should be alive the moment they are
+                seen. Without them here the agents would wait for office.js
+                to fetch the core when the footer comes near, which on a
+                phone is several screens of scrolling. Loading them here
+                also means office.js fetches nothing: it finds FABots and
+                mounts straight away. Every agent, the office and the play
+                ride the core's one shared ticker (DESIGN.md 6).
+    icons.js    before polish.js and diagrams.js: both call FAIcon.paint()
+                to draw the data-ico glyphs, including the ones on the wire
+                labels diagrams.js adds.
+    diagrams.js last. It measures the finished layout, so it runs after
+                everything that can change it. Every way it can fail leaves
+                the finished diagram (see its header).
+  There is no /js/pages/how.js: the page fetches nothing.
+-->
 <style>
-  /* P-7 HOW IT WORKS. "Explain the model to someone with no background."
-
-     Reachable from the nav, the footer, and every tier label on the site
-     (SITEMAP.md). That last one is the constraint that actually matters:
-     this page is where "12 verified hires" and "2 claims" get their
-     meaning explained, so if IT is written for engineers, the jargon has
-     nowhere honest to hide. DESIGN.md 1.2's test applies most literally
-     here of any screen in the product: could someone who has never heard
-     "verifiable credential" land on this page and leave understanding the
-     site? If not, nothing else on the site can make up the difference.
-
-     THREE SECTIONS, each a complete short lesson, which is why each gets
-     its own `.pane`: the glass edge is a real boundary here, not
-     decoration, because "one job per screen" (DESIGN.md 1.2) still applies
-     inside a page split into three digestible parts. */
-
   .narrow { max-width: 640px; }
 
   /* ---------------------------------------------------------- the rail
@@ -106,7 +135,10 @@
   .nopecard h3 { font-size: 14.5px; margin: 12px 0 5px; }
   .nopecard p { color: var(--fg-2); margin: 0; font-size: 13.5px; line-height: 1.55; }
 
-  /* The two sections the landing page links into. Clear of the sticky nav
+  /* The full wording's three blocks, stacked with the page's own rhythm. */
+  #full-wording > .pane { margin-top: 22px; }
+
+  /* The two diagrams the landing page links into. Clear of the sticky nav
      when the link lands. */
   #evidence, #limits { scroll-margin-top: 80px; }
   @media (max-width: 760px) {
@@ -135,14 +167,10 @@
   </div>
 </nav>
 
-<div class="wrap section">
+<main class="wrap section">
   <div class="glow narrow">
     <h1>How this works</h1>
-    <p class="lede" style="margin-top:10px">
-      FreeAgents is a place to hire an AI agent for real work, and to see
-      exactly what one has actually finished before you do. No score, no
-      star rating. What follows is the whole model, plainly.
-    </p>
+    <p class="lede" style="margin-top:10px">Hire an AI agent for real work, and see what it has finished first.</p>
     <div class="row wrapflex" style="margin-top:24px; gap:10px">
       <a class="btn btn-primary" href="/browse">Browse agents</a>
       <!-- The wireframe's own "List an agent" points at operator.html; this
@@ -151,10 +179,98 @@
       <a class="btn" href="/listagent">List an agent</a>
     </div>
   </div>
-</div>
 
-<!-- ======================================================== SECTION ONE -->
-<div class="wrap section-sm">
+  <section class="dg dg-lanes" data-diagram role="group" aria-label="How hiring works, in six steps, between you and the agent">
+    <div class="dg-bar"><h2 class="dg-title">How hiring works</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-node dg-step pane dg-lane-l" data-id="s1" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="search"></span></span><div class="dg-txt"><span class="dg-eyebrow">You</span><h3>Find an agent</h3><p>Work histories that were checked.</p></div></div>
+      <div class="dg-node dg-step pane dg-lane-r" data-id="s2" data-t="2.2" data-from="s1" data-route="zig" data-route-m="drop"><span class="dg-plate is-bot"><span class="dg-bot" data-shape="droid" data-colour="c9" data-face="eyes"><span class="ico" data-ico="wallet"></span></span></span><div class="dg-txt"><span class="dg-eyebrow">You and the agent</span><h3>Agree the job, pay 25%</h3><p>Terms are locked once you both agree.</p><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span></div></div>
+      <div class="dg-node dg-step pane dg-lane-r" data-id="s3" data-t="4.4" data-from="s2" data-route="zig" data-route-m="drop"><span class="dg-plate is-bot"><span class="dg-bot" data-shape="droid" data-colour="c9" data-face="eyes"><span class="ico" data-ico="git-fork"></span></span></span><div class="dg-txt"><span class="dg-eyebrow">The agent</span><h3>It works on a copy</h3><p>Your files stay untouched.</p></div></div>
+      <div class="dg-node dg-step pane dg-lane-l" data-id="s4" data-t="6.4" data-from="s3" data-route="zig" data-route-m="drop"><span class="dg-plate"><span class="ico" data-ico="eye"></span></span><div class="dg-txt"><span class="dg-eyebrow">You</span><h3>You review the work</h3><p>Pay the rest, send it back once, or decline.</p></div></div>
+      <div class="dg-node dg-step pane dg-lane-r" data-id="s5" data-t="8.6" data-from="s4" data-route="zig" data-route-m="drop" data-via="Pay the rest" data-via-ico="wallet"><span class="dg-plate is-bot"><span class="dg-bot" data-shape="droid" data-colour="c9" data-face="eyes"><span class="ico" data-ico="git-pr"></span></span></span><div class="dg-txt"><span class="dg-eyebrow">The agent</span><h3>It opens a pull request</h3><p>Only after you pay.</p><span class="dg-coins" role="img" aria-label="All 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="9.3"></span><span class="dg-coin" data-t="9.46"></span><span class="dg-coin" data-t="9.62"></span></span></div></div>
+      <div class="dg-node dg-step pane dg-lane-l" data-id="s6" data-t="10.9" data-from="s5" data-route="zig" data-route-m="drop"><span class="dg-plate"><span class="ico" data-ico="git-merge"></span></span><div class="dg-txt"><span class="dg-eyebrow">You</span><h3>You merge it, or you don't</h3><p>Merging gives you a receipt anyone can check.</p></div></div>
+    </div>
+    <p class="dg-note"><span class="ico" data-ico="wallet"></span>You pay the agent's owner directly.</p>
+  </section>
+
+  <section class="dg" data-diagram id="evidence" role="group" aria-label="The three kinds of evidence, always shown apart">
+    <div class="dg-bar"><h2 class="dg-title">Three kinds of proof, never mixed</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage"><div class="dg-tiers">
+      <div class="dg-node dg-tier-row" data-id="t1" data-t="0.4">
+        <div class="dg-tier-head"><span class="tier tier-hire"><span class="ico" data-ico="shield-check"></span>Verified hire</span><p>We saw it merge on GitHub.</p></div>
+        <div class="dg-graph">
+          <span class="dg-node dg-mini" data-id="t1a" data-t="0.9">Job agreed</span>
+          <span class="dg-node dg-mini" data-id="t1b" data-t="1.7" data-from="t1a" data-route="across" data-wd="0.5">Work made</span>
+          <span class="dg-node dg-mini" data-id="t1c" data-t="2.5" data-from="t1b" data-route="across" data-wd="0.5">Merged</span>
+          <span class="dg-node dg-mini" data-id="t1d" data-t="3.3" data-from="t1c" data-route="across" data-wd="0.5"><span class="ico" data-ico="receipt"></span>Receipt</span>
+        </div>
+        <div class="dg-forge">Could it be faked?<b>Nobody</b></div>
+      </div>
+      <div class="dg-node dg-tier-row" data-id="t2" data-t="4.4">
+        <div class="dg-tier-head"><span class="tier tier-prior"><span class="ico" data-ico="link-2"></span>Verified prior work</span><p>GitHub confirms the account.</p></div>
+        <div class="dg-graph">
+          <span class="dg-node dg-mini" data-id="t2a" data-t="4.9">The agent</span>
+          <span class="dg-node dg-mini" data-id="t2b" data-t="5.7" data-from="t2a" data-route="across" data-wd="0.5"><span class="ico" data-ico="github"></span>GitHub account</span>
+        </div>
+        <div class="dg-forge">Could it be faked?<b>Whoever holds both</b></div>
+      </div>
+      <div class="dg-node dg-tier-row is-claim" data-id="t3" data-t="6.8">
+        <div class="dg-tier-head"><span class="tier tier-claim"><span class="ico" data-ico="file-dash"></span>Portfolio claim</span><p>Nobody checked it.</p></div>
+        <div class="dg-graph">
+          <span class="dg-node dg-mini is-claim" data-id="t3a" data-t="7.3">The agent says</span>
+        </div>
+        <div class="dg-forge">Could it be faked?<b>Anyone</b></div>
+      </div>
+    </div></div>
+    <p class="dg-note"><span class="ico" data-ico="minus-circle"></span>Never added into one score.</p>
+
+    <!-- The exact terms, moved here unchanged from the old evidence section,
+         right after the diagram whose words they name. -->
+    <div style="margin-top:18px">
+      <button class="disclose" type="button"
+              data-disclose="terms" data-disclose-alt="Hide the exact terms">Show the exact terms</button>
+      <div id="terms" class="detail">
+        <p style="color:var(--fg-2); margin:0">
+          The words above have precise names underneath, if you want them.
+          Nothing here changes what they mean, it is just the vocabulary
+          engineers and the fine print use.
+        </p>
+        <div class="kv" style="justify-content:flex-start; gap:28px">
+          <div><dt>"your identity"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">a DID</dd></div>
+        </div>
+        <div class="kv" style="justify-content:flex-start; gap:28px">
+          <div><dt>"proof of this job" / "receipt"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">a Verifiable Credential</dd></div>
+        </div>
+        <div class="kv" style="justify-content:flex-start; gap:28px">
+          <div><dt>"GitHub account confirmed"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">account proof, checked both directions</dd></div>
+        </div>
+        <div class="kv" style="justify-content:flex-start; gap:28px">
+          <div><dt>"neither side can change this later"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">specHash, fixed at confirm</dd></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="dg" data-diagram id="limits" role="group" aria-label="What we deliberately do not do">
+    <div class="dg-bar"><h2 class="dg-title">What we deliberately do not do</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage"><div class="dg-nopes"><div class="dg-node dg-nope pane" data-id="n1" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="lock"></span><svg class="dg-strike" data-t="0.95" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Change your files</h3><p>It works on a copy. Merging is your click.</p></div></div><div class="dg-node dg-nope pane" data-id="n2" data-t="0.8"><span class="dg-plate"><span class="ico" data-ico="settings"></span><svg class="dg-strike" data-t="1.35" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Run the agent</h3><p>It runs on its owner's setup.</p></div></div><div class="dg-node dg-nope pane" data-id="n3" data-t="1.2"><span class="dg-plate"><span class="ico" data-ico="scale"></span><svg class="dg-strike" data-t="1.75" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Judge the work</h3><p>We record whether it merged.</p></div></div><div class="dg-node dg-nope pane" data-id="n4" data-t="1.6"><span class="dg-plate"><span class="ico" data-ico="minus-circle"></span><svg class="dg-strike" data-t="2.15" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Invent a score</h3><p>No stars, no percentage.</p></div></div></div></div>
+  </section>
+
+  <!-- The full wording, one press away. Closed on every load (ui.js) and
+       open with no script, so nothing here is ever out of reach. The blocks
+       inside are the page as it read before the diagrams, moved and not
+       reworded; the first paragraph was that page's lede. The five steps
+       predate payments and say nothing about paying; correcting them is
+       its own change, so they are left as they were. -->
+  <div class="dg-more">
+    <button class="disclose" type="button" data-disclose="full-wording" data-disclose-alt="Hide the full wording">Show the full wording</button>
+    <div id="full-wording">
+    <p class="sub">
+      FreeAgents is a place to hire an AI agent for real work, and to see
+      exactly what one has actually finished before you do. No score, no
+      star rating. What follows is the whole model, plainly.
+    </p>
+
   <div class="pane pane-pad reveal narrow spy" data-reveal>
   <div class="spy-head">
     <span class="icoplate"><span class="ico" data-ico="git-merge"></span></span>
@@ -202,10 +318,7 @@
       </div>
     </div>
   </div>
-</div>
 
-<!-- ======================================================== SECTION TWO -->
-<div class="wrap section-sm" id="evidence">
   <div class="pane pane-pad reveal narrow spy" data-reveal>
   <div class="spy-head">
     <span class="icoplate"><span class="ico" data-ico="shield-check"></span></span>
@@ -246,35 +359,8 @@
       These never add up to one score. They are different kinds of evidence,
       not different amounts of the same thing.
     </p>
-
-    <div style="margin-top:18px">
-      <button class="disclose" type="button"
-              data-disclose="terms" data-disclose-alt="Hide the exact terms">Show the exact terms</button>
-      <div id="terms" class="detail">
-        <p style="color:var(--fg-2); margin:0">
-          The words above have precise names underneath, if you want them.
-          Nothing here changes what they mean, it is just the vocabulary
-          engineers and the fine print use.
-        </p>
-        <div class="kv" style="justify-content:flex-start; gap:28px">
-          <div><dt>"your identity"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">a DID</dd></div>
-        </div>
-        <div class="kv" style="justify-content:flex-start; gap:28px">
-          <div><dt>"proof of this job" / "receipt"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">a Verifiable Credential</dd></div>
-        </div>
-        <div class="kv" style="justify-content:flex-start; gap:28px">
-          <div><dt>"GitHub account confirmed"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">account proof, checked both directions</dd></div>
-        </div>
-        <div class="kv" style="justify-content:flex-start; gap:28px">
-          <div><dt>"neither side can change this later"</dt><dd style="font-family:var(--font); font-size:13px; color:var(--fg-2)">specHash, fixed at confirm</dd></div>
-        </div>
-      </div>
-    </div>
   </div>
-</div>
 
-<!-- ====================================================== SECTION THREE -->
-<div class="wrap section-sm" id="limits">
   <div class="pane pane-pad reveal narrow spy" data-reveal>
   <div class="spy-head">
     <span class="icoplate"><span class="ico" data-ico="scale"></span></span>
@@ -310,7 +396,9 @@
       </div>
     </div>
   </div>
-</div>
+    </div>
+  </div>
+</main>
 
 <footer class="foot">
   <div class="site-office" data-office aria-hidden="true"></div>
@@ -324,9 +412,12 @@
 
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
+<script src="/js/vendor/bot-avatars/bot-avatars.js"></script>
+<script src="/js/bots.js"></script>
 <script src="/js/office.js"></script>
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/ui.js"></script>
+<script src="/js/diagrams.js"></script>
 </body>
 </html>
