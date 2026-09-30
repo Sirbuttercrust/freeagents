@@ -20,7 +20,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createApp } from '../../src/api/app.js';
 import { createSessionAdapter } from '../../src/adapters/identity/session-github-passkey.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
-import { fakeGitHubConfig, fakeGitHubFetch } from '../helpers/session-fixtures.js';
+import { fakeGitHubConfig, fakeGitHubFetch, startGitHubSignIn } from '../helpers/session-fixtures.js';
 import { createPasskeyFixture } from '../helpers/webauthn-fixtures.js';
 
 const RETURN_KEY = 'fa_return_to';
@@ -97,13 +97,17 @@ interface Page { window: JSDOM['window']; document: Document; close: () => void 
 async function render(
   path: string,
   fetchPath: string,
-  options: { stored?: string; prepare?: (window: JSDOM['window']) => void } = {},
+  options: { stored?: string; cookie?: string; prepare?: (window: JSDOM['window']) => void } = {},
 ): Promise<Page> {
   const virtualConsole = new VirtualConsole();
   const failures: string[] = [];
   virtualConsole.on('jsdomError', (error: Error) => failures.push(error.message));
 
-  const markup = await (await fetch(`${baseUrl}${fetchPath}`, { headers: { Accept: HTML } })).text();
+  const markup = await (
+    await fetch(`${baseUrl}${fetchPath}`, {
+      headers: { Accept: HTML, ...(options.cookie !== undefined ? { Cookie: options.cookie } : {}) },
+    })
+  ).text();
   const dom = new JSDOM(markup, {
     url: `${baseUrl}${path}`,
     runScripts: 'dangerously',
@@ -194,9 +198,9 @@ describe('(a) pressing Sign in remembers the page it was pressed on', () => {
 // The callback page, as GET /auth/github/callback really renders it for a
 // browser after a good code and state.
 async function renderCallback(storedValue?: string): Promise<Page> {
-  const start = await sessionAdapter.beginGitHubOAuth();
+  const start = await startGitHubSignIn(baseUrl);
   const path = `/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`;
-  return render(path, path, storedValue === undefined ? {} : { stored: storedValue });
+  return render(path, path, { cookie: start.cookie, ...(storedValue === undefined ? {} : { stored: storedValue }) });
 }
 
 describe('(b) the GitHub callback page lands where Sign in was pressed', () => {
@@ -245,9 +249,10 @@ describe('(c) the callback page follows only this site\'s own paths', () => {
   });
 
   it('lands on / when the stored path cannot be read at all', async () => {
-    const start = await sessionAdapter.beginGitHubOAuth();
+    const start = await startGitHubSignIn(baseUrl);
     const path = `/auth/github/callback?code=good-code&state=${encodeURIComponent(start.state)}`;
     const page = await render(path, path, {
+      cookie: start.cookie,
       stored: '/hire?agent=x',
       prepare: (window) => {
         const original = window.Storage.prototype.getItem;
