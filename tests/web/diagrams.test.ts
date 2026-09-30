@@ -56,8 +56,6 @@ interface Opts {
   width: number;
   height: number;
   touch?: boolean;
-  motion?: 'reduce' | 'no-preference';
-  scriptsOff?: boolean;
   init?: string;
 }
 
@@ -73,10 +71,7 @@ async function openBrowser(o: Opts): Promise<RealBrowser> {
     });
     await b.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   }
-  await b.send('Emulation.setEmulatedMedia', {
-    features: [{ name: 'prefers-reduced-motion', value: o.motion ?? 'no-preference' }],
-  });
-  if (o.scriptsOff) await b.send('Emulation.setScriptExecutionDisabled', { value: true });
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
   if (o.init) await b.send('Page.addScriptToEvaluateOnNewDocument', { source: o.init });
   return b;
 }

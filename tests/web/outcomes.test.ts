@@ -688,18 +688,7 @@ describe('what the page keeps from before the diagrams', () => {
     expect(src.split(FOOTER).length - 1, 'the footer, exactly once').toBe(1);
     expect(src.match(/<nav\b/g)?.length).toBe(1);
     expect(src.match(/<footer\b/g)?.length).toBe(1);
-  });
-
-  it('the served page marks no nav link as current', async () => {
-    const page = await renderOutcomes();
-    try {
-      const marked = Array.from(page.document.querySelectorAll('nav a, footer a')).filter(
-        (a) => a.classList.contains('on') || a.hasAttribute('aria-current'),
-      );
-      expect(marked.map((a) => a.textContent)).toEqual([]);
-    } finally {
-      page.close();
-    }
+    expect(src.match(/class="on"|aria-current/g), 'no element on the page is marked current').toBeNull();
   });
 
   it('<main> ends with the two closing buttons, Browse agents as the one primary and How it works beside it', async () => {

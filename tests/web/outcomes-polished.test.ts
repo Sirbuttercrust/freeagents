@@ -167,10 +167,10 @@ describe('the polished stylesheets are linked, and this page owns no CSS of its 
 
 describe('the reveal: it runs, and every way it can fail lands on visible content', () => {
   // The claim is "the cards start hidden and become visible", and the only
-  // way to know is to watch. The sampler is installed via
-  // Page.addScriptToEvaluateOnNewDocument, before any of the page's own
-  // script, and started just before the disclosure is pressed, so the first
-  // frame it records is the frame the reader's press revealed.
+  // way to know is to watch. A sampler installed via
+  // Page.addScriptToEvaluateOnNewDocument runs before any of the page's own
+  // script and records only cards that are laid out, so it starts counting
+  // at the frame the reader's press on the disclosure revealed them.
   it('opening the full wording reveals the cards, and all five move together at every frame', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the reveal trace; skipping (see CHROME_BIN)');
@@ -181,41 +181,39 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
       await browser.send('Page.addScriptToEvaluateOnNewDocument', {
         source: `
           window.__trace = [];
-          window.__startTrace = function () {
-            var t0 = performance.now();
-            (function frame() {
-              var cards = Array.from(document.querySelectorAll('.oc')).filter(function (el) {
-                return el.getBoundingClientRect().height > 0;
+          var t0 = performance.now();
+          (function frame() {
+            var cards = Array.from(document.querySelectorAll('.oc')).filter(function (el) {
+              return el.getBoundingClientRect().height > 0;
+            });
+            if (cards.length) {
+              window.__trace.push({
+                lowest: Math.min.apply(null, cards.map(function (el) {
+                  return Number(getComputedStyle(el).opacity);
+                })),
+                distinct: new Set(cards.map(function (el) {
+                  var cs = getComputedStyle(el);
+                  return cs.opacity + '|' + cs.transform;
+                })).size
               });
-              if (cards.length) {
-                window.__trace.push({
-                  lowest: Math.min.apply(null, cards.map(function (el) {
-                    return Number(getComputedStyle(el).opacity);
-                  })),
-                  distinct: new Set(cards.map(function (el) {
-                    var cs = getComputedStyle(el);
-                    return cs.opacity + '|' + cs.transform;
-                  })).size
-                });
-              }
-              if (performance.now() - t0 < 2500) requestAnimationFrame(frame);
-            })();
-          };
+            }
+            if (performance.now() - t0 < 5000) requestAnimationFrame(frame);
+          })();
         `,
       });
       await browser.goto(`${baseUrl}/outcomes`, 300);
-      await browser.evaluate('window.__startTrace()');
       await openFullWording(browser);
-      await new Promise((r) => setTimeout(r, 2600));
+      await new Promise((r) => setTimeout(r, 5000));
       const trace = await browser.evaluate<Array<{ lowest: number; distinct: number }>>(
         'window.__trace',
       );
 
-      // A floor, not a measurement. 2.5 seconds of requestAnimationFrame is
-      // ~150 frames on a healthy machine and this only needs enough samples
-      // to span the 450ms transition; 20 is far below any plausible real
-      // rate and exists to catch a sampler that never installed at all,
-      // which would otherwise make every assertion below vacuously true.
+      // A floor, not a measurement. The cards are on screen for well over
+      // two seconds of the sampler's five, ~120 frames on a healthy machine,
+      // and this only needs enough samples to span the 450ms transition; 20
+      // is far below any plausible real rate and exists to catch a sampler
+      // that never installed at all, which would otherwise make every
+      // assertion below vacuously true.
       expect(trace.length, 'the sampler must have captured frames').toBeGreaterThan(20);
 
       // It is a reveal, not a decoration: some frame had a card at zero.
