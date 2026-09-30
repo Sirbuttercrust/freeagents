@@ -366,7 +366,7 @@ describe('MemoryPushSubscriptionRepository: the owner rule', () => {
     const repo = new MemoryPushSubscriptionRepository();
     await repo.upsert(row);
 
-    const found = await repo.findByEndpoint(row.endpoint);
+    const found = (await repo.findByEndpoint(row.endpoint)) as { accountDid: string; p256dh: string } | null;
     expect(found).toEqual(row);
     found!.accountDid = 'did:abt:zStranger';
     found!.p256dh = 'changed';
