@@ -142,6 +142,15 @@
       <span>Hirers cannot pay you until you <a href="/settings" style="color:var(--action)">add a payout address</a>.</span>
     </p>
 
+    <!-- SW3-09: dashboard.js shows this line only when
+         GET /accounts/:did/notifications answered 200 with unreadCount above
+         0. Same place and shape as the payout notice, outside #dgrid, and no
+         number: the page's scope fence rules out badge counts. -->
+    <p class="callout-sm sub" id="notifications-notice" hidden style="margin-top:22px">
+      <span class="ico ico-sm" data-ico="bell" aria-hidden="true"></span>
+      <span>You have <a href="/notifications" style="color:var(--action)">unread notifications</a>.</span>
+    </p>
+
     <div id="grid-wrap" hidden>
       <div class="dgrid" id="dgrid" style="margin-top:30px"></div>
 

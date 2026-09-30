@@ -135,7 +135,8 @@
   // MSG1b: the Messages entry, the same injected-and-removed shape as the
   // four links above, appended after Settings, going to /messages (the
   // hire conversations). It replaced HT1's Notifications link in the same
-  // slot; /notifications is still served, and nothing new links to it.
+  // slot. /notifications is still served, and the nav does not link it;
+  // /dashboard does, while the account has something unread (FIX-SW12k).
   // Carries the unread badge: the unreadTotal of
   // GET /accounts/:did/threads (every unread message across every thread
   // the account is in, both seats), after resolving the signed-in DID via

@@ -46,8 +46,8 @@ const WIREFRAME_FOR: Record<string, string | null> = {
   'private-repos': null,
   // HT1 Part B built this plain list of events. No wireframe exists for
   // it. MSG1b moved the nav's link from here to /messages (the hire
-  // conversation, see below); this page is still served and nothing new
-  // links to it.
+  // conversation, see below); this page is still served, and /dashboard
+  // links it while the account has something unread (FIX-SW12k).
   notifications: null,
   // MSG1b: the hire conversation. Built from the MSG0 design board's
   // direction A ("Pinned"), which the review passed and the design owner chose,

@@ -4,8 +4,10 @@
    handoffs) to resolve the session to a DID and to learn whether the
    account names a payout address (operatorAddressEvm, operatorAddressAbt;
    SW3-10, the payout notice), then GET /accounts/:did/jobs,
-   GET /accounts/:did/pending, GET /accounts/:did/incoming and
-   GET /accounts/:did/agents fire together (ruling 1, W5 ruling).
+   GET /accounts/:did/pending, GET /accounts/:did/incoming,
+   GET /accounts/:did/agents and GET /accounts/:did/notifications fire
+   together (ruling 1, W5 ruling; the last is FIX-SW12k's, read only for
+   its unreadCount, to link /notifications while something is unread).
 
    THE ROSTER READ IS UNCONDITIONAL (W5 ruling): accountProjection carries
    no operated-agent count, so the page cannot know whether it operates any
@@ -100,8 +102,18 @@
         A.getAuthed("/accounts/" + encodedDid + "/pending", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/incoming", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/agents", session.token),
+        A.getAuthed("/accounts/" + encodedDid + "/notifications", session.token),
       ]).then(function (results) { onCoreLoaded(results, payoutUnset); });
     });
+  }
+
+  // SW3-09: true only on a real 200 whose body carries a numeric
+  // unreadCount above zero. A failed or malformed read knows nothing and
+  // answers false, so it never shows the line.
+  function hasUnread(result) {
+    if (result.state !== "ok" || result.value.status !== 200) return false;
+    var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+    return typeof body.unreadCount === "number" && body.unreadCount > 0;
   }
 
   // A payout address counts as set only when /accounts/me carries it as a
@@ -137,6 +149,7 @@
     var pending = readArray(results[1], "pending");
     var offers = readArray(results[2], "offers");
     var rosterAgents = readArray(results[3], "agents");
+    var unread = hasUnread(results[4]);
 
     // The per-agent reads: exactly one per roster row, fired only when the
     // roster itself came back, and never fired at all when it did not
@@ -153,11 +166,11 @@
       detailResults.forEach(function (entry) {
         if (entry.result.state === "ok") detailByDid[entry.did] = entry.result.value;
       });
-      onLoaded(jobs, pending, offers, rosterAgents, detailByDid, payoutUnset);
+      onLoaded(jobs, pending, offers, rosterAgents, detailByDid, payoutUnset, unread);
     });
   }
 
-  function onLoaded(jobs, pending, offers, rosterAgents, detailByDid, payoutUnset) {
+  function onLoaded(jobs, pending, offers, rosterAgents, detailByDid, payoutUnset, unread) {
     A.showById("dashboard-body", true);
 
     /* SW3-10: an owner of at least one agent whose account names no payout
@@ -165,7 +178,14 @@
        roster read that answered 200 with a row in it: a failed roster
        (null) knows nothing, and an empty one belongs to a person who only
        hires. The line sits above the grid, outside every section. */
-    A.showById("payout-notice", payoutUnset === true && rosterAgents !== null && rosterAgents.length > 0);
+    var payoutShown = payoutUnset === true && rosterAgents !== null && rosterAgents.length > 0;
+    A.showById("payout-notice", payoutShown);
+
+    /* SW3-09: this page's link to /notifications, shown only while
+       the account's own notification read answered with something unread.
+       Same place and shape as the payout notice, and no number (the scope
+       fence above). */
+    A.showById("notifications-notice", unread);
 
     var sections = [
       buildWaitingOnYou(jobs, pending),
@@ -177,8 +197,11 @@
     var anyFailed = sections.some(function (s) { return s.failed; });
     var allEmpty = !anyFailed && sections.every(function (s) { return s.rows.length === 0; });
 
+    // "Nothing needs your attention today." never sits beside a line that
+    // asks for attention: with every section empty and either notice
+    // shown, the page is its header and that line.
     if (allEmpty) {
-      A.showById("page-empty-state", true);
+      A.showById("page-empty-state", !payoutShown && !unread);
       A.showById("grid-wrap", false);
       return;
     }

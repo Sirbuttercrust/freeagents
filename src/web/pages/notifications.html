@@ -26,14 +26,17 @@
   /* HT1 Part B: the card's own scope limit is "build only the operator's
      unread badge and a plain notification list on the site, nothing more
      elaborate." No wireframe exists for this page (it is not the
-     conversation screen MSG0/MSG1 own): a plain list, oldest-to-newest
-     read receipts aside, each row linking back to the hire thread it
-     concerns.
+     conversation screen MSG0/MSG1 own): a plain list, each row linking
+     back to the hire it concerns. FIX-SW12k: opening an unread row marks
+     it read, and a plain "Mark all as read" button sits beside the
+     summary while anything is unread (notifications.js says how). The
+     page is linked from /dashboard's unread line.
 
-     THE STACK. tokens, base, polish, and the scripts api, nav, icons,
-     polish, notifications, ui -- the same set settings.html loads,
-     since this page is exactly as plain. */
+     THE STACK. tokens, base, polish, office, league, and the scripts api,
+     nav, office, icons, polish, notifications, ui. */
   .narrow { max-width: 620px; }
+  .notif-summary { margin-top: 8px; }
+  .notif-summary .sub { margin: 0; }
   .notif-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .notif-row.is-unread { font-weight: 600; }
   .notif-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--action); margin-right: 8px; flex: none; }
@@ -71,7 +74,11 @@
   <div class="wrap section">
     <div class="narrow">
       <h1 style="font-size:28px">Notifications</h1>
-      <p class="sub" id="unread-summary"></p>
+      <div class="between notif-summary">
+        <p class="sub" id="unread-summary"></p>
+        <span id="mark-all-slot"></span>
+      </div>
+      <div class="empty warn" id="mark-all-error" role="alert" hidden style="margin-top:14px"></div>
 
       <div class="rows pane pane-pad stagger reveal" id="notification-rows" style="margin-top:22px"></div>
 
@@ -89,6 +96,12 @@
     </span>
     <span class="rowtrail notif-date"></span>
   </a>
+</template>
+
+<!-- Cloned into #mark-all-slot only while something is unread, so at zero
+     unread no button exists in the document. -->
+<template id="tmpl-mark-all">
+  <button class="btn" type="button">Mark all as read</button>
 </template>
 
 <footer class="foot">
