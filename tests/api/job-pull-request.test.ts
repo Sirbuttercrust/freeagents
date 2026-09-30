@@ -369,8 +369,7 @@ describe('job pull-request, the P4 anchor and the five 409 facts (STG2)', () => 
     agent = await signingIdentityFromSeed(new Uint8Array(32).fill(82));
   });
 
-  it('402s before the state machine or github are consulted, when the remainder is unsettled', async () => {
-    const { MemorySettlementGate } = await import('../../src/adapters/payment/gate.js');
+  it('402s before the state machine or github are consulted, for a staged job whose remainder is unsettled', async () => {
     const gate = new MemorySettlementGate();
     const fixture = createStagingLifecycleGithubFake();
     const agentRepo = new MemoryAgentRepository();
