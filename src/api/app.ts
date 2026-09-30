@@ -233,7 +233,16 @@ import {
   type Notification,
   type NotificationEventType,
 } from '../domain/notification.js';
-import { assertAttachmentAllowed, AttachmentError, isImageKind, contentTypeFor, type Attachment } from '../domain/attachment.js';
+import {
+  assertAttachmentAllowed,
+  AttachmentError,
+  isImageKind,
+  contentTypeFor,
+  unsentUploadCapReached,
+  unsentUploadExpired,
+  UNSENT_UPLOAD_TTL_MS,
+  type Attachment,
+} from '../domain/attachment.js';
 import {
   createMessageRepository,
   createThreadReadStateRepository,
@@ -248,7 +257,13 @@ import type {
   AttachmentRepository,
   PushSubscriptionRepository,
 } from '../adapters/storage/types.js';
-import { attachmentsDirFromEnv, randomFileId, readAttachmentFile, writeAttachmentFile } from '../adapters/attachments/storage.js';
+import {
+  attachmentsDirFromEnv,
+  randomFileId,
+  readAttachmentFile,
+  removeAttachmentFile,
+  writeAttachmentFile,
+} from '../adapters/attachments/storage.js';
 import { reencodeImage, ImageReencodeError } from '../adapters/attachments/image.js';
 import { createWebhookSender, type WebhookSender } from '../adapters/webhook/webhook.js';
 import { createPushSender, type PushSender } from '../adapters/push/push.js';
@@ -980,6 +995,28 @@ async function withBuyerGithubLogins(
     ...hire,
     buyerGithubLogin: loginByBuyerDid.get(hire.buyerDid) ?? null,
   }));
+}
+
+// FIX-SW4f (bugs.md SW4-05): how the unsent-upload quota refuses and how
+// often the sweep that removes old unsent uploads may run. The caps and the
+// TTL themselves live with the counting rule in src/domain/attachment.ts.
+//
+// A caller that hit a cap frees a place by sending a file, which takes
+// seconds, so a minute is a fair time to ask it to wait.
+const UNSENT_UPLOAD_RETRY_AFTER_SECONDS = 60;
+// The sweep reads every unsent row older than the TTL, so running it on
+// every upload would repeat that read for no gain. Ten minutes keeps a file
+// nobody sent on disk for at most the TTL plus ten minutes plus the wait for
+// the next upload.
+const UNSENT_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+// Bounds one sweep so a large backlog is cleared over several uploads
+// instead of inside one upload request.
+const UNSENT_SWEEP_BATCH = 100;
+
+function unsentUploadSentence(cap: 'job' | 'account'): string {
+  return cap === 'job'
+    ? 'Too many files were uploaded to this conversation without being sent. Send one of them, or try again later.'
+    : 'Too many files were uploaded by this account without being sent. Send one of them, or try again later.';
 }
 
 // SW4-06 and B76: the cookie that ties a GitHub sign-in, and a one-click
@@ -2521,6 +2558,12 @@ export function createApp(
             });
             return;
           }
+          // FIX-SW4f: the sweep removes an upload no message carries once it
+          // is older than the TTL, so a message may only carry a fresh one.
+          if (unsentUploadExpired(attachment.createdAt, new Date())) {
+            res.status(400).json({ error: `${attachmentId} expired before it was sent; upload the file again.` });
+            return;
+          }
           attachmentRefs.push({ attachmentId });
         }
       }
@@ -2550,6 +2593,17 @@ export function createApp(
       }
       try {
         const row = await messageRepo.create(message);
+        if (attachmentRefs.length > 0) {
+          // FIX-SW4f: record which message carries each upload, so the
+          // upload quota stops counting it and the sweep keeps it. The
+          // message is already stored: a failure here is logged and the
+          // sweep finds the carrying message and records it later.
+          try {
+            await attachmentRepo.markSent(attachmentRefs.map((ref) => ref.attachmentId), row.id);
+          } catch (err) {
+            console.error(`${label}: markSent failed for message ${row.id}; the message is stored`, err);
+          }
+        }
         broadcastThreadEvent(gate.job.id, 'message', messageProjection(row));
         const excludeDid = gate.party === 'agent' && gate.did !== gate.job.agentDid ? gate.job.agentDid : gate.did;
         await notifyJobParties(gate.job, 'new_message', excludeDid);
@@ -3065,6 +3119,49 @@ export function createApp(
     }
   });
 
+  // FIX-SW4f (bugs.md SW4-05): removes uploads no message carries once they
+  // are older than UNSENT_UPLOAD_TTL_MS. It is called from the upload route
+  // and runs at most once per UNSENT_SWEEP_INTERVAL_MS for this app: there
+  // is no timer, so nothing runs when nobody uploads, and only an upload
+  // adds to the disk. The time of the run is recorded before anything is
+  // awaited, so two uploads arriving together start one sweep. It never
+  // throws: the upload that started it must answer as it would have.
+  //
+  // For each old unsent row (oldest first, at most UNSENT_SWEEP_BATCH) the
+  // row's job's messages are read. A message that carries the upload means
+  // the row only lacks its messageId (stored before the column existed, or
+  // markSent failed): the id is recorded and the row kept. Otherwise no one
+  // was ever shown the file, and its files (full, then thumbnail) and then
+  // its row are removed. A failure on one row is logged and the sweep goes
+  // on to the next.
+  let lastUnsentSweepAt = Number.NEGATIVE_INFINITY;
+  async function sweepUnsentUploads(): Promise<void> {
+    const startedAt = Date.now();
+    if (startedAt - lastUnsentSweepAt < UNSENT_SWEEP_INTERVAL_MS) return;
+    lastUnsentSweepAt = startedAt;
+    try {
+      const old = await attachmentRepo.listUnsentOlderThan(new Date(startedAt - UNSENT_UPLOAD_TTL_MS), UNSENT_SWEEP_BATCH);
+      for (const row of old) {
+        try {
+          const carrying = (await messageRepo.listByJobId(row.jobId)).find((message) =>
+            message.attachments.some((ref) => ref.attachmentId === row.id),
+          );
+          if (carrying !== undefined) {
+            await attachmentRepo.markSent([row.id], carrying.id);
+            continue;
+          }
+          await removeAttachmentFile(row.path);
+          if (row.thumbnailPath !== null) await removeAttachmentFile(row.thumbnailPath);
+          await attachmentRepo.remove(row.id);
+        } catch (err) {
+          console.error(`unsent upload sweep: could not clear upload ${row.id}`, err);
+        }
+      }
+    } catch (err) {
+      console.error('unsent upload sweep: could not list unsent uploads', err);
+    }
+  }
+
   // POST /jobs/:jobId/attachments (attachments STEER): base64-encoded
   // upload, checked from its own bytes (assertAttachmentAllowed), never
   // its declared filename or content type. Images are decoded and
@@ -3086,6 +3183,26 @@ export function createApp(
       const body = (req.body ?? {}) as { filename?: unknown; dataBase64?: unknown };
       if (typeof body.filename !== 'string' || body.filename.length === 0 || typeof body.dataBase64 !== 'string' || body.dataBase64.length === 0) {
         res.status(400).json({ error: 'body must be { filename, dataBase64 }; dataBase64 the file bytes, base64-encoded, up to 10 MB' });
+        return;
+      }
+      // FIX-SW4f (bugs.md SW4-05): remove old unsent uploads (at most once
+      // per UNSENT_SWEEP_INTERVAL_MS), then refuse the caller past either
+      // cap. Both run before anything is decoded or written, and after the
+      // checks above, so a stranger still gets 403 and a read-only thread
+      // 409 and neither is ever told about a quota.
+      await sweepUnsentUploads();
+      let unsent: readonly Attachment[];
+      try {
+        unsent = await attachmentRepo.listUnsentByUploader(gate.did, new Date(Date.now() - UNSENT_UPLOAD_TTL_MS));
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      const capReached = unsentUploadCapReached(unsent, gate.job.id, new Date());
+      if (capReached !== null) {
+        res.setHeader('retry-after', String(UNSENT_UPLOAD_RETRY_AFTER_SECONDS));
+        res.status(429).json({ error: unsentUploadSentence(capReached) });
         return;
       }
       let bytes: Buffer;
@@ -3140,10 +3257,21 @@ export function createApp(
           sizeBytes: bytes.length,
           path: storedPath,
           thumbnailPath,
+          messageId: null,
           createdAt: new Date(),
         });
       } catch (err) {
         console.error(`${label}: storage failed`, err);
+        // FIX-SW4f: the files were written before the row, so a row that
+        // could not be stored would leave files nothing names and nothing
+        // would ever remove.
+        for (const orphan of thumbnailPath === null ? [storedPath] : [storedPath, thumbnailPath]) {
+          try {
+            await removeAttachmentFile(orphan);
+          } catch (removeErr) {
+            console.error(`${label}: could not remove the file of an upload that was not stored`, removeErr);
+          }
+        }
         res.status(503).json({ error: 'storage unavailable' });
         return;
       }

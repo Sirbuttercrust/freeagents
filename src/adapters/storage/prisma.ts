@@ -1402,8 +1402,37 @@ export class PrismaNotificationRepository implements NotificationRepository {
   }
 }
 
+// Maps a stored row to the domain shape, so every read returns the same
+// fields and a column the domain does not name never leaks out.
+function attachmentFromRow(row: {
+  id: string;
+  jobId: string;
+  uploaderDid: string;
+  kind: string;
+  originalFilename: string;
+  sizeBytes: number;
+  path: string;
+  thumbnailPath: string | null;
+  messageId: string | null;
+  createdAt: Date;
+}): Attachment {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    uploaderDid: row.uploaderDid,
+    kind: row.kind as AllowedAttachmentKind,
+    originalFilename: row.originalFilename,
+    sizeBytes: row.sizeBytes,
+    path: row.path,
+    thumbnailPath: row.thumbnailPath,
+    messageId: row.messageId,
+    createdAt: row.createdAt,
+  };
+}
+
 // HT1 Part B (attachments STEER): one stored attachment per uploaded
-// file. No update method (the row is immutable once written).
+// file. A row changes only through markSent (FIX-SW4f) and is deleted only
+// through remove (FIX-SW4f), as the interface says.
 export class PrismaAttachmentRepository implements AttachmentRepository {
   async create(attachment: Attachment): Promise<Attachment> {
     const row = await db().attachment.create({
@@ -1416,53 +1445,51 @@ export class PrismaAttachmentRepository implements AttachmentRepository {
         sizeBytes: attachment.sizeBytes,
         path: attachment.path,
         thumbnailPath: attachment.thumbnailPath,
+        messageId: attachment.messageId,
         createdAt: attachment.createdAt,
       },
     });
-    return {
-      id: row.id,
-      jobId: row.jobId,
-      uploaderDid: row.uploaderDid,
-      kind: row.kind as AllowedAttachmentKind,
-      originalFilename: row.originalFilename,
-      sizeBytes: row.sizeBytes,
-      path: row.path,
-      thumbnailPath: row.thumbnailPath,
-      createdAt: row.createdAt,
-    };
+    return attachmentFromRow(row);
   }
 
   async findById(id: string): Promise<Attachment | null> {
     const row = await db().attachment.findUnique({ where: { id } });
-    if (row === null) return null;
-    return {
-      id: row.id,
-      jobId: row.jobId,
-      uploaderDid: row.uploaderDid,
-      kind: row.kind as AllowedAttachmentKind,
-      originalFilename: row.originalFilename,
-      sizeBytes: row.sizeBytes,
-      path: row.path,
-      thumbnailPath: row.thumbnailPath,
-      createdAt: row.createdAt,
-    };
+    return row === null ? null : attachmentFromRow(row);
   }
 
   // MSG1a (Make item 2): oldest first (createdAt ascending), the
   // @@index([jobId]) schema.prisma already declares on this model.
   async listByJobId(jobId: string): Promise<readonly Attachment[]> {
     const rows = await db().attachment.findMany({ where: { jobId }, orderBy: { createdAt: 'asc' } });
-    return rows.map((row) => ({
-      id: row.id,
-      jobId: row.jobId,
-      uploaderDid: row.uploaderDid,
-      kind: row.kind as AllowedAttachmentKind,
-      originalFilename: row.originalFilename,
-      sizeBytes: row.sizeBytes,
-      path: row.path,
-      thumbnailPath: row.thumbnailPath,
-      createdAt: row.createdAt,
-    }));
+    return rows.map(attachmentFromRow);
+  }
+
+  async markSent(ids: readonly string[], messageId: string): Promise<void> {
+    await db().attachment.updateMany({ where: { id: { in: [...ids] } }, data: { messageId } });
+  }
+
+  // Served by @@index([uploaderDid, messageId, createdAt]).
+  async listUnsentByUploader(uploaderDid: string, since: Date): Promise<readonly Attachment[]> {
+    const rows = await db().attachment.findMany({
+      where: { uploaderDid, messageId: null, createdAt: { gte: since } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(attachmentFromRow);
+  }
+
+  // Served by @@index([messageId, createdAt]).
+  async listUnsentOlderThan(before: Date, limit: number): Promise<readonly Attachment[]> {
+    const rows = await db().attachment.findMany({
+      where: { messageId: null, createdAt: { lt: before } },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
+    return rows.map(attachmentFromRow);
+  }
+
+  // deleteMany, not delete: a row already gone is not an error.
+  async remove(id: string): Promise<void> {
+    await db().attachment.deleteMany({ where: { id } });
   }
 }
 

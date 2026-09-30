@@ -103,6 +103,49 @@ export function contentTypeFor(kind: AllowedAttachmentKind): 'image/jpeg' | 'app
   return isImageKind(kind) ? 'image/jpeg' : 'application/pdf';
 }
 
+// FIX-SW4f (bugs.md SW4-05): how many uploads a caller may hold that no
+// message carries. The conversation page sends each upload within seconds
+// of storing it, so these numbers are far above real use and only stop a
+// caller that stores files it never sends.
+//
+// 10 on one job: room for a person picking several files on a slow link.
+export const UNSENT_UPLOADS_PER_JOB = 10;
+// 20 across every job: room for several open conversations at once.
+export const UNSENT_UPLOADS_PER_ACCOUNT = 20;
+// One hour: far past any real send. An upload older than this stops
+// counting, may not be put in a message, and is removed by the sweep.
+export const UNSENT_UPLOAD_TTL_MS = 60 * 60 * 1000;
+
+// The fields the counting rule reads from a stored upload.
+export interface UnsentUploadRow {
+  readonly jobId: string;
+  readonly messageId: string | null;
+  readonly createdAt: Date;
+}
+
+// True when an upload is too old for a message to carry it.
+export function unsentUploadExpired(createdAt: Date, now: Date): boolean {
+  return now.getTime() - createdAt.getTime() > UNSENT_UPLOAD_TTL_MS;
+}
+
+// Which cap a caller's next upload to `jobId` would pass: 'job' when the
+// caller already holds UNSENT_UPLOADS_PER_JOB unsent uploads on that job,
+// 'account' when it holds UNSENT_UPLOADS_PER_ACCOUNT across every job, or
+// null when neither binds. `rows` are one caller's uploads; a row a message
+// carries, or one past the TTL, does not count. The job cap is named first
+// when both bind, because it is the one the caller can clear by sending a
+// file in the conversation it is looking at. Pure: no I/O.
+export function unsentUploadCapReached(
+  rows: readonly UnsentUploadRow[],
+  jobId: string,
+  now: Date,
+): 'job' | 'account' | null {
+  const counting = rows.filter((row) => row.messageId === null && !unsentUploadExpired(row.createdAt, now));
+  if (counting.filter((row) => row.jobId === jobId).length >= UNSENT_UPLOADS_PER_JOB) return 'job';
+  if (counting.length >= UNSENT_UPLOADS_PER_ACCOUNT) return 'account';
+  return null;
+}
+
 // One stored attachment record. `path` and `thumbnailPath` are random
 // file ids under the configurable storage directory (never the
 // original filename, never a caller-guessable path) -- see
@@ -111,6 +154,12 @@ export function contentTypeFor(kind: AllowedAttachmentKind): 'image/jpeg' | 'app
 // names the RE-ENCODED file (EXIF stripped), and a PDF row's `path`
 // names the uploaded bytes verbatim (a PDF has no EXIF/GPS payload to
 // strip, and the brief's re-encode instruction is scoped to images).
+//
+// `messageId` (FIX-SW4f) is the id of the message recorded as carrying
+// this upload. The unsent-upload quota and the sweep read it: null means
+// no message has been recorded as carrying it, which is true of a fresh
+// upload, of a row stored before the column existed, and of a row whose
+// markSent failed.
 export interface Attachment {
   readonly id: string;
   readonly jobId: string;
@@ -120,5 +169,6 @@ export interface Attachment {
   readonly sizeBytes: number;
   readonly path: string;
   readonly thumbnailPath: string | null;
+  readonly messageId: string | null;
   readonly createdAt: Date;
 }

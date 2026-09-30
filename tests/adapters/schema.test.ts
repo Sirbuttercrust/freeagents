@@ -495,3 +495,31 @@ describe('prisma, Account.unprovedGithubLogin is declared and migrated (FIX-B62b
     expect(sql).not.toMatch(/\b(DELETE|DROP|TRUN[C]ATE)\b/i);
   });
 });
+
+// FIX-SW4f (bugs.md SW4-05): which message sends an upload is a stored fact.
+describe('prisma/schema.prisma, Attachment.messageId (FIX-SW4f)', () => {
+  it('the schema declares messageId as nullable, with no default', () => {
+    const attachment = modelBody('Attachment');
+    expect(attachment).toMatch(/messageId\s+String\?\s*$/m);
+    expect(attachment).not.toMatch(/messageId[^\n]*@default/);
+  });
+
+  it('the schema indexes the two unsent-upload queries', () => {
+    const attachment = modelBody('Attachment');
+    expect(attachment).toMatch(/@@index\(\[uploaderDid, messageId, createdAt\]\)/);
+    expect(attachment).toMatch(/@@index\(\[messageId, createdAt\]\)/);
+  });
+
+  it('a migration adds Attachment.messageId and both indexes', () => {
+    const dir = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
+    const sql = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => join(dir, e.name, 'migration.sql'))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('\n');
+    expect(sql).toMatch(/ALTER TABLE\s+"Attachment"\s+ADD COLUMN\s+"messageId"\s+TEXT/);
+    expect(sql).toMatch(/CREATE INDEX\s+"Attachment_uploaderDid_messageId_createdAt_idx"\s+ON\s+"Attachment"\("uploaderDid",\s*"messageId",\s*"createdAt"\)/);
+    expect(sql).toMatch(/CREATE INDEX\s+"Attachment_messageId_createdAt_idx"\s+ON\s+"Attachment"\("messageId",\s*"createdAt"\)/);
+  });
+});
