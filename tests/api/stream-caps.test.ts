@@ -2,9 +2,9 @@
 // Every test drives createApp over a real listening server, opens real SSE
 // connections with fetch, and closes every stream it opened and the server it
 // started in a finally block, so no socket outlives the test.
-import type { Server } from 'node:http';
+import { ServerResponse, type Server } from 'node:http';
 import type { Socket } from 'node:net';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
 import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
@@ -250,6 +250,22 @@ async function expectRefused(opened: Opened, sentence: string): Promise<void> {
   expect(await opened.res.json()).toEqual({ error: sentence });
 }
 
+// Watches every response the server puts into a Set (the route's subscriber
+// sets are the only Sets that hold responses), so a refused stream that still
+// subscribes is seen. A refused stream is answered 429 and finished, so a frame
+// written to it throws nothing and reaches no client: the subscription itself
+// is the only thing to watch. `statuses()` reads each subscribed response's
+// status as it stands when asked, after every request has been answered.
+function watchSubscriptions(): { readonly statuses: () => number[]; readonly restore: () => void } {
+  const subscribed: ServerResponse[] = [];
+  const original = Set.prototype.add;
+  const spy = vi.spyOn(Set.prototype, 'add').mockImplementation(function (this: Set<unknown>, value: unknown) {
+    if (value instanceof ServerResponse) subscribed.push(value);
+    return original.call(this, value);
+  });
+  return { statuses: () => subscribed.map((r) => r.statusCode), restore: () => spy.mockRestore() };
+}
+
 describe('SW4-04: stream caps per caller', () => {
   it('(a) one party holds 3 thread streams on one job, the 4th is refused with 429, and the other party is unaffected', async () => {
     await withWorld(async (w) => {
@@ -297,7 +313,7 @@ describe('SW4-04: stream caps per caller', () => {
     });
   });
 
-  it('(e) a refused stream never subscribes: a message reaches exactly the open streams', async () => {
+  it('(e) after a refusal, a message reaches each open stream once, in order (the refusal did not disturb them)', async () => {
     await withWorld(async (w) => {
       const jobId = await w.draft();
       const open = [await w.stream(jobId, w.buyer), await w.stream(jobId, w.buyer), await w.stream(jobId, w.buyer)];
@@ -357,5 +373,49 @@ describe('SW4-04: stream caps per caller', () => {
       const streams = [await w.stream(jobId, w.buyer), await w.stream(jobId, w.buyer), await w.stream(jobId, w.buyer)];
       for (const s of streams) expectStream(s);
     }, jobRepo);
+  });
+
+  it('(h) a refused thread stream never subscribes: only the 3 open streams are in the job\'s subscriber set', async () => {
+    const writes = watchSubscriptions();
+    try {
+      await withWorld(async (w) => {
+        const jobId = await w.draft();
+        const open = [await w.stream(jobId, w.buyer), await w.stream(jobId, w.buyer), await w.stream(jobId, w.buyer)];
+        for (const o of open) expectStream(o);
+        await expectRefused(await w.stream(jobId, w.buyer), THREAD_SENTENCE);
+        // The 3 open streams subscribed; the refused one (429) did not.
+        expect(writes.statuses()).toEqual([200, 200, 200]);
+      });
+    } finally {
+      writes.restore();
+    }
+  });
+
+  it('(i) a refused notification stream never subscribes: only the 3 open streams are in the account\'s subscriber set', async () => {
+    const writes = watchSubscriptions();
+    try {
+      await withWorld(async (w) => {
+        const jobId = await w.draft();
+        const open = [
+          await w.notifications(w.operator.did, w.operator),
+          await w.notifications(w.operator.did, w.operator),
+          await w.notifications(w.operator.did, w.operator),
+        ];
+        const readers = open.map((o) => {
+          expectStream(o);
+          return new FrameReader(o.res.body!.getReader());
+        });
+        await expectRefused(await w.notifications(w.operator.did, w.operator), NOTIFICATION_SENTENCE);
+        // The buyer's message notifies the agent's operator.
+        expect((await w.post(jobId, 'for the operator', w.buyer)).status).toBe(201);
+        for (const reader of readers) {
+          const frames = await reader.until(1);
+          expect(frames.map((f) => f.event)).toEqual(['notification']);
+        }
+        expect(writes.statuses()).toEqual([200, 200, 200]);
+      });
+    } finally {
+      writes.restore();
+    }
   });
 });
