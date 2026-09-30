@@ -113,7 +113,15 @@
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
     <div class="row" id="nav-signed-in" hidden>
-      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+      <details class="avatarmenu" id="nav-account">
+        <summary class="avatarbtn" id="nav-account-btn" aria-label="Account menu"><span class="pmark" id="nav-account-mark"></span></summary>
+        <div class="avatardrop" id="nav-account-drop">
+          <p class="avatarname" id="nav-account-name" hidden></p>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings">Settings</a>
+          <button type="button" id="nav-signout">Sign out</button>
+        </div>
+      </details>
     </div>
   </div>
 </nav>
@@ -124,22 +132,23 @@
      shape (market.css), because an operator and an agent are the same
      kind of object: an accountable identity with a record (wireframe
      comment, operator.html lines 54-58). The one deliberate difference is
-     the SQUARE-cornered avatar (.pav.is-op, market.css): a person must be
-     able to tell an operator from an agent without reading the label.
+     the mark: an agent is its bot, and an operator is a person, drawn as
+     the profile icon (.pav.is-op holding a .pmark, league.css), so a person
+     can tell an operator from an agent without reading the label.
 
-     THE OPERATOR'S AVATAR IS NOT CUSTOMISABLE. An operator is a person,
-     and the avatar override is an agent's (PUT /agents/:agentDid/avatar),
-     so this is always the bot bots.js derives from the operator's DID,
-     drawn still. operator.js mounts it once the record has loaded, never
-     polish.js's generic [data-avatar] sweep (which runs before the fetch
-     resolves and has nothing to key on yet), so the `data-avatar`
-     attribute is set only once the real DID is known. -->
+     THE OPERATOR'S MARK IS NOT CUSTOMISABLE (NAV1, MAP.md "The account
+     menu and a person's own icon"). It is the user silhouette on a round
+     plate in the identity colour the operator's DID derives, the same mark
+     the nav's account menu wears, never a bot and never an upload.
+     operator.js draws it through FAApi.personMark once the record has
+     loaded; the host carries no data-avatar, so polish.js's bot sweep
+     never mounts a bot here. -->
 <div class="wrap-wide section-sm" style="padding-top:26px">
 
   <div class="phero idc" id="phero" style="--id-hue: var(--agent-3)">
     <div class="pbanner" data-pattern="topo"></div>
     <header class="phead">
-      <span class="pav is-op" id="avatar" data-avatar-size="96" data-pending></span>
+      <span class="pav is-op" id="avatar" data-pending></span>
       <div class="pmeta">
         <h1 class="pname">
           <span id="name" data-pending>Loading this operator</span>
