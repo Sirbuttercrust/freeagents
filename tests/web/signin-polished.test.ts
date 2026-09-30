@@ -533,20 +533,34 @@ describe('7. the access list renders into the component its sheet styles', () =>
   // to the id is the right failure mode (a guess would be worse) and it is
   // silent, which is what let this ship. Every id in src/domain/access.ts is
   // swept, so a capability added there fails here rather than on the page.
-  it('every capability renders in plain language, never its raw id', async () => {
-    const capabilities = (await (await fetch(`${baseUrl}/capabilities`)).json()) as {
-      capabilities: Array<{ id: string }>;
+  //
+  // SW1-04: GET /capabilities now also names the 18 per-job hire steps, and
+  // the sign-in page leaves them out on purpose (the simplicity law: eighteen
+  // rows of machine steps would make the page busy). So the page carries one
+  // row per served capability whose path does not contain /jobs/:jobId, and
+  // none of the per-job ids.
+  it('every capability the page shows renders in plain language, never its raw id, and no per-job step appears', async () => {
+    const served = (await (await fetch(`${baseUrl}/capabilities`)).json()) as {
+      capabilities: Array<{ id: string; path: string }>;
     };
-    expect(capabilities.capabilities.length, 'GET /capabilities returned nothing to label').toBeGreaterThan(0);
+    expect(served.capabilities.length, 'GET /capabilities returned nothing to label').toBeGreaterThan(0);
+    const perJob = served.capabilities.filter((cap) => cap.path.includes('/jobs/:jobId'));
+    const shown = served.capabilities.filter((cap) => !cap.path.includes('/jobs/:jobId'));
+    expect(perJob.length, 'no per-job step served: the filter below would be untested').toBe(18);
+    expect(shown.map((cap) => cap.id)).toContain('job.hire');
 
     const page = await renderSignin();
     try {
       const labels = Array.from(page.document.querySelectorAll('#public-caps .what, #identified-caps .what')).map(
         (el) => el.textContent ?? '',
       );
-      expect(labels.length, 'no capability label rendered').toBe(capabilities.capabilities.length);
+      expect(labels.length, 'one label per served capability outside /jobs/:jobId').toBe(shown.length);
 
-      const ids = new Set(capabilities.capabilities.map((cap) => cap.id));
+      const pageText = page.document.body.textContent ?? '';
+      const perJobOnPage = perJob.filter((cap) => pageText.includes(cap.id)).map((cap) => cap.id);
+      expect(perJobOnPage, 'a per-job hire step reached the sign-in page').toEqual([]);
+
+      const ids = new Set(served.capabilities.map((cap) => cap.id));
       const raw = labels.filter((label) => ids.has(label));
       expect(raw, 'capability ids rendered to a person instead of a label (add them to LABELS in signin.js)').toEqual([]);
 
