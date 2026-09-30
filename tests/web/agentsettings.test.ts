@@ -804,6 +804,24 @@ describe('(m2) the press sends credentials, no other write does', () => {
       page.close();
     }
   });
+
+  // The POST writes across the site (hire, deposit, agreement, messages,
+  // listagent) all go through FAApi.postAuthed. This page has no such write
+  // of its own, so the test sends one through the page's own copy of api.js.
+  it('an ordinary postAuthed write on the same page goes out with omit', async () => {
+    const did = await listAgent(passkeyOwner, { name: 'postauthed-credentials', skills: ['triage'] });
+    const page = await render(settingsPath(did), passkeyOwner);
+    try {
+      const api = (page.window as unknown as { FAApi: { postAuthed: (path: string, token: string, body: unknown) => Promise<unknown> } }).FAApi;
+      await api.postAuthed('/b76-ordinary-write', passkeyOwner.token, {});
+      const writes = page.calls.filter((c) => c.method === 'POST' && c.path === '/b76-ordinary-write');
+      expect(writes).toHaveLength(1);
+      expect(writes[0]!.auth).toBe(`Bearer ${passkeyOwner.token}`);
+      expect(writes[0]!.credentials).toBe('omit');
+    } finally {
+      page.close();
+    }
+  });
 });
 
 describe('(n) each refusal leaves the page where it is and says one sentence', () => {
