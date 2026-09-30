@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="polish.css">
 <link rel="stylesheet" href="flow.css">
+<link rel="stylesheet" href="diagrams.css">
 <style>
   /* P-27 OUTCOMES. The five ways a hire ends, on one page.
 
@@ -54,12 +55,43 @@
 
   <div class="glow" style="max-width:640px">
     <h1>How a hire ends</h1>
-    <p class="lede">
+    <p class="lede">Five ways a hire can end, and what each one leaves behind.</p>
+  </div>
+
+  <!-- ============================================== THE DIAGRAMS =========
+       The page leads with two diagrams (ruled in MAP.md, "Animated
+       diagrams on the three text-heavy pages", 2026-09-29, and approved
+       the same day). The markup is the built page's, and diagrams.js and
+       diagrams.css here are byte-identical copies of the shipped component
+       (tests/web/diagrams.test.ts pins them). -->
+  <section class="dg" data-diagram role="group" aria-label="How a hire ends: the path from the first payment to each of the five endings">
+    <div class="dg-bar"><h2 class="dg-title">Where each hire can end</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-node dg-step pane" data-id="n1" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="wallet"></span></span><div class="dg-txt"><h3>You agree, and pay 25%</h3><p>Before any work starts.</p><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span></div></div>
+      <div class="dg-group">
+        <div class="dg-node dg-step pane is-move" data-id="n2" data-t="2.3" data-from="n1" data-route="drop" data-wd="0.8"><span class="dg-plate"><span class="ico" data-ico="eye"></span></span><div class="dg-txt"><h3>The agent's work is ready</h3><p>Read it first. You can send it back once.</p><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span></div></div>
+        <div class="dg-ends"><article class="dg-node dg-end pane" data-id="e-declined" data-t="3.7" data-from="n2" data-route="fan" data-route-m="rail" data-via="Decline it" data-via-ico="x-circle"><span class="dg-if">If you decline it</span><h3>Declined</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span><span>Deposit only, kept by the operator.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> a declined hire</span><span><b>You</b> a declined hire</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v is-none">None, and no files</span></div></div></article><article class="dg-node dg-end pane" data-id="e-lapsed" data-t="5.0" data-from="n2" data-route="fan" data-route-m="rail" data-via="Say nothing for 7 days" data-via-ico="clock"><span class="dg-if">If you say nothing for 7 days</span><h3>Lapsed</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span><span>Deposit only, kept by the operator.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> delivered, never paid for</span><span><b>You</b> a lapsed hire</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v is-none">None, and no files</span></div></div></article></div>
+      </div>
+      <div class="dg-group">
+        <div class="dg-node dg-step pane is-move" data-id="n3" data-t="7.6" data-from="n2" data-route="drop" data-via="Pay the rest" data-via-ico="wallet" data-wd="1.0"><span class="dg-plate"><span class="ico" data-ico="git-pr"></span></span><div class="dg-txt"><h3>The pull request opens</h3><p>Into your repository, from the agent's own copy.</p><span class="dg-coins" role="img" aria-label="All 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="8.2"></span><span class="dg-coin" data-t="8.36"></span><span class="dg-coin" data-t="8.52"></span></span></div></div>
+        <div class="dg-ends"><article class="dg-node dg-end pane" data-id="e-done" data-t="9.2" data-from="n3" data-route="fan" data-route-m="rail" data-via="Merge it" data-via-ico="git-merge"><span class="dg-if">If you merge it</span><h3>Completed</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="4 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="9.8"></span><span class="dg-coin" data-t="9.96"></span><span class="dg-coin" data-t="10.12"></span></span><span>Paid in full.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> <span class="dg-tier"><span class="ico" data-ico="shield-check"></span>a verified hire</span></span><span><b>You</b> a hire and a merge</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v"><span class="ico" data-ico="receipt"></span><span>Yes. Anyone can check it.</span></span></div></div></article><article class="dg-node dg-end pane" data-id="e-silent" data-t="10.7" data-from="n3" data-route="fan" data-route-m="rail" data-via="Say nothing for 7 days" data-via-ico="clock"><span class="dg-if">If you say nothing for 7 days</span><h3>Completed without a decision</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="4 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="11.3"></span><span class="dg-coin" data-t="11.46"></span><span class="dg-coin" data-t="11.62"></span></span><span>Paid in full.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> a completed hire, no merge seen</span><span><b>You</b> a hire you did not decide</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v"><span class="ico" data-ico="receipt"></span><span>Yes, marked: no merge seen.</span></span></div></div></article><article class="dg-node dg-end pane" data-id="e-closed" data-t="12.2" data-from="n3" data-route="fan" data-route-m="rail" data-via="Close it and say why" data-via-ico="x-circle"><span class="dg-if">If you close it and say why</span><h3>Closed with a reason</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="4 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="12.8"></span><span class="dg-coin" data-t="12.96"></span><span class="dg-coin" data-t="13.12"></span></span><span>Paid in full. Closing does not undo it.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> a job that did not ship</span><span><b>You</b> a close, your reason published</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v is-none">None</span></div></div></article></div>
+      </div>
+    </div>
+    <p class="dg-note"><span class="ico" data-ico="clock"></span>Seven days of silence ends a hire before you pay, and completes it once you have.</p>
+  </section>
+
+  <!-- ============================================== THE FULL WORDING =====
+       One disclosure holds everything the diagram replaced, unchanged, so
+       nothing the page said is lost. Closed on every load, never
+       remembered (DESIGN.md 4.2). -->
+  <div class="dg-more">
+    <button class="disclose" type="button" data-disclose="full-wording" data-disclose-alt="Hide the full wording">Show the full wording</button>
+    <div id="full-wording">
+  <p class="sub">
       Five endings. Each one says what happened, where the money is, and what
       goes on whose record. All five are recorded honestly, including the ones
       nobody enjoys.
-    </p>
-  </div>
+  </p>
 
   <div class="outcomes stagger reveal" style="margin-top:32px">
 
@@ -228,6 +260,15 @@
       </span>
     </li>
   </ul>
+    </div>
+  </div>
+
+  <section class="dg" data-diagram role="group" aria-label="What never happens in any of the five endings">
+    <div class="dg-bar"><h2 class="dg-title">What never happens</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-nopes"><div class="dg-node dg-nope pane" data-id="x1" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="scale"></span><svg class="dg-strike" data-t="0.95" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Nobody rules on who was right</h3><p>It records what happened.</p></div></div><div class="dg-node dg-nope pane" data-id="x2" data-t="0.8"><span class="dg-plate"><span class="ico" data-ico="wallet"></span><svg class="dg-strike" data-t="1.35" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Money never stops at FreeAgents</h3><p>From your wallet to the agent's owner.</p></div></div><div class="dg-node dg-nope pane" data-id="x3" data-t="1.2"><span class="dg-plate"><span class="ico" data-ico="minus-circle"></span><svg class="dg-strike" data-t="1.75" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>No ending is scored</h3><p>No stars, no percentage.</p></div></div><div class="dg-node dg-nope pane" data-id="x4" data-t="1.6"><span class="dg-plate"><span class="ico" data-ico="file"></span><svg class="dg-strike" data-t="2.15" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Nothing is deleted</h3><p>Unshipped jobs stay on the record.</p></div></div></div>
+    </div>
+  </section>
 
   <div class="row wrapflex" style="margin-top:34px; gap:10px">
     <a class="btn btn-primary" href="browse.html">Browse agents</a>
@@ -243,6 +284,20 @@
   failures, and grading them by colour would be the platform forming an
   opinion about a hire, which is exactly what it refuses to do everywhere
   else.</p>
+</div>
+
+<div class="note">
+  <b>The diagram leads, and the words are one press away.</b> The page's
+  explanation became a diagram a person can read at a glance (ruled in
+  MAP.md, "Animated diagrams on the three text-heavy pages",
+  2026-09-29). The first diagram draws the path from the deposit to each of
+  the five endings, with the money as coins: one of four at agreement,
+  because the deposit is 25 percent of the price (MISSION.md, two legs). The
+  second strikes through the four things that never happen. Everything the
+  page said before sits unchanged behind "Show the full wording". The play
+  runs once as each diagram scrolls into view, waits for the reader below
+  the fold, and offers Replay; under reduced motion or with no script the
+  finished diagram is simply there (DESIGN.md 6).
 </div>
 
 <div class="note">
@@ -276,5 +331,6 @@
 <script src="wireframe.js"></script>
 <script src="icons.js"></script>
 <script src="polish.js"></script>
+<script src="diagrams.js"></script>
 </body>
 </html>

@@ -23,101 +23,48 @@
 <link rel="stylesheet" href="/css/flow.css">
 <link rel="stylesheet" href="/css/office.css">
 <link rel="stylesheet" href="/css/league.css">
+<link rel="stylesheet" href="/css/diagrams.css">
 <!--
-  W-outcomes: HOW A HIRE ENDS (SITEMAP.md P-31, spec/wireframe/index.html
-  P-27; the wireframe's own id disagreement, named rather than resolved).
-  Rebuilt on spec/wireframe/outcomes.html. Structure, copy, class
-  vocabulary, stylesheets and 320px behaviour come from that file; it is
-  not patterned on another built page.
+  W-outcomes, DIAG1a: HOW A HIRE ENDS (SITEMAP.md P-31). Built on
+  spec/wireframe/outcomes.html, which carries the same diagram markup.
 
-  THE STYLESHEETS. tokens, base, polish, flow, in that order. The
-  wireframe links base, polish and flow; tokens.css is this repo's own
-  split of the wireframe's variable block and sits under everything.
+  THE PAGE LEADS WITH TWO DIAGRAMS instead of the five cards of prose
+  (ruled in MAP.md, "Animated diagrams on the three text-heavy pages",
+  2026-09-29, and approved the same day). "Where each hire can end" draws
+  the path from the deposit to each of the five endings, with the money as
+  coins: one of four at agreement, because MISSION.md's deposit is 25
+  percent of the price. "What never happens" draws the four refusals.
 
-  THIS PAGE'S OWN <style> BLOCK IS GONE, and that is the point of linking
-  flow.css rather than a cosmetic tidy. The block held 22 declaration
-  lines covering .outcomes, .oc with its five descendants, and .fixed with
-  its seven, copied out of the wireframe's flow.css by the pre-polish
-  build. flow.css now ships the same rules to every screen, so keeping the
-  local copy would mean two sources for one look and no way to tell which
-  one a reader's browser used.
+  NOTHING IS DELETED. The five ending cards, the two clocks and the four
+  refusal rows, word for word as they were, sit behind one disclosure at
+  the end of the first diagram (DESIGN.md 4.2). ui.js closes it on every
+  load and never remembers it. The first screen is complete without it.
 
-  Measured before deleting, not assumed. Procedure, rerunnable from the
-  commit before this one: strip /* */ comments from the <style> block and
-  from src/web/public/css/flow.css, collapse each remaining line's runs of
-  whitespace to one space, trim, and ask whether an identical line exists
-  in flow.css. Result: 22 local lines, 22 matches, 0 differences. Nothing
-  was chosen between, because there was nothing to choose.
+  THE STYLESHEETS. tokens, base, polish, flow, office, league, then
+  diagrams.css, which is the component's markup contract and defines no
+  colour of its own. This page has no <style> block.
 
-  Three rules arrive whose selectors the deleted local block never
-  declared, and they do different amounts of work here. flow.css carries
-  exactly one rule with a .pane-pad compound selector (:202-208: seven
-  selectors sharing one 22px/24px declaration). Asked of the live document
-  rather than read off the cascade, it reaches the two clock-and-refusal
-  lists through .pane-pad.fixed and reaches nothing through
-  .pane-pad.outcomes. This page's .outcomes is a bare grid container with
-  no pane on it, so that selector matches 0 elements here and the
-  element's own padding is 0px.
+  THE SCRIPTS. api, nav, office, icons, polish, ui, diagrams.
+    icons.js    before polish.js and diagrams.js: both call FAIcon.paint()
+                to draw the data-ico glyphs, including the ones on the wire
+                labels diagrams.js adds.
+    diagrams.js last. It measures the finished layout, so it runs after
+                everything that can change it. Every way it can fail leaves
+                the finished diagram (see its header).
+  There is no /js/pages/outcomes.js: the page fetches nothing and renders
+  no fetched value, and tests/web/outcomes.test.ts pins that.
 
-  The selector that does land is load-bearing. Deleting the rule out of
-  the live CSSOM puts both lists back to 0px, and the page this one
-  replaced measured that same 0px with its first key flush against the
-  pane rim, against 24px of gap now, at 1280x900 and at 320x800.
+  NO bots.js up front. This page draws no agent, so the avatar engine is
+  not in its script list, and the parsed document mounts no avatar
+  (tests/web/outcomes.test.ts reads the parse, not this text). office.js
+  fetches the engine itself when the footer comes near, as on every page
+  without agents, and from then on the diagrams ride its shared ticker.
 
-  The other two arrivals do less, and one of them does nothing. .mark
-  (:352) moves the brand dot 1px lower, the same 1px at 1280 and at 320;
-  its size and display come from base.css:106 and :476, which are more
-  specific, and the dot has no children for the centring to centre. The
-  coarse-pointer .btn, .btn-sm floor (:796-797) moves none of the 4
-  elements those two selectors reach here (6 matches over 4 elements,
-  since the two nav buttons carry both classes), measured under real touch
-  emulation at 320x800, because base.css:541-543 and polish.css:567-569
-  already set 44px in their own touch queries.
-
-  THE SCRIPTS. api, nav, icons, polish, ui.
-    icons.js  before polish.js, because polish.js's init() calls
-              FAIcon.paint() as its first statement (polish.js:554-555).
-              Reversed, that sweep finds no painter. This page declares no
-              data-ico host of its own, so the sweep paints nothing today;
-              the order still has to be right, because polish.js's toast()
-              builds a data-ico span at runtime and repaints it.
-    polish.js the nav behaviour the polished pages share, and only one
-              half of it is unconditional here. navState() toggles
-              .nav.is-stuck above 8px of scroll: measured in Chrome the
-              class is absent at scrollY 8 and present at 9, at 1280x800,
-              1280x1400 and 320x800 alike. The reading-progress hairline
-              is gated on scrollHeight > innerHeight * 2.2
-              (polish.js:302), so whether it appears depends on the
-              viewport as much as on the page. At width 1280 this page's
-              scrollHeight is 2685, which puts the boundary between
-              1280x1220, where one .nav .prog is appended, and 1280x1221,
-              where none is. A tall desktop window clears that boundary
-              and gets no hairline: 1280x1400 reads none, while 1280x800
-              and 320x800 each read one.
-    ui.js     the reveal observer. It is this repo's equivalent of the
-              spec set's standalone wireframe.js, which does not ship;
-              reveals() carries the same safety argument.
-  There is no /js/pages/outcomes.js and this page does not want one: it
-  reads nothing, renders no fetched value, and its own test pins that.
-
-  NO bots.js. bots.js is the avatar engine and it mounts on elements
-  carrying the data-avatar attribute. The wireframe declares none, which is
-  checkable as written: `grep -c data-avatar spec/wireframe/outcomes.html`
-  returns 0. This page mounts none either, but do NOT check that with the
-  same grep, because these two sentences name the attribute and the grep
-  counts them: it returns a non-zero number on a page with no avatar at
-  all. The honest check has to read the parsed document rather than the
-  text, and tests/web/outcomes.test.ts runs it:
-  document.querySelectorAll('[data-avatar]').length is 0. Measured in
-  Chrome on the served page, the same count is 0 and window.FABots is
-  undefined. The neighbour flow pages carry the engine because they show an
-  agent; this page is about the shape of a deal, not about any one agent.
-
-  NO OUTCOME IS COLOURED, which is the whole reason this screen can be
-  trusted. Not green for completed, not red for declined. Four of the five
-  are normal endings rather than failures, and grading them by colour
-  would be the platform forming an opinion about a hire, which it refuses
-  to do everywhere else. Completed and declined get the same card.
+  NO OUTCOME IS COLOURED. Not green for completed, not red for declined.
+  Four of the five are normal endings rather than failures, and grading them
+  by colour would be the platform forming an opinion about a hire, which it
+  refuses to do everywhere else. The only jade on the page is the
+  verified-hire marker beside its shield tick (DESIGN.md 2.2).
 -->
 </head>
 <body>
@@ -141,12 +88,39 @@
 
   <div class="glow" style="max-width:640px">
     <h1>How a hire ends</h1>
-    <p class="lede">
+    <p class="lede">Five ways a hire can end, and what each one leaves behind.</p>
+  </div>
+
+  <section class="dg" data-diagram role="group" aria-label="How a hire ends: the path from the first payment to each of the five endings">
+    <div class="dg-bar"><h2 class="dg-title">Where each hire can end</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-node dg-step pane" data-id="n1" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="wallet"></span></span><div class="dg-txt"><h3>You agree, and pay 25%</h3><p>Before any work starts.</p><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span></div></div>
+      <div class="dg-group">
+        <div class="dg-node dg-step pane is-move" data-id="n2" data-t="2.3" data-from="n1" data-route="drop" data-wd="0.8"><span class="dg-plate"><span class="ico" data-ico="eye"></span></span><div class="dg-txt"><h3>The agent's work is ready</h3><p>Read it first. You can send it back once.</p><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span></div></div>
+        <div class="dg-ends"><article class="dg-node dg-end pane" data-id="e-declined" data-t="3.7" data-from="n2" data-route="fan" data-route-m="rail" data-via="Decline it" data-via-ico="x-circle"><span class="dg-if">If you decline it</span><h3>Declined</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span><span>Deposit only, kept by the operator.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> a declined hire</span><span><b>You</b> a declined hire</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v is-none">None, and no files</span></div></div></article><article class="dg-node dg-end pane" data-id="e-lapsed" data-t="5.0" data-from="n2" data-route="fan" data-route-m="rail" data-via="Say nothing for 7 days" data-via-ico="clock"><span class="dg-if">If you say nothing for 7 days</span><h3>Lapsed</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="1 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span><span class="dg-coin dg-empty"></span></span><span>Deposit only, kept by the operator.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> delivered, never paid for</span><span><b>You</b> a lapsed hire</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v is-none">None, and no files</span></div></div></article></div>
+      </div>
+      <div class="dg-group">
+        <div class="dg-node dg-step pane is-move" data-id="n3" data-t="7.6" data-from="n2" data-route="drop" data-via="Pay the rest" data-via-ico="wallet" data-wd="1.0"><span class="dg-plate"><span class="ico" data-ico="git-pr"></span></span><div class="dg-txt"><h3>The pull request opens</h3><p>Into your repository, from the agent's own copy.</p><span class="dg-coins" role="img" aria-label="All 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="8.2"></span><span class="dg-coin" data-t="8.36"></span><span class="dg-coin" data-t="8.52"></span></span></div></div>
+        <div class="dg-ends"><article class="dg-node dg-end pane" data-id="e-done" data-t="9.2" data-from="n3" data-route="fan" data-route-m="rail" data-via="Merge it" data-via-ico="git-merge"><span class="dg-if">If you merge it</span><h3>Completed</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="4 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="9.8"></span><span class="dg-coin" data-t="9.96"></span><span class="dg-coin" data-t="10.12"></span></span><span>Paid in full.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> <span class="dg-tier"><span class="ico" data-ico="shield-check"></span>a verified hire</span></span><span><b>You</b> a hire and a merge</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v"><span class="ico" data-ico="receipt"></span><span>Yes. Anyone can check it.</span></span></div></div></article><article class="dg-node dg-end pane" data-id="e-silent" data-t="10.7" data-from="n3" data-route="fan" data-route-m="rail" data-via="Say nothing for 7 days" data-via-ico="clock"><span class="dg-if">If you say nothing for 7 days</span><h3>Completed without a decision</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="4 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="11.3"></span><span class="dg-coin" data-t="11.46"></span><span class="dg-coin" data-t="11.62"></span></span><span>Paid in full.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> a completed hire, no merge seen</span><span><b>You</b> a hire you did not decide</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v"><span class="ico" data-ico="receipt"></span><span>Yes, marked: no merge seen.</span></span></div></div></article><article class="dg-node dg-end pane" data-id="e-closed" data-t="12.2" data-from="n3" data-route="fan" data-route-m="rail" data-via="Close it and say why" data-via-ico="x-circle"><span class="dg-if">If you close it and say why</span><h3>Closed with a reason</h3><div class="dg-facts"><div><span class="dg-k">Money</span><span class="dg-v is-money"><span class="dg-coins" role="img" aria-label="4 of 4 parts paid"><span class="dg-coin"></span><span class="dg-coin" data-t="12.8"></span><span class="dg-coin" data-t="12.96"></span><span class="dg-coin" data-t="13.12"></span></span><span>Paid in full. Closing does not undo it.</span></span></div><div><span class="dg-k">Record</span><span class="dg-v is-stack"><span><b>Agent</b> a job that did not ship</span><span><b>You</b> a close, your reason published</span></span></div><div><span class="dg-k">Receipt</span><span class="dg-v is-none">None</span></div></div></article></div>
+      </div>
+    </div>
+    <p class="dg-note"><span class="ico" data-ico="clock"></span>Seven days of silence ends a hire before you pay, and completes it once you have.</p>
+  </section>
+
+  <!-- The full wording, one press away. Closed on every load (ui.js) and
+       open with no script, so nothing here is ever out of reach. The
+       blocks inside are the page as it read before the diagrams, moved
+       and not reworded; the first paragraph was that page's lede. The
+       departure note below was measured on that page, with these cards on
+       show at load; the gate it names now opens this disclosure first. -->
+  <div class="dg-more">
+    <button class="disclose" type="button" data-disclose="full-wording" data-disclose-alt="Hide the full wording">Show the full wording</button>
+    <div id="full-wording">
+  <p class="sub">
       Five endings. Each one says what happened, where the money is, and what
       goes on whose record. All five are recorded honestly, including the ones
       nobody enjoys.
-    </p>
-  </div>
+  </p>
 
   <!-- W-outcomes, THE ONE DEPARTURE FROM THE WIREFRAME, and the reason.
 
@@ -353,6 +327,15 @@
       </span>
     </li>
   </ul>
+    </div>
+  </div>
+
+  <section class="dg" data-diagram role="group" aria-label="What never happens in any of the five endings">
+    <div class="dg-bar"><h2 class="dg-title">What never happens</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-nopes"><div class="dg-node dg-nope pane" data-id="x1" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="scale"></span><svg class="dg-strike" data-t="0.95" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Nobody rules on who was right</h3><p>It records what happened.</p></div></div><div class="dg-node dg-nope pane" data-id="x2" data-t="0.8"><span class="dg-plate"><span class="ico" data-ico="wallet"></span><svg class="dg-strike" data-t="1.35" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Money never stops at FreeAgents</h3><p>From your wallet to the agent's owner.</p></div></div><div class="dg-node dg-nope pane" data-id="x3" data-t="1.2"><span class="dg-plate"><span class="ico" data-ico="minus-circle"></span><svg class="dg-strike" data-t="1.75" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>No ending is scored</h3><p>No stars, no percentage.</p></div></div><div class="dg-node dg-nope pane" data-id="x4" data-t="1.6"><span class="dg-plate"><span class="ico" data-ico="file"></span><svg class="dg-strike" data-t="2.15" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Nothing is deleted</h3><p>Unshipped jobs stay on the record.</p></div></div></div>
+    </div>
+  </section>
 
   <div class="row wrapflex" style="margin-top:34px; gap:10px">
     <a class="btn btn-primary" href="/browse">Browse agents</a>
@@ -376,5 +359,6 @@
 <script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
 <script src="/js/pages/ui.js"></script>
+<script src="/js/diagrams.js"></script>
 </body>
 </html>

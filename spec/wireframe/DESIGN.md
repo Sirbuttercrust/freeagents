@@ -687,8 +687,9 @@ something new adds it here first.
 
 ### 5.2 The flow vocabulary
 
-Eight more components, added 2026-09-05 for the hire, agreement and payment
-screens. They live in `flow.css`, which loads after `base.css` and only ever
+The components added from 2026-09-05 for the hire, agreement and payment
+screens, and the diagram, added 2026-09-29. They live in `flow.css` (the
+diagram in `diagrams.css`), which loads after `base.css` and only ever
 adds class names.
 
 | component | rules |
@@ -704,6 +705,7 @@ adds class names.
 | **sheet** | a native `<dialog>`. Escape, focus containment and the inert background come from the browser rather than from three hundred lines of our own that will be subtly wrong |
 | **picker** | choose one agreed line, then one sentence. The list is the **agreed lines only**, never free text alone, because the citation is what makes the record mean anything |
 | **counts** | the conduct record. Number leads, label follows, every row renders at zero |
+| **diagram** | a process or a set of outcomes drawn instead of written (`diagrams.css`, `diagrams.js`). Nodes are panes joined by wires; a label on a wire names the act that takes you along it; money is coins, four to a price, filled when paid. It describes a hire and tracks none, so nothing in it is `--action`, and `--check` appears only on the verified-hire marker beside its tick. Every word it replaces stays on the page behind one disclosure (4.2). The finished diagram is the markup's default, and the play is the enhancement (6) |
 
 #### Checked under money
 
@@ -861,8 +863,20 @@ screen:
 Durations: **120ms** for a state change on a control, **240ms** for something
 entering or leaving. Anything slower is a considered exception and says so
 where it is written: the reveal-on-scroll pair at 450 and 500ms, the tab and
-toast transitions at 300ms, and the ambient loops in 6.1, which are measured
-in seconds because they are not responses to anything.
+toast transitions at 300ms, the ambient loops in 6.1, which are measured
+in seconds because they are not responses to anything, and the diagram's
+play (5.2).
+
+**The diagram's play** runs for several seconds, which is the point of it: a
+node arrives, a light runs down the wire to the next, that node arrives, so
+the reader sees the order things happen in. It runs once, as the diagram
+scrolls into view, and waits for a node still below the fold. After that it
+never plays on its own; a Replay control plays it again. A node waiting to
+arrive dims its surface and keeps its words at a legible token, so no word
+is ever below AA while the play waits. Under reduced motion, with no script,
+or when anything in it fails, the finished diagram is simply there and there
+is no Replay. It rides the shared ticker once the avatar core is on the page,
+and its loop stops when nothing plays.
 
 The three tokens in `polish.css` name the everyday cases so a screen does not
 pick a number: `--dur-1` .14s for a control, `--dur-2` .22s for a small

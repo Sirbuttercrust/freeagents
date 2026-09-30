@@ -1,9 +1,11 @@
 // W-outcomes: the polished visual system on /outcomes, gated.
 //
 // tests/web/outcomes.test.ts already pins this page's copy, structure, money
-// lines and the five cards' parity. This file gates only what arrived when
-// the page moved onto the polished stack: the stylesheets, the reveal, and
-// the way both degrade.
+// lines and the five cards' parity, and tests/web/diagrams.test.ts pins the
+// two diagrams that lead the page. This file gates the stylesheets, the
+// five cards' reveal, and the way both degrade. Since DIAG1a the cards sit
+// behind the page's one disclosure, so every check on them opens it first,
+// with a real press, and reads them as a reader who opened it sees them.
 //
 // Everything here is measured in a real browser, because every claim in it
 // is a claim about rendered behaviour. A jsdom assertion that a class is
@@ -27,6 +29,28 @@ const here = dirname(fileURLToPath(import.meta.url));
 const builtPage = join(here, '../../src/web/pages/outcomes.html');
 const wireframe = join(here, '../../spec/wireframe/outcomes.html');
 const flowCss = join(here, '../../src/web/public/css/flow.css');
+
+// Opens "Show the full wording" with a real press at its centre (a touch
+// tap when the browser emulates touch), and confirms it opened.
+async function openFullWording(browser: RealBrowser, touch = false): Promise<void> {
+  const at = await browser.evaluate<{ x: number; y: number }>(`
+    (function () {
+      var b = document.querySelector('main button[data-disclose="full-wording"]');
+      b.scrollIntoView({ block: 'center' });
+      var r = b.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()
+  `);
+  if (touch) {
+    await browser.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x, y: at.y }] });
+    await browser.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } else {
+    await browser.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+    await browser.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 });
+  }
+  await new Promise((r) => setTimeout(r, 100));
+  expect(await browser.evaluate<boolean>("!document.getElementById('full-wording').hidden"), 'the full wording opened').toBe(true);
+}
 
 // Every structural assertion below runs against a PARSE, never against the
 // markup string. Learned the hard way while writing this file: three
@@ -102,13 +126,14 @@ describe('the polished stylesheets are linked, and this page owns no CSS of its 
   // two sources for one look, which is the drift the sheet exists to prevent.
   // This gate is what stops the copy coming back: it fails if any rule this
   // page needs is re-declared locally.
-  it('links tokens, base, polish and flow, in that order, and declares no local rules', () => {
+  it('links tokens, base, polish, flow, office, league and diagrams, in that order, and declares no local rules', () => {
     const doc = parse(readFileSync(builtPage, 'utf8'));
     const sheets = Array.from(doc.querySelectorAll('link[rel="stylesheet"]')).map((l) =>
       l.getAttribute('href'),
     );
-    // office.css and league.css close every page (the league look, DESIGN.md 2).
-    expect(sheets).toEqual(['/css/tokens.css', '/css/base.css', '/css/polish.css', '/css/flow.css', '/css/office.css', '/css/league.css']);
+    // office.css and league.css close every page (the league look, DESIGN.md 2);
+    // diagrams.css is the diagram component's markup contract (DIAG1a).
+    expect(sheets).toEqual(['/css/tokens.css', '/css/base.css', '/css/polish.css', '/css/flow.css', '/css/office.css', '/css/league.css', '/css/diagrams.css']);
     expect(
       doc.querySelectorAll('style').length,
       'this page declares no <style> element; flow.css owns .outcomes, .oc and .fixed',
@@ -144,8 +169,9 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
   // The claim is "the cards start hidden and become visible", and the only
   // way to know is to watch. A sampler installed via
   // Page.addScriptToEvaluateOnNewDocument runs before any of the page's own
-  // script, so frame 0 is captured before ui.js can add .js-reveal.
-  it('the cards actually animate in, and all five move together at every frame', async () => {
+  // script and records only cards that are laid out, so it starts counting
+  // at the frame the reader's press on the disclosure revealed them.
+  it('opening the full wording reveals the cards, and all five move together at every frame', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the reveal trace; skipping (see CHROME_BIN)');
       return;
@@ -157,7 +183,9 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
           window.__trace = [];
           var t0 = performance.now();
           (function frame() {
-            var cards = Array.from(document.querySelectorAll('.oc'));
+            var cards = Array.from(document.querySelectorAll('.oc')).filter(function (el) {
+              return el.getBoundingClientRect().height > 0;
+            });
             if (cards.length) {
               window.__trace.push({
                 lowest: Math.min.apply(null, cards.map(function (el) {
@@ -169,20 +197,23 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
                 })).size
               });
             }
-            if (performance.now() - t0 < 2500) requestAnimationFrame(frame);
+            if (performance.now() - t0 < 5000) requestAnimationFrame(frame);
           })();
         `,
       });
-      await browser.goto(`${baseUrl}/outcomes`, 2600);
+      await browser.goto(`${baseUrl}/outcomes`, 300);
+      await openFullWording(browser);
+      await new Promise((r) => setTimeout(r, 5000));
       const trace = await browser.evaluate<Array<{ lowest: number; distinct: number }>>(
         'window.__trace',
       );
 
-      // A floor, not a measurement. 2.5 seconds of requestAnimationFrame is
-      // ~150 frames on a healthy machine and this only needs enough samples
-      // to span the 450ms transition; 20 is far below any plausible real
-      // rate and exists to catch a sampler that never installed at all,
-      // which would otherwise make every assertion below vacuously true.
+      // A floor, not a measurement. The cards are on screen for well over
+      // two seconds of the sampler's five, ~120 frames on a healthy machine,
+      // and this only needs enough samples to span the 450ms transition; 20
+      // is far below any plausible real rate and exists to catch a sampler
+      // that never installed at all, which would otherwise make every
+      // assertion below vacuously true.
       expect(trace.length, 'the sampler must have captured frames').toBeGreaterThan(20);
 
       // It is a reveal, not a decoration: some frame had a card at zero.
@@ -202,14 +233,14 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
       ).toBe(0);
 
       // The five cards move as one. This is the motion-time counterpart to
-      // outcomes.test.ts's "the five cards are identical in computed style,
-      // in a real browser", which measures them at rest: a per-card
-      // transition-delay would put them at different opacities mid-flight,
-      // and a card that arrives on its own reads as a card being emphasised.
-      // Zero is the assertion rather than a tolerance, because the number of
-      // frames a machine samples varies and the number that may diverge does
-      // not. Checked against the wireframe's --i:0..4: with those present a
-      // large fraction of the entrance frames diverge and this goes red.
+      // outcomes.test.ts's computed-style parity test, which measures them
+      // at rest: a per-card transition-delay would put them at different
+      // opacities mid-flight, and a card that arrives on its own reads as a
+      // card being emphasised. Zero is the assertion rather than a
+      // tolerance, because the number of frames a machine samples varies and
+      // the number that may diverge does not. Checked against the
+      // wireframe's old --i:0..4: with those present a large fraction of the
+      // entrance frames diverge and this goes red.
       const divergent = trace.filter((f) => f.distinct > 1);
       expect(
         divergent.length,
@@ -220,7 +251,7 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
     }
   }, 60000);
 
-  it('reduced motion: content is complete, js-reveal is never applied, nothing transitions', async () => {
+  it('reduced motion: once opened the cards are complete, js-reveal is never applied, nothing transitions', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the reduced-motion check; skipping (see CHROME_BIN)');
       return;
@@ -231,6 +262,7 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
         features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
       });
       await browser.goto(`${baseUrl}/outcomes`);
+      await openFullWording(browser);
       const out = await browser.evaluate<{
         jsReveal: boolean;
         states: string[];
@@ -267,7 +299,9 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
     }
   }, 60000);
 
-  it('javascript disabled: the whole page is readable and every card is fully visible', async () => {
+  // With no script nothing closes the disclosure (ui.js is what hides it),
+  // so the full wording is on the page as well as the finished diagrams.
+  it('javascript disabled: the whole page is readable, the full wording shows, and every card is fully visible', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for the scripts-off check; skipping (see CHROME_BIN)');
       return;
@@ -281,6 +315,7 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
       await browser.goto(`${baseUrl}/outcomes`);
       const out = await browser.evaluate<{
         jsReveal: boolean;
+        panelHidden: boolean;
         states: string[];
         cards: number;
         headings: number;
@@ -291,6 +326,7 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
         (function () {
           return {
             jsReveal: document.documentElement.classList.contains('js-reveal'),
+            panelHidden: document.getElementById('full-wording').hidden,
             states: Array.from(new Set(${CARD_STATE})),
             cards: document.querySelectorAll('.oc').length,
             headings: document.querySelectorAll('main h1, main h2, main h3').length,
@@ -302,13 +338,17 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
         })()
       `);
       expect(out.jsReveal, 'without script nothing can add js-reveal').toBe(false);
+      expect(out.panelHidden, 'without script nothing closes the full wording').toBe(false);
       expect(out.cards, 'all five endings render with no script at all').toBe(5);
-      expect(out.headings, 'h1 plus the five card headings plus the two section headings').toBe(8);
+      // h1; the two diagram titles and their eight and four node headings;
+      // the five card headings and the two section headings in the full
+      // wording.
+      expect(out.headings, 'h1, 2 diagram titles, 12 diagram nodes, 5 cards, 2 sections').toBe(22);
       expect(out.states, 'every card at full opacity and no transform').toEqual(['1|none']);
       expect(out.invisibleCards, 'nothing may hide a card when scripts never run').toBe(0);
-      // The disclosure is the point of this page, so "it renders" has to mean
-      // the words are there, not that the boxes are.
-      expect(out.mainChars, 'the full disclosure is present as text').toBeGreaterThan(3000);
+      // The full wording is the point of this page, so "it renders" has to
+      // mean the words are there, not that the boxes are.
+      expect(out.mainChars, 'the full wording is present as text').toBeGreaterThan(3000);
       expect(out.noOverflow).toBe(true);
     } finally {
       await browser.close();
@@ -318,13 +358,14 @@ describe('the reveal: it runs, and every way it can fail lands on visible conten
 
 describe('320px on a touch pointer, in both motion modes', () => {
   // outcomes.test.ts's own 320px test already checks this width, but with
-  // mobile:false, so (pointer: coarse) does not match and the 44px floor in
-  // base.css:541 and polish.css:567 never fires. That is the exact trap
-  // polish.css:552-566 documents. This drives a real touch profile, so the
-  // floor is under test rather than merely present, and does it in both
-  // motion modes because reduced motion changes which rules apply.
+  // mobile:false, so (pointer: coarse) does not match and the touch 44px
+  // floors in base.css and polish.css never fire. This drives a real touch
+  // profile, so the floor is under test rather than merely present, and
+  // does it in both motion modes because reduced motion changes which rules
+  // apply. The full wording is opened with a tap first (DESIGN.md 5.4: the
+  // law holds in every reachable state), so both grids are laid out.
   it.each(['no-preference', 'reduce'])(
-    'motion=%s: no sideways scroll, both grids collapse, every control clears 44px',
+    'motion=%s: with the full wording opened by a tap, no sideways scroll, both grids collapse, every control clears 44px',
     async (motion) => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for the 320px touch check; skipping (see CHROME_BIN)');
@@ -346,7 +387,9 @@ describe('320px on a touch pointer, in both motion modes', () => {
         await browser.send('Emulation.setEmulatedMedia', {
           features: [{ name: 'prefers-reduced-motion', value: motion }],
         });
-        await browser.goto(`${baseUrl}/outcomes`, 1500);
+        await browser.goto(`${baseUrl}/outcomes`, 300);
+        await openFullWording(browser, true);
+        await new Promise((r) => setTimeout(r, 1200));
 
         const out = await browser.evaluate<{
           coarse: boolean;
@@ -408,8 +451,8 @@ describe('320px on a touch pointer, in both motion modes', () => {
         expect(out.fixedCols, '.fixed li collapses to one column under 420px').toBe(1);
         expect(out.under44, 'every link and button clears 44x44 on a touch pointer').toEqual([]);
         // Content, not motion, is the requirement: a card still mid-fade when
-        // the reader arrives is fine, a card stuck hidden is not. goto's wait
-        // is well past the 450ms transition and both motion modes settle.
+        // the reader arrives is fine, a card stuck hidden is not. The wait is
+        // well past the 450ms transition and both motion modes settle.
         expect(out.hiddenCards, 'no card is left hidden at 320px in either motion mode').toBe(0);
       } finally {
         await browser.close();
