@@ -490,7 +490,7 @@ describe('the Messages link (MSG1b): absent signed out, present signed in', () =
     }
   });
 
-  it('appears pointing at /messages once signed in, and nothing links to /notifications', async () => {
+  it('appears pointing at /messages once signed in, and the nav carries no /notifications link', async () => {
     const page = await renderNav('/browse', { token: 'a-live-looking-token' });
     try {
       const link = page.document.getElementById('nav-messages') as HTMLAnchorElement | null;
