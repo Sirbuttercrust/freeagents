@@ -8,8 +8,8 @@
 //   (a) /myagents, 101 agents, 390 x 844: the roster is in at once, well
 //       before the fallback could have done it.
 //   (b) /how, 390 x 844: a short .stagger below the fold keeps its
-//       entrance. A sliver on screen is not enough; scrolled into view,
-//       it comes in.
+//       entrance (one inside "Show the full wording", opened first). A
+//       sliver on screen is not enough; scrolled into view, it comes in.
 //   (c) /myagents under reduced motion: no hidden state at all.
 import type { Server } from 'node:http';
 
@@ -188,6 +188,11 @@ describe('SW2-03: a reveal block taller than the screen shows at once', { timeou
     }
     const got = await withBrowser(async (b) => {
       await b.goto(`${baseUrl}/how`, 0);
+      // DIAG1b: /how leads with diagrams, and its short .stagger blocks (the
+      // old five steps, evidence table and refusal cards) sit behind "Show
+      // the full wording" at the foot of the page. Opening it from script,
+      // without scrolling, puts them on the page below the fold.
+      await b.evaluate(`document.querySelector('[data-disclose="full-wording"]').click()`);
       const pick = await b.evaluate<{ index: number; top: number; height: number; isIn: boolean; opacity: string; dcl: number } | null>(`(function () {
         var list = Array.prototype.slice.call(document.querySelectorAll('.stagger'));
         for (var i = 0; i < list.length; i++) {
