@@ -593,7 +593,11 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
       // DESIGN.md 1.3), so its chip says what the platform does: it checks.
       { path: '/', selector: '#tier-1', want: 'Hires we checked' },
       { path: `/agents/${AGENT_DID}`, selector: '.pstat.is-hire .sub2', want: 'we saw them merge' },
-      { path: '/how', selector: '.evrow.t1 .evwho', want: 'We did. We saw the pull request merge on GitHub.' },
+      // DIAG1b: /how's verified-hire proof row leads the page now, and says
+      // it in fewer words. The old evidence table still ships, unchanged,
+      // behind "Show the full wording", so its row keeps its own pin.
+      { path: '/how', selector: '.dg-tier-row[data-id="t1"] .dg-tier-head p', want: 'We saw it merge on GitHub.' },
+      { path: '/how', selector: '#full-wording .evrow.t1 .evwho', want: 'We did. We saw the pull request merge on GitHub.' },
     ];
     for (const s of surfaces) {
       it(`${s.path} reads "${s.want}" and renders no form of "watch"`, async () => {

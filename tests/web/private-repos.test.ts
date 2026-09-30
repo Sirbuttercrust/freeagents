@@ -385,9 +385,22 @@ describe('(a) /private-repos is one page, one <main>, at most 120 words', () => 
     const scripts = (src: string): string[] => [...src.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1] ?? '');
     const how = pageSource('how');
     const page = pageSource('private-repos');
-    expect(sheets(page)).toEqual(sheets(how));
+    // DIAG1b: /how leads with animated diagrams, so it loads the diagram
+    // component (diagrams.css, diagrams.js) and, for the guide agents in its
+    // first diagram, the vendored avatar core and bots.js. This page draws
+    // neither a diagram nor an agent, so it loads none of those four, and
+    // they are the only files left out of the comparison. Each is asserted
+    // present on /how, so the exception cannot outlive the reason for it.
+    const DIAGRAM_ONLY = ['/css/diagrams.css', '/js/diagrams.js', '/js/vendor/bot-avatars/bot-avatars.js', '/js/bots.js'];
+    const howAssets = [...sheets(how), ...scripts(how)];
+    for (const f of DIAGRAM_ONLY) {
+      expect(howAssets, `/how loads ${f}`).toContain(f);
+      expect([...sheets(page), ...scripts(page)], `this page loads no ${f}`).not.toContain(f);
+    }
+    const shared = (list: string[]): string[] => list.filter((s) => !DIAGRAM_ONLY.includes(s));
+    expect(sheets(page)).toEqual(shared(sheets(how)));
     // how.html's scripts, in order, with this page's own before ui.js.
-    expect(scripts(page).filter((s) => s !== '/js/pages/private-repos.js')).toEqual(scripts(how));
+    expect(scripts(page).filter((s) => s !== '/js/pages/private-repos.js')).toEqual(shared(scripts(how)));
     const block = (src: string, tag: string): string => (src.match(new RegExp(`<${tag}[\\s\\S]*?</${tag}>`))?.[0] ?? '').replace(/ class="on"/g, '');
     expect(block(page, 'nav')).toBe(block(how, 'nav'));
     expect(block(page, 'footer')).toBe(block(how, 'footer'));

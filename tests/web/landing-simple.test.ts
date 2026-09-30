@@ -166,9 +166,12 @@ describe('the landing page is simple, read from the markup', () => {
       // DESIGN.md 4.2: the link says what is behind it, never "More".
       expect((a.textContent ?? '').trim().split(/\s+/).length, `"${a.textContent}" does not say what is behind it`).toBeGreaterThanOrEqual(3);
     }
-    // All four refusals the landing page names are explained there.
+    // All four refusals the landing page names are explained there. DIAG1b:
+    // #limits is the refusal diagram now, four struck cards; the four older
+    // cards sit unchanged behind the page's "Show the full wording".
     const limits = how.getElementById('limits')!;
-    expect(limits.querySelectorAll('.nopecard')).toHaveLength(4);
+    expect(limits.querySelectorAll('.dg-nope')).toHaveLength(4);
+    expect(how.querySelectorAll('#full-wording .nopecard')).toHaveLength(4);
   });
 
   it('the step flow script only arms a diagram it is about to play, so every failure lands on the finished picture', () => {
