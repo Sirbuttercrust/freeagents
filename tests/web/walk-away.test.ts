@@ -231,6 +231,11 @@ beforeAll(async () => {
   await jobRepo.create(job('wa-draft'));
   await jobRepo.create(proposed('wa-proposed'));
   await jobRepo.create(job('wa-agreed', { status: 'proposed', criteria: signed, priceUsd: '300.00', deliveryWindowDays: 4, priceAcceptedByBuyer: true, priceAcceptedByAgent: true }));
+  // Every line signed, the price missing the buyer's mark: still open.
+  await jobRepo.create(job('wa-price-open', { status: 'proposed', criteria: signed, priceUsd: '300.00', deliveryWindowDays: 4, priceAcceptedByBuyer: false, priceAcceptedByAgent: true }));
+  await jobRepo.create(job('wa-last-mark', { status: 'proposed', criteria: signed, priceUsd: '300.00', deliveryWindowDays: 4, priceAcceptedByBuyer: false, priceAcceptedByAgent: true }));
+  // Lines sent, no price yet (the buyer sent lines first): still open.
+  await jobRepo.create(job('wa-no-price', { status: 'proposed', criteria: signed }));
   const agreedTerms = { criteria: signed, priceUsd: '300.00', deliveryWindowDays: 4, priceAcceptedByBuyer: true, priceAcceptedByAgent: true, confirmedAt: RECENT, confirmedSpecHash: 'sha256:wa' };
   await jobRepo.create(job('wa-confirmed', { status: 'confirmed', ...agreedTerms }));
   await jobRepo.create(job('wa-staged', { status: 'staged', ...agreedTerms, stagedCommit: 'a'.repeat(40), stagedAt: RECENT }));
@@ -253,7 +258,7 @@ describe('(a) inside the window, the hirer can withdraw and the owner can declin
     ['the owner on /agreement', DECLINE, 'agreementOwner'],
     ['the owner on /operatorjob', DECLINE, 'operatorOwner'],
   ] as const)('%s sees exactly one "%s" control, on a draft and on a proposed job with a mark missing', async (_who, label, key) => {
-    for (const id of ['wa-draft', 'wa-proposed']) {
+    for (const id of ['wa-draft', 'wa-proposed', 'wa-price-open', 'wa-no-price']) {
       const [path, who] = PAGES[key](id);
       const page = await render(path, tokenFor(who));
       try {
@@ -433,6 +438,56 @@ describe('(c) the confirm posts once, with the session, and lands on the end sta
       await press(page, 'withdraw');
       expect(page.document.getElementById('withdraw-alert')?.textContent).toBe('Could not reach the server just now. Try again in a moment.');
       expect(await status('wa-rows')).toBe('proposed');
+    } finally {
+      page.close();
+    }
+  });
+
+  // The three answers written for a caller rather than a person get a
+  // sentence of the page's own: the 401 names R-34, the 503 says
+  // "storage", and a body with no error has nothing to show.
+  it.each([
+    [401, { error: 'this route requires a session (sign in with GitHub OAuth or a passkey) or a verified request signature (R-34)' }, 'Your session has expired. Sign in again to withdraw this hire.'],
+    [503, { error: 'storage unavailable' }, 'Storage is unavailable just now. Try again in a moment.'],
+    [500, {}, 'That could not be done just now. Try again in a moment.'],
+  ] as const)('a %i shows the page\u2019s own sentence', async (code, body, sentence) => {
+    const page = await render('/jobs/wa-rows', buyerToken, (p, init) =>
+      init?.method === 'POST' ? new Response(JSON.stringify(body), { status: code }) : null,
+    );
+    try {
+      await press(page, 'withdraw');
+      expect(page.document.getElementById('withdraw-alert')?.textContent).toBe(sentence);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('Cancel and the close control shut the sheet and post nothing', async () => {
+    const page = await render('/operatorjob?job=wa-rows', ownerToken);
+    try {
+      const sheet = page.document.getElementById('decline-sheet') as HTMLDialogElement;
+      for (const closer of ['Cancel', 'Close']) {
+        control(page, 'decline').click();
+        expect(sheet.hasAttribute('open')).toBe(true);
+        const btn = Array.from(sheet.querySelectorAll('button')).find((b) => (b.getAttribute('aria-label') ?? b.textContent) === closer);
+        (btn as HTMLButtonElement).click();
+        expect(sheet.hasAttribute('open'), `${closer} left the sheet open`).toBe(false);
+      }
+      expect(page.posts).toEqual([]);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('/agreement: signing the last mark closes the window, and the control goes with it', async () => {
+    const page = await render('/agreement?job=wa-last-mark', buyerToken);
+    try {
+      expect(walkControls(page)).toEqual([WITHDRAW]);
+      const sign = page.document.querySelector('#terms button.sig.is-waiting') as HTMLButtonElement;
+      sign.click();
+      await quiet(page);
+      expect(page.posts.map((p) => p.path)).toEqual(['/jobs/wa-last-mark/price/accept']);
+      expect(walkControls(page)).toEqual([]);
     } finally {
       page.close();
     }
