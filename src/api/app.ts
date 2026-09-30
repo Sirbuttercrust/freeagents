@@ -3114,13 +3114,11 @@ export function createApp(
 
   // FIX-SW4f (bugs.md SW4-05): removes uploads no message carries once they
   // are older than UNSENT_UPLOAD_TTL_MS. Called from the upload route, at
-  // most once per UNSENT_SWEEP_INTERVAL_MS for this app, with no timer. The
-  // run is recorded before anything is awaited, so uploads arriving together
-  // start one sweep, and it never throws into the upload that started it.
-  // Per old row (oldest first, at most UNSENT_SWEEP_BATCH): a message that
-  // carries it means the row only lacks its messageId, so the id is recorded
-  // and the row kept; otherwise its files (full, then thumbnail) and then its
-  // row are removed. A failure on one row is logged and the sweep goes on.
+  // most once per UNSENT_SWEEP_INTERVAL_MS for this app, with no timer; the
+  // run is recorded before anything is awaited and it never throws. Per old
+  // row (oldest first, at most UNSENT_SWEEP_BATCH): a message that carries it
+  // gets its id recorded and the row kept; otherwise the files (full, then
+  // thumbnail) and then the row are removed. A failed row is logged, not fatal.
   let lastUnsentSweepAt = Number.NEGATIVE_INFINITY;
   async function sweepUnsentUploads(): Promise<void> {
     const startedAt = Date.now();
@@ -3150,17 +3148,19 @@ export function createApp(
   }
 
   // FIX-SW4f (bugs.md SW4-05): makes the quota and the admission one step.
-  // The upload route decodes and writes for a while before its row exists, so
-  // a count of stored rows alone lets every upload arriving meanwhile pass.
-  // An admitted upload holds a place, keyed by the caller's DID, until its
-  // request ends, and the count adds held places to stored rows. Places live
-  // in this process only, like the sweep's clock. The check and the hold run
-  // in one synchronous stretch after the rows return. A release by the same
-  // DID during the read could leave an upload in neither the rows nor the
-  // places, so the read is repeated then; another DID's release never does.
-  // A DID's state lives while it holds a place or has a read in flight.
+  // The route decodes and writes before its row exists, so stored rows alone
+  // let every upload arriving meanwhile pass. An admitted upload holds a place
+  // under the caller's DID until its request ends; the count adds held places
+  // to stored rows. Places live in this process only, like the sweep's clock.
+  // The check and the hold run in one synchronous stretch after the rows
+  // return. A release by the same DID during the read could leave an upload
+  // in neither the rows nor the places, so the read is repeated then; another
+  // DID's release never does. A DID's state lives while it holds or reads.
   interface UnsentUploadState { held: Map<string, string>; released: number; reads: number }
   const unsentUploadStates = new Map<string, UnsentUploadState>();
+  const dropIdleState = (did: string, state: UnsentUploadState): void => {
+    if (state.reads === 0 && state.held.size === 0) unsentUploadStates.delete(did);
+  };
   async function reserveUnsentUpload(did: string, jobId: string, uploadId: string): Promise<'job' | 'account' | null> {
     const state = unsentUploadStates.get(did) ?? { held: new Map<string, string>(), released: 0, reads: 0 };
     unsentUploadStates.set(did, state);
@@ -3182,7 +3182,7 @@ export function createApp(
       }
     } finally {
       state.reads -= 1;
-      if (state.reads === 0 && state.held.size === 0) unsentUploadStates.delete(did);
+      dropIdleState(did, state);
     }
   }
   function releaseUnsentUpload(did: string, uploadId: string): void {
@@ -3190,7 +3190,7 @@ export function createApp(
     if (state === undefined) return;
     state.held.delete(uploadId);
     state.released += 1;
-    if (state.reads === 0 && state.held.size === 0) unsentUploadStates.delete(did);
+    dropIdleState(did, state);
   }
 
   // POST /jobs/:jobId/attachments (attachments STEER): base64-encoded
@@ -3234,7 +3234,6 @@ export function createApp(
         res.status(429).json({ error: unsentUploadSentence(capReached) });
         return;
       }
-      // The place reserved above is held until the request ends (finally).
       try {
         let bytes: Buffer;
         try {
@@ -3292,9 +3291,7 @@ export function createApp(
           });
         } catch (err) {
           console.error(`${label}: storage failed`, err);
-          // FIX-SW4f: the files were written before the row, so a row that
-          // could not be stored would leave files nothing names and nothing
-          // would ever remove.
+          // FIX-SW4f: the files were written first; nothing else would remove them.
           for (const orphan of thumbnailPath === null ? [storedPath] : [storedPath, thumbnailPath]) {
             try {
               await removeAttachmentFile(orphan);

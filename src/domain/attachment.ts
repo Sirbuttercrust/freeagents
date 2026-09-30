@@ -128,13 +128,11 @@ export function unsentUploadExpired(createdAt: Date, now: Date): boolean {
   return now.getTime() - createdAt.getTime() > UNSENT_UPLOAD_TTL_MS;
 }
 
-// Which cap a caller's next upload to `jobId` would pass: 'job' when the
-// caller already holds UNSENT_UPLOADS_PER_JOB unsent uploads on that job,
-// 'account' when it holds UNSENT_UPLOADS_PER_ACCOUNT across every job, or
-// null when neither binds. `rows` are one caller's uploads; a row a message
-// carries, or one past the TTL, does not count. The job cap is named first
-// when both bind, because it is the one the caller can clear by sending a
-// file in the conversation it is looking at. Pure: no I/O.
+// Which cap a caller's next upload to `jobId` would pass: 'job' when it
+// already holds UNSENT_UPLOADS_PER_JOB unsent uploads on that job, 'account'
+// when it holds UNSENT_UPLOADS_PER_ACCOUNT across every job, else null. A row
+// a message carries, or one past the TTL, does not count. The job cap is
+// named first when both bind, because sending a file here clears it. Pure.
 export function unsentUploadCapReached(
   rows: readonly UnsentUploadRow[],
   jobId: string,

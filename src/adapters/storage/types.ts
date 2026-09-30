@@ -574,8 +574,8 @@ export interface AttachmentRepository {
   // FIX-SW4f: records that the message `messageId` carries each named
   // upload. Ids that name no row are ignored.
   markSent(ids: readonly string[], messageId: string): Promise<void>;
-  // FIX-SW4f: one uploader's rows with no message recorded, created at or
-  // after `since`, oldest first. The upload quota counts these.
+  // The upload quota counts one uploader's rows with no message recorded,
+  // created at or after `since`, oldest first.
   listUnsentByUploader(uploaderDid: string, since: Date): Promise<readonly Attachment[]>;
   // FIX-SW4f: rows with no message recorded, created strictly before
   // `before`, oldest first, at most `limit`. The sweep reads these.
