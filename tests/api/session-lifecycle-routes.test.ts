@@ -556,7 +556,7 @@ describe('P8a: an invalid signature is refused outright, never falling through t
         body: tamperedBody,
       });
       expect(res.status).toBe(401);
-      expect((await res.json())).toEqual({ error: 'invalid signature' });
+      expect((await res.json())).toEqual({ error: 'invalid signature: content-digest does not match the request body' });
 
       // The job never moved: a stranger reading it back over the SAME
       // valid session sees it still in its pre-withdraw state.

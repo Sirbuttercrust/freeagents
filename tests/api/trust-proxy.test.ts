@@ -240,6 +240,6 @@ describe('FREEAGENTS_TRUST_PROXY: RFC 9421 signature verification through a prox
     const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(401);
-    expect(body.error).toBe('invalid signature');
+    expect(body.error).toBe('invalid signature: the signature does not match this request; sign the exact method and URL you send, scheme included');
   });
 });

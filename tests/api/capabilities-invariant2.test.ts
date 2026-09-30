@@ -55,7 +55,7 @@ describe('GET /capabilities, invariant 2', () => {
       const baseUrl = `http://127.0.0.1:${portOf(server)}`;
       const res = await fetch(`${baseUrl}/capabilities`);
       const body = (await res.json()) as { notice: unknown; capabilities: Array<Record<string, unknown>> };
-      expect(Object.keys(body).sort()).toEqual(['capabilities', 'notice']);
+      expect(Object.keys(body).sort()).toEqual(['capabilities', 'notice', 'signing']);
       for (const cap of body.capabilities) {
         expect(Object.keys(cap).sort()).toEqual(['access', 'id', 'identityField', 'method', 'path', 'reason']);
       }
