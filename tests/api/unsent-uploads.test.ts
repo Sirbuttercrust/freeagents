@@ -414,4 +414,25 @@ describe('FIX-SW4f: a caller cannot fill the disk with uploads it never sends', 
     expect(await refused.json()).toEqual({ error: JOB_SENTENCE });
     expect(await world.attachments.listByJobId(jobId)).toHaveLength(10);
   });
+
+  it('(o) an upload whose row is stored but whose request has not finished is counted once, not twice', async () => {
+    const jobId = await openDraft();
+    for (let i = 0; i < 8; i += 1) await uploadOk(jobId);
+    const original = world.attachments.create.bind(world.attachments);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const created = vi.spyOn(world.attachments, 'create').mockImplementationOnce(async (row) => {
+      const stored = await original(row);
+      await gate;
+      return stored;
+    });
+    const slow = upload(jobId);
+    await vi.waitFor(async () => expect(await world.attachments.listByJobId(jobId)).toHaveLength(9));
+    expect(created).toHaveBeenCalledTimes(1);
+    // Nine rows are stored, one of them still held by its request: a tenth is a place, not an eleventh.
+    expect((await upload(jobId)).status).toBe(201);
+    release();
+    expect((await slow).status).toBe(201);
+    expect(await world.attachments.listByJobId(jobId)).toHaveLength(10);
+  });
 });
