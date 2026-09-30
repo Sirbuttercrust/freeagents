@@ -176,14 +176,12 @@
              actually guards the mount.
 
              THE WIREFRAME DRAWS A SECOND AVATAR and this page does not: its
-             nav is a static <details class="avatarmenu"> account menu
-             (spec/wireframe/operatorjob.html, the .avatarbtn in <nav>). Every
-             rebuilt page on main ships this repo's own signed-in nav instead
-             (#nav-signin, #nav-signed-in, #nav-signout, filled by nav.js),
-             because the built nav has a signed-out state the wireframe never
-             drew, and because the menu's three destinations are already flat
-             controls in the shared bar. That is existing data wiring this
-             card keeps. -->
+             nav account menu's face (spec/wireframe/operatorjob.html, the
+             .avatarbtn in <nav>). The built account menu (NAV1, every
+             page's #nav-signed-in row, wired by nav.js) wears the person's
+             profile icon instead, never a bot (MAP.md, "The account menu
+             and a person's own icon"), so it is no data-avatar mount. That
+             is existing data wiring this card keeps. -->
         <span class="av" id="agent-avatar" data-pending></span>
         <div>
           <div class="n" id="agent-name" data-pending>Loading this agent's record</div>

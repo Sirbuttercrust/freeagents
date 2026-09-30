@@ -958,14 +958,17 @@ describe('the operator page roster (R-19)', () => {
 // NEW sections the polished header, identity box, gallery and painters
 // add.
 describe('the operator page header, identity box and painted hosts (W12)', () => {
-  it('the header renders the polished .phero/.pav.is-op/.pname shape, not the retired .ohead/svg.oav', async () => {
+  it('the header renders the polished .phero/.pav.is-op/.pname shape, not the retired .ohead/svg.oav, and its host carries no bot mount', async () => {
     const page = await render(`/accounts/${SOLO_OPERATOR_DID}`);
     try {
       expect(page.document.querySelector('.phero')).toBeTruthy();
       expect(page.document.querySelector('.ohead')).toBeNull();
       const avatarHost = page.document.querySelector('.pav.is-op');
       expect(avatarHost).toBeTruthy();
-      expect(avatarHost?.getAttribute('data-avatar')).toBe(SOLO_OPERATOR_DID);
+      // NAV1: the operator is a person, drawn as the profile icon, so the
+      // host is never a bots.js mount point.
+      expect(avatarHost?.hasAttribute('data-avatar')).toBe(false);
+      expect(avatarHost?.classList.contains('pmark')).toBe(true);
     } finally {
       page.close();
     }
@@ -991,22 +994,44 @@ describe('the operator page header, identity box and painted hosts (W12)', () =>
     }
   });
 
-  it('the operator avatar and every roster card avatar hold one bot canvas, wearing the spec the read served', async () => {
+  it('(h) the header holds the operator\u2019s profile icon and no bot canvas, and every roster card holds exactly one bot canvas wearing the spec the read served', async () => {
     const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
     try {
+      // NAV1 Make 6: the header is the person's mark in the band their DID
+      // derives (FNV-1a mod 5, plus one), the same mark the nav's account
+      // menu wears, and it holds no canvas and no bot mount.
+      const head = page.document.getElementById('avatar')!;
+      const win = page.document.defaultView as unknown as { FAApi: { identityBand: (d: string) => number } };
+      expect({
+        mark: head.classList.contains('pmark'),
+        band: head.getAttribute('data-band'),
+        glyph: head.querySelectorAll(':scope > svg').length,
+        canvases: head.querySelectorAll('canvas').length,
+        mount: head.hasAttribute('data-avatar'),
+        pending: head.hasAttribute('data-pending'),
+      }, 'the operator header mark').toEqual({
+        mark: true,
+        band: String(win.FAApi.identityBand(GALLERY_OPERATOR_DID)),
+        glyph: 1,
+        canvases: 0,
+        mount: false,
+        pending: false,
+      });
+      expect(page.document.querySelectorAll(`[data-avatar="${GALLERY_OPERATOR_DID}"]`).length, 'nothing on the page mounts the operator as a bot').toBe(0);
+
+      // The roster is unchanged: this operator runs two agents, and each
+      // card holds one bot canvas wearing its DID's default spec.
       const avatarHosts = Array.from(page.document.querySelectorAll('[data-avatar]'));
-      expect(avatarHosts.length).toBeGreaterThan(1);
+      expect(avatarHosts.map((h) => h.getAttribute('data-avatar')).sort()).toEqual([
+        'did:abt:zRosterPageGalleryClaimAgent',
+        'did:abt:zRosterPageGalleryHireAgent',
+      ]);
       avatarHosts.forEach((host) => {
         const did = host.getAttribute('data-avatar')!;
-        // No override is stored for any agent here, and an operator (a
-        // person) never has one, so every host wears its DID's default.
+        // No override is stored for any agent here, so every host wears
+        // its DID's default.
         expect(botMount(host), `host for ${did}`).toEqual(expectedMount(did, defaultAvatar(did)));
       });
-      // The operator's own avatar never animates: a person is not working
-      // on a job.
-      const head = page.document.querySelector(`[data-avatar="${GALLERY_OPERATOR_DID}"]`);
-      expect(head, 'the operator head avatar is missing').not.toBeNull();
-      expect(head?.getAttribute('data-avatar-still')).toBe('true');
     } finally {
       page.close();
     }

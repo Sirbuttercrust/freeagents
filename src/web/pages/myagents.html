@@ -196,22 +196,14 @@
 </head>
 <body>
 
-<!-- DEPARTURE, the nav account menu. The wireframe wraps a fifth avatar in
+<!-- THE NAV ACCOUNT MENU. The wireframe wraps a fifth avatar in
      <details class="avatarmenu"> at myagents.html:52-61, holding Dashboard,
-     Settings and Sign out. This page does not build it, the same ruling
-     myjobs.html reached for the same element: nav.js already renders all
-     three destinations as flat controls (nav.js:91-126 appends Dashboard
-     and Settings when signed in, #nav-signed-in below carries Sign out),
-     and nav.js:86-89 records the reason the menu stays unbuilt, that
-     collapsing four existing links into a menu is a visual change to every
-     page carrying the nav rather than a change to this one. The menu's
-     look lives only in the wireframe's own base.css (.avatarmenu at
-     base.css:155, .avatarbtn at :156, .avatardrop at :189): of that whole
-     family, the only rule in any sheet this page loads is polish.css:603,
-     .avatardrop a { min-height: 44px }, a tap-target floor for items that
-     would not exist here. So the element would ship essentially unstyled.
+     Settings and Sign out. NAV1 built that menu once for every page (the
+     #nav-signed-in row below, wired by nav.js, styled in league.css), and
+     its face is the person's profile icon, never a bot (MAP.md, "The
+     account menu and a person's own icon"), so it is no data-avatar mount.
      The roster's own row avatars carry the wireframe's avatar contract on
-     this page instead.
+     this page.
 
      THE PER-ROW SETTINGS LINK ships (FIX-B41d): myagents.js ends each
      row's .right column with it, opening /agentsettings?agent=<did>. The

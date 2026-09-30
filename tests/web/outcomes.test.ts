@@ -656,7 +656,8 @@ describe('what never happens, in any of the five (done-means 7)', () => {
 // the shared chrome every page carries, byte for byte, and neither marks a
 // link as the current page (the prototype marked "How it works", which is
 // not this page). The footer keeps the placeholder the server fills with
-// the source links.
+// the source links. NAV1 replaced the nav's signed-in row on every page at
+// once (the account menu), and this copy follows that one row.
 describe('what the page keeps from before the diagrams', () => {
   const NAV = `<nav class="nav">
   <div class="wrap inner">
@@ -668,7 +669,15 @@ describe('what the page keeps from before the diagrams', () => {
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
     <div class="row" id="nav-signed-in" hidden>
-      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+      <details class="avatarmenu" id="nav-account">
+        <summary class="avatarbtn" id="nav-account-btn" aria-label="Account menu"><span class="pmark" id="nav-account-mark"></span></summary>
+        <div class="avatardrop" id="nav-account-drop">
+          <p class="avatarname" id="nav-account-name" hidden></p>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings">Settings</a>
+          <button type="button" id="nav-signout">Sign out</button>
+        </div>
+      </details>
     </div>
   </div>
 </nav>`;

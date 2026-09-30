@@ -228,22 +228,38 @@ p:last-child { margin-bottom: 0; }
 .avatarbtn::-webkit-details-marker { display: none; }
 .avatarbtn::marker { content: ""; }
 
-/* THE AVATAR IN HERE IS THE READER'S OWN IDENTITY, NOT A PLACEHOLDER.
+/* THE FACE IN HERE IS THE READER'S OWN PROFILE ICON, NEVER A BOT.
 
-   It used to be an inline `<circle fill="#3A3A4A">`, a hex no token defined,
-   painted directly into eight screens. Two rules were broken by one disc.
-   DESIGN.md 2.1: a colour that is not in the token table does not exist in
-   the product. DESIGN.md 2.4: an avatar is generated from the DID, so an
-   operator cannot choose it, and a flat disc is a chosen one.
+   MAP.md, "The account menu and a person's own icon" (2026-09-30): a person
+   may run several agents and each of those is a bot, so the person's own
+   mark is distinct from all of them. It is the user silhouette (icons.js
+   "user", filled) on a round plate in their identity colour: FNV-1a of the
+   DID modulo 5 names one of --agent-1..--agent-5 (data-band 1 to 5), with
+   the silhouette in --bg. No band (the account read has not answered, or
+   failed) is the neutral --fg-2 on --bg-2. Never an initial, never an
+   upload, and never a colour the token table does not hold (DESIGN.md 2.1,
+   2.4). The shipped rule is .pmark in src/web/public/css/league.css.
 
-   It survived twenty-three gates because every gate read the direction the
-   rule was easy to check in, walking `:root` blocks for token definitions.
-   No gate ever opened an HTML file looking for a colour, so the direction
-   section 2.1 actually points, at screens, was unread.
+   The tap target stays 44 (the summary), the face inside it is 30. */
+.avatarbtn .pmark {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: var(--bg-2); color: var(--fg-2);
+}
+.avatarbtn .pmark svg { width: 72%; height: 72%; display: block; transform: translateY(6%); }
+.avatarbtn .pmark[data-band] { color: var(--bg); }
+.avatarbtn .pmark[data-band="1"] { background: var(--agent-1); }
+.avatarbtn .pmark[data-band="2"] { background: var(--agent-2); }
+.avatarbtn .pmark[data-band="3"] { background: var(--agent-3); }
+.avatarbtn .pmark[data-band="4"] { background: var(--agent-4); }
+.avatarbtn .pmark[data-band="5"] { background: var(--agent-5); }
+.avatarname { padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 560; color: var(--fg); }
 
-   The span is sized to 30px in the markup rather than measured from this
-   box, because polish.js falls back to the element's rendered width and the
-   summary is 44px: the tap target stays 44, the face inside it stays 30. */
+/* The bot face this rule set used to hold (.av with a data-avatar) is kept
+   for the seven other wireframes that still draw it, which predate the
+   ruling above; dashboard.html is the reference for the menu now. */
 .avatarbtn .av {
   width: 30px; height: 30px;
   border-radius: 50%;

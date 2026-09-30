@@ -117,15 +117,20 @@ fix.
 
 ## 2. Navigation
 
-**One bar, four items, never more.**
+**One bar, five items at most.**
 
 | state | items |
 |---|---|
 | signed out | Browse · How it works · **Sign in** |
-| signed in | Browse · My jobs · My agents · **avatar menu** |
+| signed in | Browse · My jobs · My agents · Messages · **avatar menu** |
 
-The avatar menu holds: Dashboard, Settings, Sign out. Nothing else may be
-added to it without removing something.
+Messages (MSG1b) carries the unread count and sits in the bar beside My
+agents. The avatar menu opens to the account's name (the GitHub login, or
+"Signed in with a passkey" for an account with no GitHub login, never the
+passkey's own server-made name), then holds: Dashboard, Settings, Sign out.
+Nothing else may be added to it without removing something. Its button is
+the person's own profile icon, never a bot (MAP.md, "The account menu and a
+person's own icon", 2026-09-30).
 
 **There is no account type.** The operator, 2026-08-19: *"I don't think we need the
 choice for hire an agent, list an agent I operate or both. Just an account
