@@ -1787,9 +1787,9 @@ describe('the staged screen, driven end to end against the real app', () => {
         // The dialog shell is shared furniture from P8j (ruling: take
         // dialog classes from what P8j shipped); both new dialogs use
         // the same .sheet rule, so this pins that neither one overrides
-        // it with a fixed width. W-staged moved that rule into flow.css
-        // (flow.css:591-598), where every flow screen now reads it from
-        // one place instead of six page-local copies.
+        // it with a fixed width. W-staged moved that rule into flow.css,
+        // and FIX-SW12i moved it on to polish.css (`dialog.sheet`,
+        // polish.css:789-796), where every page reads it from one place.
         expect(css).toMatch(/\.sheet\s*\{[^}]*width:\s*min\(520px,\s*calc\(100vw - 24px\)\)/);
 
         (page.document.getElementById('redo-btn') as HTMLButtonElement).click();
@@ -1806,7 +1806,7 @@ describe('the staged screen, driven end to end against the real app', () => {
         // choices layout test below already uses for the paths rule.
         //
         // The floor is now `.sheet .sfoot .btn { min-height: 44px }`
-        // (flow.css:610), which reaches both send buttons because each is
+        // (polish.css:808), which reaches both send buttons because each is
         // a .btn inside its dialog's .sfoot, rather than two id rules that
         // a third dialog's send button would not inherit. Asserted as the
         // rule AND as the two buttons really matching it, so a rule that

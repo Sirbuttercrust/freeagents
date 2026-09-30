@@ -215,6 +215,17 @@
     renderHistory(job_);
     renderDrafting(job_);
     renderTechnical(job_);
+    renderDecline(job_);
+  }
+
+  // FIX-SW12i: the owner turns a brief down before both signatures (api.js
+  // walkAway carries the window, the sheet and the departure). Only this
+  // page's cleared seat reaches render(), so no second party check sits
+  // here. A 200 reloads, and this same call then hides the row, because a
+  // declined job has left the window.
+  function renderDecline(job_) {
+    var row = A.walkAway("decline", A.el("state-lede"), job_.id, token, function () { reload(); });
+    if (row) row.hidden = !A.walkAwayOpen(job_);
   }
 
   function renderWho(job_) {

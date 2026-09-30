@@ -1020,7 +1020,8 @@ describe('the pull-request screen, driven end to end against the real app', () =
       const page = await renderPr(baseUrl, 'job-multi-criteria', buyerSession);
       try {
         // Read from every sheet the page really loads, not just its inline
-        // block: W-pullrequest moved these rules into flow.css, and an
+        // block: W-pullrequest moved these rules into flow.css, FIX-SW12i
+        // moved the sheet's on to polish.css, and an
         // instrument that only reads <style> asserts where a rule is
         // WRITTEN rather than whether it is IN FORCE (pageCss's own note).
         const css = await pageCss(page, baseUrl);
@@ -1031,7 +1032,7 @@ describe('the pull-request screen, driven end to end against the real app', () =
         const closeBtnStyle = page.window.getComputedStyle(closeBtn as Element);
         expect(parseFloat(closeBtnStyle.width)).toBeGreaterThanOrEqual(44);
         expect(parseFloat(closeBtnStyle.height)).toBeGreaterThanOrEqual(44);
-        // The send button's floor is now `.sheet .sfoot .btn` (flow.css:662),
+        // The send button's floor is now `.sheet .sfoot .btn` (polish.css:808),
         // which reaches it because it is a .btn inside the dialog's .sfoot,
         // rather than an id rule a second dialog's send button would not
         // inherit. Asserted as the rule AND as the button really matching

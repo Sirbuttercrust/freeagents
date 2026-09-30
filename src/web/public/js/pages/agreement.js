@@ -103,6 +103,22 @@
     wireProposeForm();
   }
 
+  /* FIX-SW12i: the walk-away control for whichever side holds the page,
+     under the line that promises it ("Either side can walk away"). The
+     buyer withdraws, the owner declines (api.js walkAway carries the
+     window, the sheet and the departure). A 200 goes to the page that
+     writes the end state: the job's record for the buyer, the operator's
+     page for the owner. Re-run on every render, because signing the last
+     line closes the window. */
+  function renderWalkAway(job) {
+    var kind = isOwner ? "decline" : "withdraw";
+    var dest = isOwner ? "/operatorjob?job=" + encodeURIComponent(job.id) : "/jobs/" + encodeURIComponent(job.id);
+    var row = A.walkAway(kind, document.querySelector("#agreement-body .draftflag"), job.id, token, function () {
+      window.location.href = dest;
+    });
+    if (row) row.hidden = !A.walkAwayOpen(job);
+  }
+
   function them(capital) { return buyerName || (capital ? "The buyer" : "the buyer"); }
 
   function failLoad(detail) {
@@ -206,6 +222,7 @@
     renderLockbar(job, lines);
     renderFixedTerms(job);
     renderRawList(job, lines);
+    renderWalkAway(job);
     /* QA round 2, D2 script-rendered-icon-never-painted: icons.js paints
        once on DOMContentLoaded and polish.js once in init(), both before
        this fetch resolves, so every host this function builds (the

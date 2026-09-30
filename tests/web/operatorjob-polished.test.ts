@@ -862,11 +862,12 @@ describe('6. the polished page holds at 320px, including its open states', () =>
     expect(measured.short, 'controls under the 44px tap floor at 320px').toEqual([]);
   }, BROWSER_TIMEOUT_MS);
 
-  it('the refuse sheet, opened at 320px, fits and wears flow.css\u2019s own chrome', async () => {
+  it('the refuse sheet, opened at 320px, fits and wears polish.css\u2019s sheet chrome', async () => {
     // tests/web/operatorjob.test.ts already opens the ACCEPT sheet at 320.
     // This one opens the other sheet, and additionally reads the three
-    // declarations flow.css carries that the deleted page-local copy did not,
-    // which is the visible difference the sheet swap is supposed to deliver.
+    // declarations the shared sheet carries that the deleted page-local copy
+    // did not, which is the visible difference the sheet swap delivered. The
+    // block came from flow.css; FIX-SW12i moved it to polish.css.
     const measured = await measure({ width: 320 }, async (browser) => {
       await browser.evaluate("document.getElementById('redo-refuse-btn').click(); true;");
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -900,12 +901,12 @@ describe('6. the polished page holds at 320px, including its open states', () =>
     expect(measured.right, 'the sheet runs off the right edge').toBeLessThanOrEqual(measured.doc[1]);
     expect(measured.closeBox, 'the close control is under the 44px tap floor').toEqual([44, 44]);
 
-    // The three declarations flow.css adds over the copy this card deleted.
-    // Each is a real visual change that arrives with the sheet, so each is
-    // asserted rather than assumed.
-    expect(measured.shadow, 'flow.css\u2019s sheet shadow is not in force').toContain('inset');
+    // The three declarations the shared sheet adds over the copy that was
+    // deleted. Each is a real visual change that arrives with the sheet, so
+    // each is asserted rather than assumed.
+    expect(measured.shadow, 'polish.css\u2019s sheet shadow is not in force').toContain('inset');
     expect(measured.shadow, 'the sheet\u2019s drop shadow is missing').toMatch(/rgba?\(0, 0, 0/);
-    expect(measured.headAlign, 'flow.css\u2019s shead alignment is not in force').toBe('flex-start');
-    expect(measured.closeLineHeight, 'flow.css\u2019s sclose line-height is not in force').toBe('22px');
+    expect(measured.headAlign, 'polish.css\u2019s shead alignment is not in force').toBe('flex-start');
+    expect(measured.closeLineHeight, 'polish.css\u2019s sclose line-height is not in force').toBe('22px');
   }, 60000);
 });
