@@ -997,20 +997,13 @@ async function withBuyerGithubLogins(
   }));
 }
 
-// FIX-SW4f (bugs.md SW4-05): how the unsent-upload quota refuses and how
-// often the sweep that removes old unsent uploads may run. The caps and the
-// TTL themselves live with the counting rule in src/domain/attachment.ts.
-//
-// A caller that hit a cap frees a place by sending a file, which takes
-// seconds, so a minute is a fair time to ask it to wait.
+// FIX-SW4f (bugs.md SW4-05): the quota's refusal and the sweep's pace. The
+// caps and the TTL live with the counting rule in src/domain/attachment.ts.
+// Sending a file frees a place and takes seconds, so a minute is a fair wait.
 const UNSENT_UPLOAD_RETRY_AFTER_SECONDS = 60;
-// The sweep reads every unsent row older than the TTL, so running it on
-// every upload would repeat that read for no gain. Ten minutes keeps a file
-// nobody sent on disk for at most the TTL plus ten minutes plus the wait for
-// the next upload.
+// Running the sweep on every upload would repeat its read for no gain.
 const UNSENT_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
-// Bounds one sweep so a large backlog is cleared over several uploads
-// instead of inside one upload request.
+// A large backlog is cleared over several uploads, not inside one request.
 const UNSENT_SWEEP_BATCH = 100;
 
 function unsentUploadSentence(cap: 'job' | 'account'): string {
@@ -3120,20 +3113,14 @@ export function createApp(
   });
 
   // FIX-SW4f (bugs.md SW4-05): removes uploads no message carries once they
-  // are older than UNSENT_UPLOAD_TTL_MS. It is called from the upload route
-  // and runs at most once per UNSENT_SWEEP_INTERVAL_MS for this app: there
-  // is no timer, so nothing runs when nobody uploads, and only an upload
-  // adds to the disk. The time of the run is recorded before anything is
-  // awaited, so two uploads arriving together start one sweep. It never
-  // throws: the upload that started it must answer as it would have.
-  //
-  // For each old unsent row (oldest first, at most UNSENT_SWEEP_BATCH) the
-  // row's job's messages are read. A message that carries the upload means
-  // the row only lacks its messageId (stored before the column existed, or
-  // markSent failed): the id is recorded and the row kept. Otherwise no one
-  // was ever shown the file, and its files (full, then thumbnail) and then
-  // its row are removed. A failure on one row is logged and the sweep goes
-  // on to the next.
+  // are older than UNSENT_UPLOAD_TTL_MS. Called from the upload route, at
+  // most once per UNSENT_SWEEP_INTERVAL_MS for this app, with no timer. The
+  // run is recorded before anything is awaited, so uploads arriving together
+  // start one sweep, and it never throws into the upload that started it.
+  // Per old row (oldest first, at most UNSENT_SWEEP_BATCH): a message that
+  // carries it means the row only lacks its messageId, so the id is recorded
+  // and the row kept; otherwise its files (full, then thumbnail) and then its
+  // row are removed. A failure on one row is logged and the sweep goes on.
   let lastUnsentSweepAt = Number.NEGATIVE_INFINITY;
   async function sweepUnsentUploads(): Promise<void> {
     const startedAt = Date.now();
@@ -3163,20 +3150,14 @@ export function createApp(
   }
 
   // FIX-SW4f (bugs.md SW4-05): makes the quota and the admission one step.
-  // The upload route decodes, re-encodes and writes for a while before its
-  // row exists, so a count taken only from stored rows lets every upload
-  // that arrives in that time see the same count and pass. An upload that
-  // passed the count therefore holds a place here, keyed by the caller's
-  // DID, from the moment it is admitted until its row is stored or it fails,
-  // and the count adds the places held to the stored rows. The held places
-  // live in this process only, like the sweep's clock: a second process
-  // serving the same database does not see them.
-  //
-  // The check and the reservation run in one synchronous stretch after the
-  // rows come back, so two uploads cannot both take the last place. A place
-  // released while the rows were being read could leave an upload that the
-  // read missed in neither the rows nor the places, so the read is repeated
-  // when any place was released during it.
+  // The upload route decodes and writes for a while before its row exists, so
+  // a count of stored rows alone lets every upload arriving meanwhile pass.
+  // An admitted upload holds a place, keyed by the caller's DID, until its
+  // request ends, and the count adds held places to stored rows. Places live
+  // in this process only, like the sweep's clock. The check and the hold run
+  // in one synchronous stretch after the rows return. A release during the
+  // read could leave an upload in neither the rows nor the places, so the
+  // read is repeated then.
   const unsentUploadPlaces = new Map<string, Map<string, string>>();
   let unsentUploadPlacesReleased = 0;
   async function reserveUnsentUpload(did: string, jobId: string, uploadId: string): Promise<'job' | 'account' | null> {
