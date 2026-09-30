@@ -1144,8 +1144,8 @@ describe('job pull-request, a finished hire is refused by name before money is a
         new Date(now.getTime() - 24 * 60 * 60 * 1000),
       ),
       status,
-      priceUsd: '500.00',
-      rail: 'usdc',
+      priceUsd: status === 'draft' ? null : '500.00',
+      rail: status === 'draft' ? null : 'usdc',
       ...(status === 'cited_closed'
         ? {
             pullRequestUrl: PLANTED_URL,
@@ -1239,20 +1239,33 @@ describe('job pull-request, a finished hire is refused by name before money is a
     });
   }
 
-  it('still answers the money sentence, 402 with the remainder figure, for a staged job with the remainder unpaid', async () => {
-    await withPlantedJob('staged', async ({ baseUrl: base, jobId, fixture, jobRepo }) => {
-      const planted = await jobRepo.findById(jobId);
-      const githubBefore = fixture.calls.getPullRequest.length;
+  // B15: while the job can still be staged and paid, money is asked first
+  // and "the remainder has not settled" is a true instruction. Each of
+  // these keeps the 402 whole, so the terminal check cannot widen past the
+  // finished statuses.
+  const payableStatuses: ReadonlyArray<{ readonly status: JobStatus; readonly remainderUsd: string | null }> = [
+    { status: 'draft', remainderUsd: null },
+    { status: 'proposed', remainderUsd: '375.00' },
+    { status: 'confirmed', remainderUsd: '375.00' },
+    { status: 'staged', remainderUsd: '375.00' },
+    { status: 'redo_requested', remainderUsd: '375.00' },
+  ];
+  for (const { status, remainderUsd } of payableStatuses) {
+    it(`still answers the money sentence, 402, for a ${status} job with the remainder unpaid, and asks github nothing`, async () => {
+      await withPlantedJob(status, async ({ baseUrl: base, jobId, fixture, jobRepo }) => {
+        const planted = await jobRepo.findById(jobId);
+        const githubBefore = fixture.calls.getPullRequest.length;
 
-      const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agent, base);
+        const res = await postSigned(`/jobs/${jobId}/pull-request`, { pullRequestUrl: 'https://github.com/buyer/target-repo/pull/1' }, agent, base);
 
-      expect(res.status).toBe(402);
-      expect(await res.json()).toEqual({
-        error: 'the remainder has not settled; this job cannot open a pull request until it does',
-        remainderUsd: '375.00',
+        expect(res.status).toBe(402);
+        expect(await res.json()).toEqual({
+          error: 'the remainder has not settled; this job cannot open a pull request until it does',
+          remainderUsd,
+        });
+        expect(fixture.calls.getPullRequest.length).toBe(githubBefore);
+        expect(await jobRepo.findById(jobId)).toEqual(planted);
       });
-      expect(fixture.calls.getPullRequest.length).toBe(githubBefore);
-      expect(await jobRepo.findById(jobId)).toEqual(planted);
     });
-  });
+  }
 });
