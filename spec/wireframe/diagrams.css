@@ -1,0 +1,201 @@
+/* FreeAgents: animated diagrams. The stylesheet half of js/diagrams.js.
+
+   Consumes tokens.css and defines no colour of its own (DESIGN.md 2.1). Sizes
+   sit on the 4, 8, 12, 16, 22, 34, 56 steps (DESIGN.md 4).
+
+   WHAT THIS REPLACES. A page that explains a set of outcomes or a set of
+   refusals in paragraphs. The reader sees the relationship (what leads to
+   what, where the money is) instead of reading it.
+
+   THE FINISHED DIAGRAM IS THE DEFAULT. Every rule below draws the complete
+   picture: every node lit, every coin filled. js/diagrams.js dims only when
+   it is about to play, so no script, reduced motion, print and a thrown
+   error all land on the full diagram (DESIGN.md 6: the reduced state is a
+   dignified static end state).
+
+   COLOUR MEANS WHAT DESIGN.md 2.2 SAYS. These diagrams describe a hire, they
+   do not track one, so nothing is "you are here" blue and nothing but the
+   verified-hire tier marker is jade. The travelling light is neutral white
+   (DESIGN.md 6.1). Nothing is coloured good or bad: two of the five endings
+   are ordinary outcomes and a red card would misdescribe them. */
+
+.dg { --dg-plx: 34px; position: relative; margin-top: 34px; }
+.dg-bar { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; margin-bottom: 8px; }
+.dg-bar .dg-title { margin: 0 auto 0 0; }
+.dg-replay { min-height: 44px; gap: 8px; }
+.dg-replay .ico { width: 14px; height: 14px; }
+
+.dg-stage { position: relative; display: flex; flex-direction: column; gap: 34px; align-items: flex-start; }
+.dg-wires { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
+.dg-stage > *:not(.dg-wires) { position: relative; z-index: 1; }
+
+.dg-wire-base { fill: none; stroke: var(--line-2); stroke-width: 1.5; }
+.dg-wire { fill: none; stroke: var(--fg-3); stroke-width: 1.5; stroke-linecap: round; }
+.dg-head-glow { fill: var(--fg); opacity: 0.16; }
+.dg-head { fill: var(--fg); }
+
+/* A label that sits on a wire. Opaque, so the wire passes behind it. */
+.dg-stage > .dg-via {
+  position: absolute; z-index: 2; transform: translate(-50%, calc(-50% + var(--rise, 0px)));
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+  min-height: 28px; padding: 0 12px; border-radius: 999px;
+  background: var(--bg); border: 1px solid var(--line-2);
+  font-size: 13px; line-height: 1; color: var(--fg-2);
+}
+.dg-stage > .dg-via.is-left { transform: translate(0, calc(-50% + var(--rise, 0px))); }
+.dg-via .ico { width: 14px; height: 14px; }
+
+/* ------------------------------------------------------------ a node
+   Every lit thing is a pane, the product's own raised surface. The ring is
+   the moment of arrival: it swells and fades, driven by --flash. */
+.dg-node.pane {
+  box-shadow:
+    inset 0 1px 0 var(--pane-glow),
+    var(--pane-shadow),
+    0 0 0 calc(var(--flash, 0) * 5px) color-mix(in srgb, var(--fg) calc(var(--flash, 0) * 14%), transparent);
+}
+.dg-step { display: flex; align-items: flex-start; gap: 12px; padding: 16px; width: 240px; }
+.dg-plate {
+  position: relative; flex: none; width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-2);
+}
+.dg-plate .ico { width: 18px; height: 18px; }
+.dg-txt { min-width: 0; }
+.dg-step h3, .dg-end h3, .dg-nope h3 { font-size: 15px; line-height: 1.3; }
+.dg-step p, .dg-nope p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--fg-2); max-width: none; }
+
+/* -------------------------------------------------------------- coins
+   A payment is countable whole objects: 25 percent of the price is one coin
+   of four (MISSION.md, two legs). A filled coin is paid; an empty ring was
+   never charged. */
+.dg-coins { display: inline-flex; gap: 6px; flex: none; }
+.dg-txt .dg-coins { margin-top: 12px; }
+.dg-coin {
+  flex: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--fg) calc(var(--c, 1) * 100%), var(--line-2));
+  background: color-mix(in srgb, var(--fg) calc(var(--c, 1) * 100%), transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--bg) calc(var(--c, 1) * 24%), transparent);
+}
+.dg-coin.dg-empty { --c: 0; }
+
+/* ----------------------------------------------------------- the fans */
+.dg-group {
+  display: grid; grid-template-columns: 240px minmax(0, 1fr); column-gap: 260px;
+  align-items: center; width: 100%;
+}
+.dg-group > .dg-step { grid-column: 1; }
+.dg-ends { grid-column: 2; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* ------------------------------------------------------ an ending card */
+.dg-end { width: 100%; padding: 16px; }
+.dg-facts { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 8px 16px; margin-top: 12px; align-items: start; }
+.dg-facts > div { display: contents; }
+.dg-k { font-size: 12px; line-height: 20px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3); }
+.dg-v { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; line-height: 20px; color: var(--fg-2); }
+.dg-v b { color: var(--fg); font-weight: 550; }
+.dg-v .ico { width: 16px; height: 16px; flex: none; color: var(--fg-2); }
+.dg-v.is-none { color: var(--fg-3); }
+.dg-v.is-stack { flex-direction: column; align-items: flex-start; gap: 2px; }
+/* The money row: coins first, and the sentence drops under them when the
+   card is too narrow to hold both on one line. */
+.dg-v.is-money { flex-wrap: wrap; row-gap: 4px; }
+.dg-tier { display: inline-flex; align-items: center; gap: 6px; color: var(--check); font-weight: 550; }
+.dg-v .dg-tier .ico { width: 14px; height: 14px; color: var(--check); }
+
+/* The condition a fan card answers to ("If you decline it"). Plain text
+   above the title by default; on a wide screen, once the script has drawn the
+   label on the wire, the wire carries it and this stays for screen readers. */
+.dg-if {
+  display: block; margin-bottom: 4px; font-size: 12px; line-height: 1.3;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
+}
+@media (min-width: 901px) {
+  .dg-js .dg-if { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.dg-note {
+  display: flex; align-items: center; gap: 8px; margin: 22px 0 0;
+  font-size: 13px; line-height: 1.45; color: var(--fg-2); max-width: 62ch;
+}
+.dg-note .ico { width: 16px; height: 16px; flex: none; }
+/* The one disclosure after a diagram that holds the full wording it
+   replaced (DESIGN.md 4.2). The control is the site's own .disclose. */
+.dg-more { margin-top: 22px; }
+.dg-more > [id] { margin-top: 12px; }
+
+/* ---------------------------------------------------------- refusals */
+.dg-nopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; }
+.dg-nope { display: flex; align-items: flex-start; gap: 12px; padding: 16px; }
+.dg-strike { position: absolute; left: -1px; top: -1px; width: calc(100% + 2px); height: calc(100% + 2px); overflow: visible; }
+.dg-strike path { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
+
+/* --------------------------------------------------------------- narrow
+   One rail down the left and branches into the cards. The plate centre is
+   the rail, so the same anchors serve both layouts. */
+@media (max-width: 900px) {
+  .dg-stage > .dg-via:not(.is-drop) { display: none; }
+  .dg-step { width: 100%; }
+  .dg-group { display: flex; flex-direction: column; gap: 0; align-items: stretch; }
+  .dg-ends { margin: 22px 0 0 56px; gap: 14px; }
+  .dg-facts { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .dg-facts > div { display: block; margin-top: 10px; }
+  .dg-k { display: block; line-height: 16px; }
+  .dg-nopes { grid-template-columns: 1fr; }
+  /* The step a labelled wire lands on gets 22px more room above it, so the
+     label sits between the card above and that step with air on both sides. */
+  .dg-stage [data-via][data-route="drop"], .dg-stage [data-via][data-route-m="drop"] { margin-top: 22px; }
+}
+/* A label on a straight drop sits to the right of the wire, inside the
+   content column, never out across the page margin. */
+@media (min-width: 901px) {
+  .dg-stage > .dg-via.is-drop:not(.is-left) { transform: translate(14px, calc(-50% + var(--rise, 0px))); }
+}
+
+/* Under reduced motion the diagram is drawn once, finished, and there is
+   nothing to replay. */
+@media (prefers-reduced-motion: reduce) {
+  .dg-replay { display: none; }
+}
+
+/* Printing (and saving as PDF) shows the finished diagram even if the page
+   was printed mid-play. */
+@media print {
+  .dg-node, .dg-stage > .dg-via { transform: none !important; }
+  .dg-wire { stroke-dashoffset: 0 !important; }
+  .dg-head, .dg-head-glow { display: none; }
+  .dg-replay { display: none; }
+}
+
+/* ------------------------------------------------------- waiting to arrive
+   A node the play has not reached yet. Its surface is dimmed by --g (the
+   fill, the rim, the plate and the coins) and its words sit at --fg-3, the
+   quietest token that clears AA on every surface here (DESIGN.md 2.5). No
+   word is faded by opacity, so a reader who scrolls ahead of the play reads
+   all of it. On arrival the text brightens to its own colour and the
+   surface comes up over half a second. These rules come last so they win
+   over every colour above at equal specificity, and apply on screen only,
+   so a page printed mid-play prints finished. */
+@media screen {
+  .dg-node.is-wait.pane {
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--pane-fill-2) calc(var(--g, 1) * 100%), transparent),
+      color-mix(in srgb, var(--pane-fill) calc(var(--g, 1) * 100%), transparent));
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--pane-glow) calc(var(--g, 1) * 100%), transparent),
+      var(--pane-shadow),
+      0 0 0 calc(var(--flash, 0) * 5px) color-mix(in srgb, var(--fg) calc(var(--flash, 0) * 14%), transparent);
+  }
+  .dg-node.is-wait.pane::before,
+  .dg-node.is-wait .dg-plate,
+  .dg-node.is-wait .dg-coins { opacity: var(--g, 1); }
+  .dg-stage .dg-node.is-wait,
+  .dg-stage .dg-node.is-wait * { color: var(--fg-3); }
+  /* Only the arrival is eased: going to the waiting colour is instant, so
+     arming a diagram never fades its words down in front of the reader. */
+  .dg-js .dg-stage .dg-node:not(.is-wait),
+  .dg-js .dg-stage .dg-node:not(.is-wait) * { transition: color var(--dur-2) var(--ease-out-q); }
+  .dg-stage > .dg-via.is-wait {
+    color: var(--fg-3);
+    border-color: color-mix(in srgb, var(--line-2) calc(var(--g, 1) * 100%), transparent);
+  }
+}
