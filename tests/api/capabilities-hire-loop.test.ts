@@ -98,14 +98,16 @@ describe('SW1-04: GET /capabilities names every step of a hire after it opens', 
     expect(named.filter((route) => HIRE_LOOP_ROUTES.includes(route))).toEqual(HIRE_LOOP_ROUTES);
   });
 
-  it('the served job.withdraw reason matches the route: any hire but a proposed one whose deposit has settled', async () => {
+  it('the served job.withdraw reason is the whole sentence, and it names staged-decline for staged work', async () => {
     const res = await fetch(`${baseUrl}/capabilities`);
     const body = (await res.json()) as { capabilities: Array<{ id: string; reason: string }> };
-    // The route asks the settlement gate only for a proposed job
-    // (recordWithdrawn in src/domain/job.ts); tests/api/job-withdraw.test.ts
-    // withdraws a submitted and a stale job with a 200.
+    // The reason does not list every refusal. The transition table in
+    // src/domain/job.ts has no withdrawn edge from staged or redo_requested
+    // (the buyer's exit there is staged-decline), and the route also refuses a
+    // proposed hire whose deposit has settled. tests/api/job-withdraw.test.ts
+    // pins the 409 from staged and redo_requested and the 200 from submitted.
     expect(body.capabilities.find((c) => c.id === 'job.withdraw')?.reason).toBe(
-      'Only the buyer may withdraw, except from a proposed hire whose deposit has settled; the party comes from your session or signature, never the body.',
+      'Only the buyer may withdraw, if the hire allows it (staged work uses staged-decline); the party comes from your session or signature, never the body.',
     );
   });
 
