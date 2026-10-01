@@ -495,7 +495,14 @@ describe('the conduct record page, driven end to end against the real app', () =
     it('every anchor with an href resolves to a path this build mounts', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        const mounted = new Set(['/', '/browse', '/how', '/signin', '/verify']);
+        // NAV1: every page's signed-in row now carries the account menu's
+        // /dashboard and /settings links in its static markup (hidden while
+        // signed out). Both are mounted; asserted here rather than assumed.
+        const mounted = new Set(['/', '/browse', '/how', '/signin', '/verify', '/dashboard', '/settings']);
+        for (const path of ['/dashboard', '/settings']) {
+          const res = await fetch(`${baseUrl}${path}`, { headers: { Accept: 'text/html' } });
+          expect(res.status, `${path} is mounted`).toBe(200);
+        }
         const anchors = Array.from(page.document.querySelectorAll('a[href]'));
         expect(anchors.length).toBeGreaterThan(0);
         anchors.forEach((a) => {
