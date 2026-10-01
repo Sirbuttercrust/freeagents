@@ -28,19 +28,23 @@ directory every run:
 
 TWO THINGS MAKE THIS A GUARANTEE RATHER THAN A CONVENTION.
 
-  1. verify_coverage.py fails any gate whose SCREENS is a literal list of
-     names. Without it this module is a nicety that the next person in a
-     hurry routes around, which is precisely how round 4 happened.
+  1. A coverage check kept in the private operations repository fails any
+     gate whose SCREENS is a literal list of names. Without it this module
+     is a nicety that the next person in a hurry routes around, which is
+     precisely how round 4 happened. In this repository the only gate that
+     imports the module is verify_reduced_motion.py, which calls
+     every_screen().
   2. The general 320px sweep takes the COMPLEMENT of the specialised one
      (see general_screens below), so the default for a new screen is
      covered. A partition whose fallback is "measured" cannot open a hole;
      one whose fallback is "not measured" opens one silently on the day a
      file is added.
 
-A GATE THAT IS NARROW ON PURPOSE IS STILL DERIVED. verify_profile_header
-measures two screens and that is correct, because two screens have a profile
-header. What matters is that it measures the screens that HAVE one rather
-than the two that happened to have one the day it was written.
+A GATE THAT IS NARROW ON PURPOSE IS STILL DERIVED. The profile-header gate,
+kept in the private operations repository, measures two screens and that is
+correct, because two screens have a profile header. What matters is that it
+measures the screens that HAVE one rather than the two that happened to have
+one the day it was written.
 
 No browser and no server: these are source reads, so a gate computes its
 population before deciding whether to start Chrome.
