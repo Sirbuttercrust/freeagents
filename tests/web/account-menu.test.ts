@@ -14,7 +14,8 @@
 //       and every tint clears 3:1, computed from tokens.css
 //   (d) /accounts/me failing (503, network): neutral icon, working menu,
 //       and exactly one /accounts/me request per load
-//   (e) keyboard, click outside, choosing an item, closed after reload
+//   (e) keyboard, click outside, choosing an item, tabbing out, the
+//       session ending, closed after reload
 //   (f) Sign out from inside the menu ends the session
 //   (g) 320, 390 and 1280 on a touch profile: the two menus open in turn,
 //       never together, 44px controls, no sideways scroll
@@ -412,7 +413,7 @@ describe('(d) GET /accounts/me failing still gives a working menu with the neutr
   }, BROWSER_TIMEOUT_MS);
 });
 
-describe('(e) the account menu by keyboard and pointer: closed on load, Enter and Space open, arrows and Tab reach every item, Escape and a click outside close', () => {
+describe('(e) the account menu by keyboard and pointer: closed on load, Enter and Space open, arrows and Tab reach every item; Escape, a click outside, choosing an item, tabbing out and the session ending close it', () => {
   it('Enter opens, ArrowDown walks Dashboard, Settings, Sign out, Escape closes with focus back on the button; Space opens and Tab reaches every item', async () => {
     if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');
     const p = await openAs(gh, 1280);
@@ -464,6 +465,45 @@ describe('(e) the account menu by keyboard and pointer: closed on load, Enter an
       await p.b.goto(`${base}/browse`);
       const reloaded = (await p.b.evaluate<State>(STATE)).account;
       expect({ opened, outside, chosen, reloaded }).toEqual({ opened: true, outside: false, chosen: false, reloaded: false });
+    } finally {
+      await p.close();
+    }
+  }, BROWSER_TIMEOUT_MS);
+
+  it('Tab past Sign out moves focus out of the menu onto the page, and the menu closes behind it', async () => {
+    if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');
+    const p = await openAs(gh, 1280);
+    try {
+      await p.b.goto(`${base}/browse`);
+      await click(p.b, '#nav-account-btn');
+      await p.b.evaluate("document.getElementById('nav-signout').focus()");
+      const before = await p.b.evaluate<State>(STATE);
+      await press(p.b, 'Tab');
+      const after = await p.b.evaluate<{ open: boolean; inMenu: boolean; onPage: boolean }>(`({
+        open: document.getElementById('nav-account').open,
+        inMenu: document.getElementById('nav-account').contains(document.activeElement),
+        onPage: document.activeElement !== null && document.activeElement !== document.body
+      })`);
+      expect({ before: { open: before.account, focus: before.focus }, after })
+        .toEqual({ before: { open: true, focus: 'nav-signout' }, after: { open: false, inMenu: false, onPage: true } });
+    } finally {
+      await p.close();
+    }
+  }, BROWSER_TIMEOUT_MS);
+
+  it('when the session ends with the menu open, FANav.refresh() closes it, and signing back in shows it closed', async () => {
+    if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');
+    const p = await openAs(gh, 1280);
+    try {
+      await p.b.goto(`${base}/browse`);
+      await click(p.b, '#nav-account-btn');
+      const opened = (await p.b.evaluate<State>(STATE)).account;
+      const stored = await p.b.evaluate<string>("sessionStorage.getItem('fa_session')");
+      await p.b.evaluate("sessionStorage.removeItem('fa_session'); FANav.refresh()");
+      const ended = await p.b.evaluate<{ open: boolean; row: boolean }>("({ open: document.getElementById('nav-account').open, row: !document.getElementById('nav-signed-in').hidden })");
+      await p.b.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(stored)}); FANav.refresh()`);
+      const back = await p.b.evaluate<{ open: boolean; row: boolean }>("({ open: document.getElementById('nav-account').open, row: !document.getElementById('nav-signed-in').hidden })");
+      expect({ opened, ended, back }).toEqual({ opened: true, ended: { open: false, row: false }, back: { open: false, row: true } });
     } finally {
       await p.close();
     }

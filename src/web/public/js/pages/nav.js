@@ -316,6 +316,7 @@
      its <summary> open and close it with no script. This file adds what
      <details> does not do: Escape closes it and puts focus back on the
      summary; a click outside closes it; choosing an item closes it;
+     tabbing out of it closes it; render() closes it when the session ends;
      ArrowDown and ArrowUp move through Dashboard, Settings and Sign out
      (Tab reaches them too); and it never stands open beside the phone
      Menu, so opening either closes the other. The item for the page you
