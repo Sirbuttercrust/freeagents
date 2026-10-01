@@ -597,6 +597,26 @@ model AbtEthHalfPaidSettlement {
   @@unique([jobId, leg])
 }
 
+// The ABT price a checkout of the ABT-on-Ethereum rail quoted and showed.
+// One row per start, with no unique key on (jobId, leg): two checkouts of
+// the same leg (two tabs, a reload) each keep the price they showed, and
+// each is read back by its own id. This is a quoted price, not a payment
+// record: nothing here says a transfer happened.
+model AbtEthQuoteLock {
+  id            String    @id @default(cuid())
+  jobId         String
+  leg           String
+  amountUsd     String
+  usdPerToken   String
+  rateUpdatedAt DateTime?
+  amountToken   String
+  feeToken      String
+  lockedAt      DateTime
+  expiresAt     DateTime
+
+  @@index([jobId, leg])
+}
+
 // P5 (design record, 2026-09-01): the attestation the platform publishes
 // when a job reaches `staged`. Widened by P6's redo (design record, same
 // date): a job may accumulate MANY rows, one per stage/restage cycle,
