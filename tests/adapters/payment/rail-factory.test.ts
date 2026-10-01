@@ -2,7 +2,7 @@
 // scope item 5, "an unconfigured rail must produce an honest refusal on
 // the route and never a crash at startup").
 import { afterEach, describe, expect, it } from 'vitest';
-import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../../../src/adapters/payment/rail-factory.js';
+import { createAbtEthPaymentRailOrNull, createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../../../src/adapters/payment/rail-factory.js';
 
 const ABT_VARS = ['FREEAGENTS_ABT_CHAIN_HOST', 'FREEAGENTS_ABT_PLATFORM_SK', 'FREEAGENTS_ABT_TOKEN', 'FREEAGENTS_ABT_FEE_ADDRESS'];
 const USDC_VARS = ['FREEAGENTS_USDC_RPC_URL', 'FREEAGENTS_USDC_TOKEN_CONTRACT', 'FREEAGENTS_USDC_CHAIN_ID', 'FREEAGENTS_USDC_FEE_ADDRESS'];
@@ -44,5 +44,33 @@ describe('createUsdcPaymentRailOrNull: never throws when the rail is unconfigure
     original = withoutEnv(USDC_VARS);
     expect(() => createUsdcPaymentRailOrNull()).not.toThrow();
     expect(createUsdcPaymentRailOrNull()).toBeNull();
+  });
+});
+
+const ABT_ETH_VARS = [
+  'FREEAGENTS_ABT_ETH_RPC_URL',
+  'FREEAGENTS_ABT_ETH_TOKEN_CONTRACT',
+  'FREEAGENTS_ABT_ETH_CHAIN_ID',
+  'FREEAGENTS_ABT_ETH_FEE_ADDRESS',
+];
+
+describe('createAbtEthPaymentRailOrNull: never throws when the rail is unconfigured', () => {
+  let original: Record<string, string | undefined>;
+
+  afterEach(() => restoreEnv(original));
+
+  it('answers null, not a throw, when the ABT-on-Ethereum env vars are absent', () => {
+    original = withoutEnv(ABT_ETH_VARS);
+    expect(() => createAbtEthPaymentRailOrNull()).not.toThrow();
+    expect(createAbtEthPaymentRailOrNull()).toBeNull();
+  });
+
+  it('answers a rail on chain 1 once the four variables are set', () => {
+    original = withoutEnv(ABT_ETH_VARS);
+    process.env.FREEAGENTS_ABT_ETH_RPC_URL = 'https://rpc.example.test';
+    process.env.FREEAGENTS_ABT_ETH_TOKEN_CONTRACT = '0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986';
+    process.env.FREEAGENTS_ABT_ETH_CHAIN_ID = '1';
+    process.env.FREEAGENTS_ABT_ETH_FEE_ADDRESS = '0x2222222222222222222222222222222222222222';
+    expect(createAbtEthPaymentRailOrNull()?.rail).toBe('abt_eth');
   });
 });

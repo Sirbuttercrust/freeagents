@@ -115,6 +115,58 @@ describe('buildConfigReport: usdc rail', () => {
   });
 });
 
+describe('buildConfigReport: abt_eth rail', () => {
+  const ABT_ETH_ENV = {
+    FREEAGENTS_ABT_ETH_RPC_URL: 'https://ethereum-rpc.publicnode.com',
+    FREEAGENTS_ABT_ETH_TOKEN_CONTRACT: '0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986',
+    FREEAGENTS_ABT_ETH_CHAIN_ID: '1',
+    FREEAGENTS_ABT_ETH_FEE_ADDRESS: '0x2222222222222222222222222222222222222222',
+  };
+  const ALL_ABT_ETH_VARS = Object.keys(ABT_ETH_ENV);
+
+  function abtEthCapability(env: Record<string, string | undefined>) {
+    return buildConfigReport(env).capabilities.find((c) => c.capability === 'abtEthRail');
+  }
+
+  it('is configured only when all four abt_eth env vars are set', () => {
+    expect(abtEthCapability(ABT_ETH_ENV)).toEqual({ capability: 'abtEthRail', configured: true, missing: [] });
+  });
+
+  it('reports each of the four variables as missing when none is set', () => {
+    expect(abtEthCapability({})).toEqual({ capability: 'abtEthRail', configured: false, missing: ALL_ABT_ETH_VARS });
+  });
+
+  it.each(ALL_ABT_ETH_VARS)('names %s alone when it is the only one missing', (name) => {
+    expect(abtEthCapability({ ...ABT_ETH_ENV, [name]: undefined })).toEqual({
+      capability: 'abtEthRail',
+      configured: false,
+      missing: [name],
+    });
+  });
+
+  it('treats an empty-string abt_eth var as missing, not set', () => {
+    expect(abtEthCapability({ ...ABT_ETH_ENV, FREEAGENTS_ABT_ETH_RPC_URL: '' })?.missing).toEqual(['FREEAGENTS_ABT_ETH_RPC_URL']);
+  });
+
+  it('is not configured with a non-numeric chain id', () => {
+    expect(abtEthCapability({ ...ABT_ETH_ENV, FREEAGENTS_ABT_ETH_CHAIN_ID: 'mainnet' })?.missing).toEqual([
+      'FREEAGENTS_ABT_ETH_CHAIN_ID',
+    ]);
+  });
+
+  it('FREEAGENTS_ENABLED_RAILS=abt_eth with the four unset reports each of them', () => {
+    const report = buildConfigReport({ FREEAGENTS_ENABLED_RAILS: 'abt_eth' });
+    const enabledRails = report.capabilities.find((c) => c.capability === 'enabledRails');
+    expect(enabledRails).toEqual({ capability: 'enabledRails', configured: false, missing: ALL_ABT_ETH_VARS });
+  });
+
+  it('FREEAGENTS_ENABLED_RAILS=abt_eth is configured once the four are set', () => {
+    const report = buildConfigReport({ ...ABT_ETH_ENV, FREEAGENTS_ENABLED_RAILS: 'abt_eth' });
+    const enabledRails = report.capabilities.find((c) => c.capability === 'enabledRails');
+    expect(enabledRails).toEqual({ capability: 'enabledRails', configured: true, missing: [] });
+  });
+});
+
 describe('buildConfigReport: credentials, github sign-in, github api', () => {
   it('credentials is not configured without a platform seed (ephemeral dev key otherwise)', () => {
     const report = buildConfigReport({});

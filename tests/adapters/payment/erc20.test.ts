@@ -1,8 +1,9 @@
-// The token-agnostic ERC-20 mechanism the USDC rail calls: the hash
+// The token-agnostic ERC-20 mechanism the USDC rail and the ABT-on-Ethereum
+// rail both call: the hash
 // normaliser, the chain-id shape check, the per-leg binding (`legStatus`)
 // and the two-leg confirm that records and clears a half-paid leg. Every
 // check is pinned here once, against fakes, with the token contract and chain
-// id passed in, so a second rail that calls erc20.ts needs no copy of these
+// id passed in, so the second rail that calls erc20.ts needed no copy of these
 // pins. No test reaches a network.
 import { describe, expect, it } from 'vitest';
 import {
