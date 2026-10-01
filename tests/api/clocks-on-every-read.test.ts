@@ -23,6 +23,8 @@ import { createApp } from '../../src/api/app.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { CredentialsAdapter, DeemedCompletionCredential } from '../../src/adapters/credentials/types.js';
 import type { GithubAdapter, PullRequestRef } from '../../src/adapters/github/types.js';
+import { createIdentityAdapter } from '../../src/adapters/identity/identity.js';
+import type { DidDocument, IdentityAdapter } from '../../src/adapters/identity/types.js';
 import {
   MemoryAccountRepository,
   MemoryAgentRepository,
@@ -86,6 +88,13 @@ async function boot(issuer: { did: string; seed: Uint8Array } = { did: ISSUER_DI
         ? Promise.reject(new Error('connection refused by github'))
         : fixture.github.getPullRequest(ref),
   };
+  // The merge receipt names the agent's key, which the resolver answers
+  // for a signing agent.
+  const identity: IdentityAdapter = {
+    ...createIdentityAdapter(),
+    resolveDid: (did: string): Promise<DidDocument> =>
+      Promise.resolve({ id: did, controller: null, verificationMethod: [`${did}#key-1`], alsoKnownAs: null }),
+  };
   const credentialRepo = new MemoryCredentialRepository();
   const credentials: CredentialsAdapter = createCredentialsAdapter(issuer, credentialRepo);
   const agentRepo = new MemoryAgentRepository();
@@ -115,7 +124,7 @@ async function boot(issuer: { did: string; seed: Uint8Array } = { did: ISSUER_DI
   const server = createApp(
     accounts,
     agentRepo,
-    undefined,
+    identity,
     github,
     jobRepo,
     credentials,
@@ -304,7 +313,8 @@ function expectedThread(job: Job, seat: 'buyer' | 'agent', status: string, writa
     counterpartGithubLogin: seat === 'buyer' ? OWNER_LOGIN : BUYER_LOGIN,
     lastActivityAt: job.createdAt.toISOString(),
     lastMessage: null,
-    unreadCount: 0,
+    // The agent seat has never read the thread, so the brief counts as one.
+    unreadCount: seat === 'agent' ? 1 : 0,
   };
 }
 
@@ -364,7 +374,7 @@ describe('(b) the thread list runs the clocks on both seats', () => {
 
     expect(status).toBe(200);
     expect(threads).toEqual([expectedThread(job, 'agent', 'deemed_completed', false)]);
-    expect(unreadTotal).toBe(0);
+    expect(unreadTotal).toBe(1);
   });
 });
 
