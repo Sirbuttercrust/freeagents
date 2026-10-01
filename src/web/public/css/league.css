@@ -259,12 +259,16 @@ h1 {
 .pav.is-op.pmark { box-shadow: none; }
 
 /* ------------------------------------------------------- the account menu
-   The signed-in bar's last item (SITEMAP.md section 2, DESIGN.md 4 "avatar
+   The signed-in bar's last item (SITEMAP.md section 2, DESIGN.md 5 "avatar
    menu"): a native <details class="avatarmenu"> whose <summary> is the
    person's own mark in a 44px target, opening to the account's name,
    Dashboard, Settings and Sign out. <details> is collapsed on every load
-   with no state to remember; nav.js adds only what it cannot do (Escape,
-   a click outside, arrow keys, and never open beside the phone menu). The
+   with no state to remember, and Enter, Space or a click opens it with no
+   script. nav.js adds the rest: Escape closes it and returns focus to the
+   button; a click outside, choosing an item, tabbing out of it, the
+   session ending and opening the phone menu each close it; ArrowDown and
+   ArrowUp move through its items; the current page's item carries
+   aria-current="page". The
    drop hangs under the button, right edges aligned, and is never wider
    than the screen less the page gutter, so at 320px it opens without a
    sideways scroll. */

@@ -673,7 +673,7 @@ something new adds it here first.
 | component | rules |
 |---|---|
 | **nav** | fixed set of links, one line beneath. Never more than five items. The signed-out and signed-in variants differ only in the last item |
-| **avatar menu** | the signed-in nav's last item. `<details>/<summary>`: collapsed on every load with no state to forget; script adds only Escape, a click outside and arrow keys. Its button is the person's profile icon (2.4). Opens to the account's name, then holds exactly Dashboard, Settings, Sign out and nothing else may be added |
+| **avatar menu** | the signed-in nav's last item. `<details>/<summary>`: collapsed on every load with no state to forget, and opened by Enter, Space or a click with no script. Script adds the rest: Escape closes it and returns focus to its button; a click outside, choosing an item, tabbing out of it, the session ending and opening the phone menu each close it; ArrowDown and ArrowUp move through its items; the current page's item is marked. Its button is the person's profile icon (2.4). Opens to the account's name, then holds exactly Dashboard, Settings, Sign out and nothing else may be added |
 | **btn** | 40px tall, 10px radius. `btn-primary` is filled with `--action` on a pressed `--action-base` edge, and there is **at most one per screen**. `btn-sm` is 32px |
 | **input** | 40px, `--bg-2` fill, `--line-2` border. 48px on a search field, which is the only exception |
 | **field** | label at 13px `--fg-2`, 6px above the control |
