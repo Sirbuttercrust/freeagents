@@ -534,8 +534,8 @@ describe('7. the access list renders into the component its sheet styles', () =>
   // silent, which is what let this ship. Every id in src/domain/access.ts is
   // swept, so a capability added there fails here rather than on the page.
   //
-  // SW1-04: GET /capabilities now also names the 18 per-job hire steps, and
-  // the sign-in page leaves them out on purpose (the simplicity law: eighteen
+  // SW1-04: GET /capabilities now also names the 19 per-job hire steps, and
+  // the sign-in page leaves them out on purpose (the simplicity law: nineteen
   // rows of machine steps would make the page busy). So the page carries one
   // row per served capability whose path does not contain /jobs/:jobId, and
   // none of the per-job ids.
@@ -546,7 +546,7 @@ describe('7. the access list renders into the component its sheet styles', () =>
     expect(served.capabilities.length, 'GET /capabilities returned nothing to label').toBeGreaterThan(0);
     const perJob = served.capabilities.filter((cap) => cap.path.includes('/jobs/:jobId'));
     const shown = served.capabilities.filter((cap) => !cap.path.includes('/jobs/:jobId'));
-    expect(perJob.length, 'no per-job step served: the filter below would be untested').toBe(18);
+    expect(perJob.length, 'no per-job step served: the filter below would be untested').toBe(19);
     expect(shown.map((cap) => cap.id)).toContain('job.hire');
 
     const page = await renderSignin();

@@ -134,6 +134,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'POST', pattern: '/jobs/:jobId/stage', classification: 'upstream' },
   { method: 'GET', pattern: '/jobs/:jobId/attestation', classification: 'read' },
   { method: 'GET', pattern: '/jobs/:jobId/attestations', classification: 'read' },
+  { method: 'GET', pattern: '/jobs/:jobId/payments', classification: 'read' },
   // Not in the sweep's upstream list (no GitHub or chain call): plain writes.
   { method: 'POST', pattern: '/jobs/:jobId/staged-decline', classification: 'write' },
   { method: 'POST', pattern: '/jobs/:jobId/redo', classification: 'write' },

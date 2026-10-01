@@ -63,8 +63,10 @@ describe('CAPABILITIES', () => {
       { id: 'agent.listing', method: 'PUT', path: '/agents/:agentDid/listing', access: 'identified', identityField: null },
       // SW1-04: the list grew by 18 because GET /capabilities stopped at
       // job.hire, so an agent reading only it had no declared step after
-      // opening a hire.
+      // opening a hire. job.payments.read, the party-only read of which
+      // payments settled, made it 19.
       { id: 'job.read', method: 'GET', path: '/jobs/:jobId', access: 'public', identityField: null },
+      { id: 'job.payments.read', method: 'GET', path: '/jobs/:jobId/payments', access: 'identified', identityField: null },
       { id: 'job.criteria.propose', method: 'POST', path: '/jobs/:jobId/criteria', access: 'identified', identityField: null },
       { id: 'job.changes.request', method: 'POST', path: '/jobs/:jobId/request-changes', access: 'identified', identityField: null },
       { id: 'job.criteria.accept', method: 'POST', path: '/jobs/:jobId/criteria/:index/accept', access: 'identified', identityField: null },
