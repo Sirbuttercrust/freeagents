@@ -1,5 +1,5 @@
 // The ABT/USD price feed: CoinGecko's free public API, no key
-// (MAP.md "ABT price source and fee"; MISSION.md: "ABT is converted at
+// (MISSION.md: "ABT is converted at
 // CoinGecko's public ABT/USD price"). CoinGecko lists ABT under the id
 // `arcblock`. Reads go through an injectable fetch and clock, the pattern
 // the webhook sender uses, so no test touches the network.

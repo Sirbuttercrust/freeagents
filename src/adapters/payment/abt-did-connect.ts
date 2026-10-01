@@ -452,7 +452,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (job === null) {
         return { confirmed: false, error: 'job not found' };
       }
-      // B23 (bug ledger, C1 rehearsal s7, Proof round 1 D2): a session can
+      // B23: a session can
       // be minted while the job is eligible and completed later, after the
       // buyer has walked away or the job has otherwise moved past the leg
       // it was minted for -- the exact gap /start, the token-mint door and

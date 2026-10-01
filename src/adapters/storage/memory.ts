@@ -534,7 +534,7 @@ export class MemoryReviewRepository implements ReviewRepository {
   }
 }
 
-// D2 (task t_8a82c865): the durable half of the R-34 signing-key
+// The durable half of the R-34 signing-key
 // resolver's binding check, so a restart does not erase what this process
 // already independently verified. Overwrite-on-record, never merge, the
 // same stance did-abt-resolver.ts's in-memory KnownKeyStore already takes.

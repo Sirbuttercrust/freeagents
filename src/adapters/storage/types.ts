@@ -402,11 +402,11 @@ export interface ReviewRepository {
   listByAgentDid(agentDid: string): Promise<readonly Review[]>;
 }
 
-// R-3 + R-4 completion (D2, task t_8a82c865): the durable record of the
+// R-3 + R-4 completion: the durable record of the
 // most recent verification method this process has independently checked
 // for a DID, through the R-34 signing-key resolver's binding check (the
 // same check buildDidAbtLoader performs for a credential proof) AND a
-// genuinely verified request signature (D4/D5, task t_8a82c865: the write
+// genuinely verified request signature (the write
 // happens from http-signature.ts's verify(), only once the ed25519 bytes
 // have checked out, never merely on the binding check over public data).
 // A side record, not a field on Agent or Account -- the same separation

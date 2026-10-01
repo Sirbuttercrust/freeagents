@@ -49,8 +49,8 @@ function toRouteLeg(leg: CreateRequestInput['leg']): RouteLeg {
 // session-mint door (app.ts's requireBuyerToMintAbtSession) and the ABT
 // wallet-response callback (abt-did-connect.ts's onAuth) -- applies the
 // SAME eligibility rule, rather than each door growing its own copy that
-// can silently drift out of sync with the others (Proof round 1, D1 and
-// D2 on this card: the token-mint door and onAuth each had their own gate
+// can silently drift out of sync with the others (the token-mint door
+// and onAuth each had their own gate
 // missing entirely, because the check lived only in app.ts where those
 // two doors could not reach it). The deposit leg settles before confirm
 // (confirm's own gate reads it), so it is eligible only at 'proposed';
@@ -287,7 +287,7 @@ function privateReposAddress(jobId: string | null): string {
 // can follow before the deposit starts, or at confirm if access changed
 // after it.
 //
-// Proof r3: agentGithubLogin is null when the agent has no VERIFIED
+// agentGithubLogin is null when the agent has no VERIFIED
 // GitHub login yet (domain/agent.ts's verifiedGithubLogin -- an absent
 // login and an unverified one are both null here). Naming an unverified
 // login, or worse the agent's own DID as a fallback, asked the buyer to

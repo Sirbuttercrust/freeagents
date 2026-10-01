@@ -418,7 +418,7 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // edge (its own header comment), which this table therefore also has
     // to permit starting FROM redo_requested, not only from confirmed.
     // Refusing is refuseRedo's own edge, back to staged. closed_unpaid is
-    // lapseAtStaged's own edge (review round 1, D2): a redo the operator
+    // lapseAtStaged's own edge: a redo the operator
     // never answers is still an unpaid staged job on the clock, the same
     // clock and the same extended deadline that already protects an
     // unanswered staged job, so this table records the same fact staged's
@@ -804,7 +804,7 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // staged, for whatever the attestation card eventually shows against a
 // closed_unpaid job.
 //
-// P6 review round 1 (D2): redo_requested joins staged as a starting status
+// P6: redo_requested joins staged as a starting status
 // this clock covers, not only staged. Before this fix, the moment a buyer
 // requested a redo the job left `staged` and this clock returned it
 // unchanged forever after -- an operator who simply never answered the
@@ -822,7 +822,7 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // tests/architecture/no-custody.test.ts reason src/domain/payment.ts's
 // remainderUsd is not named balanceUsd: invariant 12 bans the substring
 // "balance" in any src file outside src/adapters/payment, and this file
-// is outside that directory). Review round 1 (D4, t_cb5d35cd) found the
+// is outside that directory). A review found that the
 // first cut checked only status and elapsed time, so a buyer who had
 // already paid could still have their job closed unpaid by an unrelated
 // read -- destroying delivered, paid-for work. Defaults to false (fail
@@ -838,7 +838,7 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // API layer's applyLiveLapses (the one caller with a live settlement
 // gate to ask) can derive which statuses need that live fact instead of
 // repeating a second literal that can fall out of sync with this
-// function's own starting statuses (P6 review round 2, D3, t_604e3f2a).
+// function's own starting statuses.
 export const LAPSE_AT_STAGED_STATUSES: ReadonlySet<JobStatus> = new Set(['staged', 'redo_requested']);
 
 export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): Job {
@@ -919,7 +919,7 @@ export function mergedInsideWindow(job: Job, mergedAt: Date): boolean {
 // deemCompleted needs no live fact, but its caller has one to ask first
 // (whether GitHub saw a merge inside the window); see its header comment.
 //
-// Call site (P4, review round 1 fix, t_cb5d35cd -- D1/D2/D3): this domain
+// Call site (P4): this domain
 // function has exactly one caller, src/api/app.ts's applyLiveLapses,
 // which is itself called from two places -- GET /jobs/:jobId, and
 // loadForExchange, the one load EVERY mutation and exchange route in
@@ -1144,7 +1144,7 @@ export interface PriceProposal {
 // (design review, 2026-08-29: "editing one line resets only that line"). A new
 // entry is matched against the CURRENT criteria by exact trimmed text: an
 // unchanged line keeps whatever acceptedByBuyer/acceptedByAgent it already
-// carried, because nothing about it changed - and (FIX-B45, bugs.md B45) it
+// carried, because nothing about it changed - and (FIX-B45) it
 // keeps whoever the stored line already named as proposedBy too, since an
 // unchanged line was not authored again just because someone else's request
 // happened to carry it forward. A line whose text differs from every current
@@ -1330,7 +1330,7 @@ export function acceptPrice(job: Job, party: Party): Job {
     : { ...job, priceAcceptedByAgent: true };
 }
 
-// P1, scope item 5: the optional agent floor (MAP.md). A proposal below it
+// P1, scope item 5: the optional agent floor. A proposal below it
 // is refused at propose time, naming the floor. Total in the sense that
 // invokes need not catch anything unexpected: a null floor never throws (no
 // floor set), and a price at or above the floor never throws. Compares as

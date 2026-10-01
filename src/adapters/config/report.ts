@@ -12,7 +12,7 @@
 // would mean catching an exception as normal control flow to build a report,
 // which is worse.
 //
-// Review round 1, D1+D2: this report DOES share the shape-validity
+// This report DOES share the shape-validity
 // predicates each rail's own reader enforces (isValidPlatformSeedHex,
 // isValidAbtPlatformSk, isValidUsdcChainId), imported from the same modules
 // the rails live in. "Configured" must mean the same thing here as it does
@@ -91,8 +91,8 @@ const ABT_RAIL_VARS = [
 
 // Only FREEAGENTS_ABT_PLATFORM_SK has a shape narrower than "non-empty
 // string" (createAbtPaymentRail constructs a wallet from it via
-// @ocap/wallet's fromSecretKey, which throws on a malformed key; review
-// round 1, D1's sibling case on the abt rail). The other three are
+// @ocap/wallet's fromSecretKey, which throws on a malformed key).
+// The other three are
 // opaque strings (a host, a token contract, a fee address) this report has
 // no independent way to validate beyond "did the operator set something".
 const ABT_RAIL_VALIDATORS = { FREEAGENTS_ABT_PLATFORM_SK: isValidAbtPlatformSk };
@@ -105,8 +105,7 @@ const USDC_RAIL_VARS = [
 ] as const;
 
 // Only FREEAGENTS_USDC_CHAIN_ID has a shape narrower than "non-empty
-// string" (readUsdcEnvConfig throws PaymentConfigError on a non-integer;
-// review round 1, D2).
+// string" (readUsdcEnvConfig throws PaymentConfigError on a non-integer).
 const USDC_RAIL_VALIDATORS = { FREEAGENTS_USDC_CHAIN_ID: isValidUsdcChainId };
 
 const ABT_ETH_RAIL_VARS = [
@@ -133,7 +132,7 @@ const RAIL_DEFINITIONS: Readonly<
   abt_eth: { vars: ABT_ETH_RAIL_VARS, validators: ABT_ETH_RAIL_VALIDATORS },
 };
 
-// D3 (review round 1): FREEAGENTS_ENABLED_RAILS was declared in
+// FREEAGENTS_ENABLED_RAILS was declared in
 // blocklet.yml and .env.example but nothing read it, so its own manifest
 // description promised an effect the code never implemented
 // (inert-declared-control). This report is the chosen fix: naming a rail
@@ -162,7 +161,7 @@ function enabledRailsReport(env: Record<string, string | undefined>): Capability
 // means the seed is set to a value that will actually verify past a
 // restart, not merely that construction will not throw (it never throws).
 // isValidPlatformSeedHex is the same 64-hex-character check
-// platformIssuerFromEnv itself applies (review round 1, D1).
+// platformIssuerFromEnv itself applies.
 const CREDENTIALS_VARS = ['FREEAGENTS_PLATFORM_SEED'] as const;
 const CREDENTIALS_VALIDATORS = { FREEAGENTS_PLATFORM_SEED: isValidPlatformSeedHex };
 

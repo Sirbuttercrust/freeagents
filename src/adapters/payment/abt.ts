@@ -18,7 +18,7 @@
 // (invariant 12; pinned by tests/adapters/payment/abt-never-input-owner.test.ts).
 //
 // Rate source: CoinGecko's free public ABT/USD price, read by
-// abt-usd-rate.ts (MAP.md "ABT price source and fee"). That feed is the
+// abt-usd-rate.ts. That feed is the
 // production default. A caller may inject another source; it answers
 // either a bare dollars-per-ABT string (no feed time) or a RateReading
 // that also carries the feed's own update time. A source that answers
@@ -238,7 +238,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
     },
 
     async createRequest(input: CreateRequestInput): Promise<AbtPaymentRequest> {
-      // D1 (review, round 1): fromTokenToUnit accepts a decimal STRING
+      // fromTokenToUnit accepts a decimal STRING
       // directly and does exact big-number math internally (@ocap/util's
       // BN, not a JS float); routing the amount through Number() first
       // undid that exactness; a float add for the requirement total could
@@ -290,7 +290,7 @@ export function createAbtPaymentRail(options: CreateAbtPaymentRailOptions = {}):
       const signed = { ...decoded, signature: fromHexSignature(signatureHex) };
       const signedBytes = cborEncodeTx(signed as never);
       const result = await chainClient.sendTx({ tx: toBase64(signedBytes), commit: true });
-      // S2 review round 2, D1: the expected operator address is the one
+      // The expected operator address is the one
       // the PLATFORM named when it built this payment request
       // (input.operatorAddress, carried from the route's own
       // extraParams/CreateRequestInput -- see abt-did-connect.ts), never

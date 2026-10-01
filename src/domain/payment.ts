@@ -102,7 +102,7 @@ export function calculateFee(amountUsd: string, ratePercent: number): string {
 // Converts a dollar amount to a token amount at an injected rate (dollars
 // per token). No floats: the dollar amount is parsed to hundredths-BigInt
 // (money is never priced finer than a cent) and the rate is parsed to
-// RATE_PRECISION decimal places (D2, review round 1: a rate parsed to
+// RATE_PRECISION decimal places (a rate parsed to
 // hundredths like the dollar amount silently rounds a sub-cent ABT rate,
 // e.g. $0.0345/ABT, down to $0.03, overcharging the buyer 15 percent). The
 // division itself is done as a decimal string via repeated long division,
