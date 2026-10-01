@@ -79,7 +79,7 @@ environments:
     secure: false
     default: ''
   - name: FREEAGENTS_ENABLED_RAILS
-    description: Comma-separated declaration of which payment rails this deployment intends to run, chosen from abt and usdc, for example abt alone for an ABT-only soft launch. This does not restrict which rail the platform will accept a payment on; only a rail's own four variables decide that. Setting this only changes what the startup configuration report checks, naming a rail listed here that is not itself fully configured, or a name that is not abt or usdc, as a misconfiguration. Unset or empty means the report checks nothing extra, which is the existing behaviour.
+    description: Comma-separated declaration of which payment rails this deployment intends to run, chosen from abt, usdc and abt_eth, for example abt alone for an ABT-only soft launch. This does not restrict which rail the platform will accept a payment on; only a rail's own four variables decide that. Setting this only changes what the startup configuration report checks, naming a rail listed here that is not itself fully configured, or a name that is not abt, usdc or abt_eth, as a misconfiguration. Unset or empty means the report checks nothing extra, which is the existing behaviour.
     required: false
     secure: false
     default: ''
@@ -120,6 +120,26 @@ environments:
     default: ''
   - name: FREEAGENTS_USDC_FEE_ADDRESS
     description: The platform's own address on the chain named by FREEAGENTS_USDC_CHAIN_ID, named as the fee transfer's recipient. Required for the USDC rail to take a payment. The platform never signs on the buyer's behalf; this is only ever a transfer destination (invariant 12). Unset means the rail fails closed rather than building a transfer with no fee destination.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_ABT_ETH_RPC_URL
+    description: An Ethereum mainnet JSON-RPC endpoint the ABT-on-Ethereum rail reads decimals and transaction receipts from. https://ethereum-rpc.publicnode.com is a free public example that needs no key, and a deployment may point this at any Ethereum mainnet node. Required for the ABT-on-Ethereum rail to take a payment. Unset means the rail fails closed with a typed PaymentConfigError rather than constructing a provider against nothing.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_ABT_ETH_TOKEN_CONTRACT
+    description: The ABT token contract address on Ethereum mainnet that the ABT-on-Ethereum payment rail denominates payments in (0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986). Required for the ABT-on-Ethereum rail to take a payment. Decimals are read from this contract at call time, never assumed. Unset means the rail fails closed rather than building a transfer against an empty token address.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_ABT_ETH_CHAIN_ID
+    description: The chain id the wallet must sign each ABT transfer against, 1 for Ethereum mainnet. Required for the ABT-on-Ethereum rail to take a payment. Unset means the rail fails closed rather than building a request with no chain to target.
+    required: false
+    secure: false
+    default: ''
+  - name: FREEAGENTS_ABT_ETH_FEE_ADDRESS
+    description: The platform's own address on the chain named by FREEAGENTS_ABT_ETH_CHAIN_ID, named as the fee transfer's recipient. Required for the ABT-on-Ethereum rail to take a payment. The platform never signs on the buyer's behalf; this is only ever a transfer destination. Unset means the rail fails closed rather than building a transfer with no fee destination.
     required: false
     secure: false
     default: ''

@@ -51,7 +51,9 @@ type UsdcPaymentRef = Extract<PaymentRef, { rail: 'usdc' }>;
 // The observed Transfer event, the chain client and the hash and chain-id
 // helpers live in erc20.ts, which takes the token contract and chain id as
 // arguments. They stay importable from this module under their USDC names,
-// so src/api/app.ts and src/adapters/config/report.ts import them from here.
+// so src/api/app.ts and the USDC chain-id check in
+// src/adapters/config/report.ts import them from here; the ABT-on-Ethereum
+// rail (abt-eth.ts) imports from erc20.ts directly.
 export type UsdcObservedTransfer = Erc20ObservedTransfer;
 export type UsdcChainClient = Erc20ChainClient;
 export const normalizeUsdcTxHash = normalizeTxHash;

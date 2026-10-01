@@ -1,6 +1,7 @@
 // The ERC-20 settlement mechanism for a rail that pays in an ERC-20 token
-// from a browser wallet. One rail calls it today, the USDC rail (usdc.ts,
-// Arbitrum). Everything here is parameterised by the token contract and
+// from a browser wallet. Two rails call it: the USDC rail (usdc.ts,
+// Arbitrum) and the ABT-on-Ethereum rail (abt-eth.ts, Ethereum mainnet).
+// Everything here is parameterised by the token contract and
 // chain id the caller passes in; nothing here knows which token or which
 // chain it is serving, so another ERC-20 rail can call it unchanged, and a
 // comment below that says "the rail" means whichever rail called it.
@@ -94,8 +95,9 @@ export function createErc20ChainClient(rpcUrl: string, tokenContract: string): E
 }
 
 // Shape check for a rail's configured chain id. The startup configuration
-// report (report.ts) reaches it through usdc.ts, which re-exports it as
-// isValidUsdcChainId: "configured" must mean the same thing in the rail and
+// report (report.ts) reaches it for the USDC rail through usdc.ts, which
+// re-exports it as isValidUsdcChainId, and for the ABT-on-Ethereum rail
+// directly: "configured" must mean the same thing in the rail and
 // in the report, so the report never claims a chain id is set when it is a
 // value the rail would reject. The string round-trip catches leading zeros,
 // whitespace and scientific notation that Number.parseInt alone would
@@ -165,8 +167,9 @@ export async function legStatus(
   return { status: 'confirmed', hash: normalizedHash };
 }
 
-// What a rail's confirm() needs from its ref. The USDC rail's ref carries
-// these fields under these names, and another ERC-20 rail's ref must too.
+// What a rail's confirm() needs from its ref. The USDC rail's ref and the
+// ABT-on-Ethereum rail's ref both carry these fields under these names, and
+// any other ERC-20 rail's ref must too.
 export interface Erc20LegRef {
   readonly jobId: string;
   readonly leg: 'deposit' | 'balance';
