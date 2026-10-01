@@ -401,7 +401,7 @@ describe('POST /auth/passkey/register', () => {
     }
   });
 
-  // qa (review round 1, D2, guard-without-a-test): registerPasskey throws
+  // registerPasskey throws
   // when options.passkey is undefined (FREEAGENTS_PASSKEY_RP_ID unset), and
   // that throw maps to 503, not a 200 with an empty options object. Mutation
   // proof (run by hand and reverted): swapping the 503 branch for

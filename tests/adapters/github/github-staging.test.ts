@@ -1,5 +1,5 @@
-// B14a, STG2: the staging repository half of the hire loop (bugs.md
-// B14/B14a) plus the fork-delivery facts getPullRequest now projects.
+// B14a, STG2: the staging repository half of the hire loop (B14/B14a) plus
+// the fork-delivery facts getPullRequest now projects.
 // createStagingRepository, grantPush and getCommit driven against a fake
 // fetch exactly like tests/adapters/github/github.test.ts drives the
 // rest of this adapter. No call in this file ever reaches the real
@@ -55,7 +55,7 @@ function scriptedFetch(responses: readonly Response[]): { fetchImpl: typeof fetc
   return { fetchImpl, calls };
 }
 
-// ORG1 r2 fix, defect 1: confirm's readRepository and the pull-request
+// ORG1: confirm's readRepository and the pull-request
 // route's getPullRequest both run on the PLATFORM's token, never the
 // agent's. A message or field that names only the agent's account sends
 // the buyer to grant read to the wrong login whenever the platform account
@@ -65,7 +65,7 @@ function scriptedFetch(responses: readonly Response[]): { fetchImpl: typeof fetc
 // knows the platform's configured login (requirePlatformOwner reads it);
 // this exposes it read-only so app.ts can name it without re-deriving it
 // from the environment a second time.
-describe('createGithubAdapter: exposes its own configured platform login (ORG1 r2)', () => {
+describe('createGithubAdapter: exposes its own configured platform login (ORG1)', () => {
   it('platformLogin reflects the value passed in, unrelated to the token', () => {
     const { fetchImpl } = scriptedFetch([]);
     const adapter = createGithubAdapter({ token: TOKEN, fetchImpl, platformLogin: PLATFORM_LOGIN });
@@ -387,7 +387,7 @@ describe('createGithubAdapter, readRepository (B14a, FIX-B36)', () => {
     });
   });
 
-  // Proof r2, gap 1: every scripted response in this file that sends
+  // Every scripted response in this file that sends
   // `private: true` asserted something else (fullName, ownerIsOrganization,
   // allowForking) and never asserted `facts.private` itself. Hardcoding
   // `private: false` in the adapter (turning off both the personal-account
@@ -480,7 +480,7 @@ describe('createGithubAdapter, readRepository (B14a, FIX-B36)', () => {
   // Make item 2's forking-off case: the pull-only reader sees
   // allow_forking follow the organization's own setting (measured
   // 2026-09-26: false a few seconds after the owner turned forking off).
-  // Proof r1: every scripted response in this file sent allow_forking
+  // Every scripted response in this file sent allow_forking
   // true, so hardcoding allowForking to true left the whole file green.
   it('projects allowForking false when the response body sends allow_forking false', async () => {
     const { fetchImpl } = scriptedFetch([

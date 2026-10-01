@@ -1,4 +1,4 @@
-// FIX-B62a (bugs.md B62, part A): POST /accounts never stores a GitHub login
+// FIX-B62a (B62, part A): POST /accounts never stores a GitHub login
 // nobody proved. A login rides the body only with a public gist, authored by
 // that GitHub account, whose statement the DID's own key signed (the same
 // proof POST /agents/:agentDid/account-proof takes for agents). Without a

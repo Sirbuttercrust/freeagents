@@ -1,6 +1,6 @@
 // FIX-B47b2, Make 2: GET /auth/github/callback's proof branch. The
 // callback the operator's browser returns to after github-proof/start,
-// completing the one-click GitHub proof (MAP.md 2026-08-17, MISSION.md
+// completing the one-click GitHub proof (MISSION.md
 // invariant 8, FIX-B47b decisions 1, 3, 5 and 6). Every case here is red
 // against 153af84 (part one merged: peekOAuthStatePurpose,
 // completeGitHubProofOAuth exist on the session adapter, but no route
@@ -47,7 +47,7 @@ interface FakeProofGithubCalls {
   readonly createGist: CreateGistInput[];
   readonly deleteGist: DeleteGistInput[];
   readonly deleteGrant: DeleteGrantInput[];
-  readonly order: string[]; // which call landed and in what order (QA r1, D2)
+  readonly order: string[]; // which call landed and in what order
 }
 
 // A GithubAdapter stand-in that records every call the proof callback can
@@ -442,7 +442,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     return { agentDid, firstLogin, baseUrl, server, outcome, calls: githubFakeSecond.calls };
   }
 
-  // QA proof r1, D1/D2: R-5 separation, both outcomes, and cleanup order.
+  // R-5 separation, both outcomes, and cleanup order.
   it.each([
     ['author mismatch', async (ref: { readonly id: string }) => ({ id: ref.id, owner: 'someone-else-entirely', files: { 'proof.txt': 'garbage' } })],
     ['not-found', async (ref: { readonly id: string }) => { throw new GistNotFoundError(ref.id); }],
@@ -487,7 +487,7 @@ describe('GET /auth/github/callback, the one-click proof branch: refusals and cl
     }
   });
 
-  // QA proof r1, D3: a failed exchange and a failed gist write (test (f)).
+  // A failed exchange and a failed gist write (test (f)).
   it.each([
     ['a failed token exchange', { fetchImpl: failingGitHubFetch() }, 0, 0],
     ['a failed gist publish', { createGistShouldFail: true }, 1, 1],
@@ -571,7 +571,7 @@ describe('GET /auth/github/callback, the one-click proof branch: HTML landing (d
   });
 });
 
-// QA proof r1, D4/(d): route-level cross-over. Asserts zero gist writes
+// Route-level cross-over. Asserts zero gist writes
 // on the proof side.
 describe('GET /auth/github/callback, the one-click proof branch: route-level cross-over (decision 1)', () => {
   it('a sign-in state presented at the callback never completes a proof and mints no session-shaped body for a proof caller: falls through to the ordinary sign-in success shape', async () => {

@@ -16,7 +16,7 @@
 // other capability here already refuses to: caught and logged as its own
 // line, not thrown.
 //
-// ISS1 (bugs.md B30, review round 1): the configuration report now
+// ISS1 (B30): the configuration report now
 // carries the derived issuer DID on its credentials line, read from
 // ONE credentials adapter this file builds itself and hands into
 // createApp -- never a second, independent call to platformIssuerFromEnv.

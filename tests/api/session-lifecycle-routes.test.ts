@@ -633,7 +633,7 @@ describe('P8a: a signature and a session naming different DIDs resolves to the s
   });
 });
 
-// D1 (review round 1, qa): the session path resolves an acting party through
+// D1: the session path resolves an acting party through
 // Account.did, but POST /accounts is unauthenticated and, before this fix,
 // never checked whether the did being registered already belongs to a
 // delegated Agent. Agent DIDs are public (GET /agents lists them), so
@@ -724,7 +724,7 @@ describe('P8a (D1): an agent DID already claimed by a delegation cannot be regis
   });
 });
 
-// D2 (review round 2, qa): D1's guard only sees Agents that already exist,
+// D2: D1's guard only sees Agents that already exist,
 // so it closes the Account-second ordering (claim the agent's did, THEN try
 // to register it) but leaves the Account-first ordering wide open: register
 // the did as an Account BEFORE it is ever delegated, and POST /agents (which
@@ -916,7 +916,7 @@ describe('P8a: the payment start routes accept a session for the buyer, still re
         });
         expect(proposed.status).toBe(200);
 
-        // FIX-B37 (bugs.md B37): the deposit door now checks the same
+        // FIX-B37 (B37): the deposit door now checks the same
         // agreement rule confirm has always enforced (agreementGap),
         // before a session ever reaches the rail. This test is about
         // session authentication for the BUYER side of the payment

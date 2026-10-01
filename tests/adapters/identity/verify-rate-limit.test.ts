@@ -131,7 +131,7 @@ describe('createRateLimiter (anonymous verify routes, #30)', () => {
     expect(headers['Retry-After']).toBe('6');
   });
 
-  // FIX-S7 round 2 (qa proof r1, defect 5b): the boundary case above
+  // FIX-S7: the boundary case above
   // (elapsed exactly 4000ms of a 10000ms window) lands on a whole-second
   // remainder (6000ms / 1000 = 6 exactly), so Math.ceil and Math.floor
   // agree and a mutant that swaps one for the other survives. This case

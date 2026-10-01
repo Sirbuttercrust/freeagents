@@ -1,4 +1,4 @@
-// FIX-SW4a (bugs.md SW4-01, SW4-08): neither PUT /agents/:agentDid/webhook
+// FIX-SW4a (SW4-01, SW4-08): neither PUT /agents/:agentDid/webhook
 // nor POST /accounts/:did/push-subscriptions stores an address the outbound
 // rule refuses. Real createApp with signed parties; the repository is read
 // back after every refusal so "refused" cannot mean "refused but stored".

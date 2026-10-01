@@ -304,8 +304,7 @@ describe('GET /agents/:agentDid/hires (R-33)', () => {
 // comparison on verified GitHub logins. This only raises the attacker's
 // cost if the HTTP surface actually resolves and threads real logins
 // through to isSelfHire -- a domain unit test injecting logins no route
-// ever produces would leave the comparison unreachable in production
-// (review round 1, D1).
+// ever produces would leave the comparison unreachable in production.
 //
 // Design note, pinned rather than guessed at: Account.githubLogin is
 // @unique and a DID is an Account's own primary key with no rotation or

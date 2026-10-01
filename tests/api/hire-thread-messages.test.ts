@@ -189,7 +189,7 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(res.status).toBe(400);
   });
 
-  // Review r2, not-blocking note: PATCH (edit) is unchanged by MSG1a --
+  // PATCH (edit) is unchanged by MSG1a --
   // an edit still needs words, even though a new POST may now be
   // attachment-only. The route's body check and editMessage each refuse
   // an empty body, so this test turns red only when BOTH are loosened;
@@ -249,7 +249,7 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(typeof body1.lastReadAt).toBe('string');
   });
 
-  it('read receipts: GET read-state shows the OTHER party its lastReadAt (Proof r1, defect 3)', async () => {
+  it('read receipts: GET read-state shows the OTHER party its lastReadAt', async () => {
     const jobId = await openDraft();
     // Nobody has read yet: both sides answer null.
     const before = await req('GET', `/jobs/${jobId}/messages/read-state`, undefined, buyer);
@@ -300,7 +300,7 @@ describe('HT1 Part B: hire thread messages', () => {
     expect((quoteRow?.systemEvent as Record<string, unknown>).criteriaCount).toBe(1);
   });
 
-  // Proof r1, defect 4: the SSE stream used to broadcast a system row as
+  // The SSE stream used to broadcast a system row as
   // `data: {}`, forcing a live client to make a second call to render
   // the quote card. This connects a real SSE reader before the quote is
   // sent and asserts the pushed event itself carries priceUsd and
@@ -353,7 +353,7 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(systemEvent.criteriaCount).toBe(1);
   });
 
-  // Proof r1, defect 5: a terminal thread refused a new MESSAGE (409) but
+  // A terminal thread refused a new MESSAGE (409) but
   // still accepted reactions and typing, contradicting "becomes read-only
   // once the job reaches a terminal status."
   it('a terminal thread refuses reactions (POST and DELETE) and the typing signal, once withdrawn', async () => {
@@ -372,7 +372,7 @@ describe('HT1 Part B: hire thread messages', () => {
     expect(typing.status).toBe(409);
   });
 
-  // Proof r1, defect 2: an uploaded attachment must actually reach a
+  // An uploaded attachment must actually reach a
   // message, not just exist in isolation. Uploads through the real
   // attachments route, then posts a message naming it, and reads it back
   // as the OTHER party.

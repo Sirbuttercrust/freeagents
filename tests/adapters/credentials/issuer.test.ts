@@ -1,4 +1,4 @@
-// platformIssuerFromEnv (ISS1, bugs.md B30): the issuer DID is now ALWAYS
+// platformIssuerFromEnv (ISS1, B30): the issuer DID is now ALWAYS
 // derived from the signing key (FREEAGENTS_PLATFORM_SEED), through the
 // exact same derivation createOperatorDid uses (did-from-seed.ts's
 // deriveDidFromSeed) so an issuer DID and an operator DID can never encode

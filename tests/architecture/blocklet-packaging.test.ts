@@ -161,7 +161,7 @@ describe('blocklet packaging', () => {
   });
 
   it('runs the same migration hook on `npm start`, not only on the Blocklet Server preStart hook (B1)', () => {
-    // Review round 1 found the actual gap: blocklet.yml's preStart hook only
+    // The actual gap: blocklet.yml's preStart hook only
     // fires under Blocklet Server's own lifecycle. `npm start` (and the
     // README's documented deploy path) called `node dist/src/api/server.js`
     // directly and never ran a migration, reproducing B1 for anyone who
@@ -188,7 +188,7 @@ describe('blocklet packaging', () => {
     // deployed blocklet silently ran on the ephemeral dev key. Scan src for
     // reads; each one must appear in the manifest.
     //
-    // ISS1 (bugs.md B30): FREEAGENTS_PLATFORM_DID is the one deliberate
+    // ISS1 (B30): FREEAGENTS_PLATFORM_DID is the one deliberate
     // exception. The issuer DID is now always derived from the signing key,
     // never configured, so the variable is gone from the manifest and
     // .env.example on purpose. platformIssuerFromEnv still reads it, but

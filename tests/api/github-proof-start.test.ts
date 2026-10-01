@@ -1,6 +1,6 @@
 // FIX-B47b2, Make 1: POST /agents/:agentDid/github-proof/start. The
-// operator's one click that begins the one-click GitHub proof (MAP.md
-// 2026-08-17, MISSION.md invariant 8). Every case here is red against
+// operator's one click that begins the one-click GitHub proof (MISSION.md
+// invariant 8). Every case here is red against
 // 153af84 (part one merged, no route calls beginGitHubProofOAuth yet).
 import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -214,7 +214,7 @@ describe('POST /agents/:agentDid/github-proof/start, decision 2 (the platform mu
     }
   });
 
-  // QA proof r1, D4/(a): the site-brought-own-DID shape (FIX-B41a item 5).
+  // The site-brought-own-DID shape (FIX-B41a item 5).
   it('409: a site agent that brought its own agent DID (the agentProof branch) is refused, naming path two', async () => {
     process.env.FREEAGENTS_PLATFORM_SEED = freshSeed();
     const identity = createIdentityAdapter(createKnownKeyStore());

@@ -61,7 +61,7 @@ describe('agentMayNegotiate (HT1, owner-first negotiation)', () => {
 });
 
 // FIX-B41a item 7 (ENT-2): "trimmed, 1 to 160 characters, no line break."
-// qa review round 2: descriptionWellFormed had no test at all, so five
+// descriptionWellFormed had no test at all, so five
 // mutants (dropping the trim check, the line-break check, the min-length
 // check, the max-length check, and the non-string guard) all stayed
 // green. One assertion per rule branch, each targeted so removing that
