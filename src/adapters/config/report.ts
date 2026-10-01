@@ -27,6 +27,8 @@
 // have been printed.
 import { isValidPlatformSeedHex } from '../credentials/credentials.js';
 import { isValidAbtPlatformSk } from '../payment/abt.js';
+import type { Rail } from '../../domain/job.js';
+import { isValidChainId } from '../payment/erc20.js';
 import { isValidUsdcChainId } from '../payment/usdc.js';
 
 export type Capability =
@@ -36,6 +38,7 @@ export type Capability =
   | 'githubApi'
   | 'abtRail'
   | 'usdcRail'
+  | 'abtEthRail'
   | 'enabledRails';
 
 export interface CapabilityReport {
@@ -106,15 +109,28 @@ const USDC_RAIL_VARS = [
 // review round 1, D2).
 const USDC_RAIL_VALIDATORS = { FREEAGENTS_USDC_CHAIN_ID: isValidUsdcChainId };
 
+const ABT_ETH_RAIL_VARS = [
+  'FREEAGENTS_ABT_ETH_RPC_URL',
+  'FREEAGENTS_ABT_ETH_TOKEN_CONTRACT',
+  'FREEAGENTS_ABT_ETH_CHAIN_ID',
+  'FREEAGENTS_ABT_ETH_FEE_ADDRESS',
+] as const;
+
+// Only the chain id has a shape narrower than "non-empty string"
+// (readAbtEthEnvConfig throws PaymentConfigError on a non-integer), checked
+// by the same function that reader uses.
+const ABT_ETH_RAIL_VALIDATORS = { FREEAGENTS_ABT_ETH_CHAIN_ID: isValidChainId };
+
 // The rail names FREEAGENTS_ENABLED_RAILS may list, each mapped to the same
 // vars/validators its own capability report already checks. Single source
 // of truth: enabledRails below re-derives from this map rather than
-// duplicating either rail's variable list a third time.
+// duplicating any rail's variable list a third time.
 const RAIL_DEFINITIONS: Readonly<
-  Record<'abt' | 'usdc', { readonly vars: readonly string[]; readonly validators: Record<string, (v: string) => boolean> }>
+  Record<Rail, { readonly vars: readonly string[]; readonly validators: Record<string, (v: string) => boolean> }>
 > = {
   abt: { vars: ABT_RAIL_VARS, validators: ABT_RAIL_VALIDATORS },
   usdc: { vars: USDC_RAIL_VARS, validators: USDC_RAIL_VALIDATORS },
+  abt_eth: { vars: ABT_ETH_RAIL_VARS, validators: ABT_ETH_RAIL_VALIDATORS },
 };
 
 // D3 (review round 1): FREEAGENTS_ENABLED_RAILS was declared in
@@ -132,7 +148,7 @@ function enabledRailsReport(env: Record<string, string | undefined>): Capability
 
   const named = raw.split(',').map((entry) => entry.trim());
   const missing = named.flatMap((rail) => {
-    const definition = RAIL_DEFINITIONS[rail as 'abt' | 'usdc'];
+    const definition = RAIL_DEFINITIONS[rail as Rail];
     if (definition === undefined) return ['FREEAGENTS_ENABLED_RAILS'];
     return requireAll(env, definition.vars, definition.validators);
   });
@@ -168,6 +184,7 @@ export function buildConfigReport(env: Record<string, string | undefined> = proc
       capabilityReport('githubApi', requireAll(env, GITHUB_API_VARS)),
       capabilityReport('abtRail', requireAll(env, ABT_RAIL_VARS, ABT_RAIL_VALIDATORS)),
       capabilityReport('usdcRail', requireAll(env, USDC_RAIL_VARS, USDC_RAIL_VALIDATORS)),
+      capabilityReport('abtEthRail', requireAll(env, ABT_ETH_RAIL_VARS, ABT_ETH_RAIL_VALIDATORS)),
       enabledRailsReport(env),
     ],
   };

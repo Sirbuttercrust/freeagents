@@ -96,6 +96,15 @@ export type PaymentRequest =
       // two signatures. A tuple, not an array, so a caller cannot receive
       // zero or three of these by construction.
       readonly transfers: readonly [UsdcTransferIntent, UsdcTransferIntent];
+    }
+  | {
+      // ABT as an ERC-20 token on Ethereum mainnet: the same two-transfer
+      // request the USDC rail builds, on its own chain id and token contract.
+      readonly rail: 'abt_eth';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly chainId: number;
+      readonly transfers: readonly [UsdcTransferIntent, UsdcTransferIntent];
     };
 
 // One ERC-20 `transfer(recipient, amount)` call the web layer renders as a
@@ -186,6 +195,22 @@ export type WalletResponseInput =
       // "the amount must come from the job's agreed price"); this is the
       // rail's own input contract, not a route body shape.
       readonly amountUsd: string;
+    }
+  | {
+      // ABT on Ethereum: the USDC arm's shape with one change. The price
+      // moves, so the wallet response carries the token amounts the buyer
+      // was asked to sign (locked when the request was built) instead of a
+      // USD amount to convert again. The rail reads no rate here: what
+      // confirm checks the chain against is exactly what was signed.
+      // Never read from a caller-supplied body field.
+      readonly rail: 'abt_eth';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly operatorAddress: string;
+      readonly priceTxHash: string;
+      readonly feeTx: { readonly signed: true; readonly hash: string } | { readonly signed: false };
+      readonly amountToken: string;
+      readonly feeToken: string;
     };
 
 // Opaque per rail: what confirm() and every downstream caller address a
@@ -232,9 +257,26 @@ export type PaymentRef =
       // else by the time confirm() runs.
       readonly expectedPriceBaseUnits: string;
       readonly expectedFeeBaseUnits: string;
+    }
+  | {
+      // ABT on Ethereum: the USDC arm's fields, on chain 1 and the ABT
+      // contract. The expected base units come from the locked token
+      // amounts, never from a rate read after the wallet answered.
+      readonly rail: 'abt_eth';
+      readonly jobId: string;
+      readonly leg: 'deposit' | 'balance';
+      readonly chainId: number;
+      readonly tokenContract: string;
+      readonly operatorAddress: string;
+      readonly feeAddress: string;
+      readonly priceTxHash: string;
+      readonly feeTxHash: string | null;
+      readonly expectedPriceBaseUnits: string;
+      readonly expectedFeeBaseUnits: string;
     };
 
-// Per-leg outcome confirm() actually observed on chain, USDC only. Four
+// Per-leg outcome confirm() actually observed on chain, on the two ERC-20
+// rails (USDC and ABT on Ethereum). Four
 // states, not two, because "the wallet never signed this", "signed and
 // broadcast but the chain has not confirmed it", and "landed, but paid the
 // wrong recipient, amount, token or chain" are three different facts and a
@@ -279,7 +321,8 @@ export interface Confirmation {
   // `confirmed`. Present only when confirmed is true.
   readonly operatorBalance?: string;
   readonly feeBalance?: string;
-  // USDC only: each leg's own observed status, so a caller never has to
+  // The two ERC-20 rails only (USDC and ABT on Ethereum): each leg's own
+  // observed status, so a caller never has to
   // infer what happened to the fee transfer from `confirmed: false` alone
   // (P3 brief, "never report a leg it did not see a receipt for").
   readonly legs?: { readonly price: UsdcLegStatus; readonly fee: UsdcLegStatus };
