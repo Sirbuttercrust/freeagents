@@ -261,7 +261,23 @@ export async function confirmPayment(rail: PaymentRail, ref: PaymentRef): Promis
 // must apply the same rule, never each growing its own copy.
 export type RepositoryReadinessResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly status: 409 | 503; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly status: 409 | 503;
+      readonly message: string;
+      // Set on the 503 only: the error the read threw, for the operator's
+      // log. It is never part of the message a caller answers with.
+      readonly cause?: unknown;
+    };
+
+// The walkthrough page address a repository refusal ends on. A job-scoped
+// address (?job=<jobId>) is only meaningful once the job exists; a refusal
+// at the brief, before any job is opened, passes null and gets the bare
+// page, which renders the same four steps.
+function privateReposAddress(jobId: string | null): string {
+  const page = `${publicBaseUrlFromEnv()}/private-repos`;
+  return jobId === null ? page : `${page}?job=${jobId}`;
+}
 
 // The not-visible message, used by all three deposit-start doors and by
 // confirm (app.ts's RepositoryNotAccessibleError branch calls this same
@@ -296,16 +312,29 @@ export function repositoryNotAccessibleMessage(
   );
 }
 
+// The not-visible message at the brief. No job exists yet, so it carries no
+// job address, and a brief may go to up to three agents, so it names the
+// platform's account and speaks of each hired agent's account in general
+// instead of naming one. Keeps the phrase "cannot see this repository" the
+// payment page matches on.
+export function repositoryNotAccessibleAtBriefMessage(platformGithubLogin: string): string {
+  return (
+    `the platform cannot see this repository; for a private repository it must live in a GitHub organization ` +
+    `that gives read access to the platform's GitHub account (${platformGithubLogin}) and to the GitHub account of ` +
+    `each agent you hire; how to share it: ${privateReposAddress(null)}`
+  );
+}
+
 // STEER 2026-09-26: a private repository owned by a personal account has
 // no read-only role on GitHub, so a platform account that can see one at
 // all was given collaborator access, which carries write -- MISSION
 // invariant 1 forbids an agent holding write, and the ruling on file for
 // this case is the organization route. A public repository on a personal
 // account is unaffected (only the private branch reaches this check).
-export function repositoryPersonalAccountMessage(jobId: string): string {
+export function repositoryPersonalAccountMessage(jobId: string | null): string {
   return (
     `this repository is private and owned by a personal account; a private repository must live in a GitHub ` +
-    `organization, where agents get a read-only role: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
+    `organization, where agents get a read-only role: ${privateReposAddress(jobId)}`
   );
 }
 
@@ -315,10 +344,10 @@ export function repositoryPersonalAccountMessage(jobId: string): string {
 // organization's setting a few seconds late). Names the fix directly: a
 // setting the organization owner controls, not a repository the buyer
 // has to move again.
-export function repositoryForkingOffMessage(jobId: string): string {
+export function repositoryForkingOffMessage(jobId: string | null): string {
   return (
     `this repository is private and forking of private repositories is off in the organization's settings; ` +
-    `ask the organization owner to turn it on, or share access another way: ${publicBaseUrlFromEnv()}/private-repos?job=${jobId}`
+    `ask the organization owner to turn it on, or share access another way: ${privateReposAddress(jobId)}`
   );
 }
 
@@ -344,11 +373,16 @@ export function repositoryEmptyMessage(): string {
 // the adapter is any error that is neither typed error above, mapped to
 // 503 "github unavailable", the same wording confirm's own catch-all
 // already uses.
+//
+// jobId is null for the read POST /jobs makes at the brief, before any job
+// exists: the sentences then carry no job address, and the not-visible one
+// names no single agent (a brief may go to several), so agentGithubLogin
+// is not consulted.
 export async function checkRepositoryReady(
   github: GithubAdapter,
   input: {
     readonly repository: string;
-    readonly jobId: string;
+    readonly jobId: string | null;
     readonly agentGithubLogin: string | null;
   },
 ): Promise<RepositoryReadinessResult> {
@@ -363,13 +397,16 @@ export async function checkRepositoryReady(
       return {
         ok: false,
         status: 409,
-        message: repositoryNotAccessibleMessage(input.agentGithubLogin, github.platformLogin, input.jobId),
+        message:
+          input.jobId === null
+            ? repositoryNotAccessibleAtBriefMessage(github.platformLogin)
+            : repositoryNotAccessibleMessage(input.agentGithubLogin, github.platformLogin, input.jobId),
       };
     }
     if (err instanceof RepositoryEmptyError) {
       return { ok: false, status: 409, message: repositoryEmptyMessage() };
     }
-    return { ok: false, status: 503, message: 'github unavailable' };
+    return { ok: false, status: 503, message: 'github unavailable', cause: err };
   }
   if (facts.private && !facts.ownerIsOrganization) {
     return { ok: false, status: 409, message: repositoryPersonalAccountMessage(input.jobId) };

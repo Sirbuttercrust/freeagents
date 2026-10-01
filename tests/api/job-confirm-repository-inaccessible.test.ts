@@ -9,6 +9,11 @@
 // message the buyer can act on; every other failure from that same call
 // still answers 503, unchanged (see job-confirm-staging.test.ts, which
 // this suite deliberately does not duplicate).
+//
+// POST /jobs now refuses a repository that is not ready when the brief is
+// sent, so these cases open their job through a repository that reads
+// ready and answer the not-ready case afterwards: they pin the second
+// read, at confirm, after the repository changed.
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,11 +55,17 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
 
 // Mirrors job-pull-request.test.ts's own rejectingOnPullRequest: every
 // method the fixture offers is unchanged except the one this route's
-// fail-closed path is being pinned against.
+// fail-closed path is being pinned against. The first read is the one
+// POST /jobs makes at the brief and answers a ready repository; every
+// read after it (confirm's) rejects with err.
 function rejectingOnReadRepository(github: GithubAdapter, err: Error): GithubAdapter {
+  let reads = 0;
   return {
     ...github,
-    readRepository: (_ref: StagingRepoRef) => Promise.reject(err),
+    readRepository: (ref: StagingRepoRef) => {
+      reads += 1;
+      return reads === 1 ? github.readRepository(ref) : Promise.reject(err);
+    },
   };
 }
 

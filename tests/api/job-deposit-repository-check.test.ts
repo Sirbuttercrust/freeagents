@@ -11,6 +11,11 @@
 //
 // Every new case here is red on origin/main first (there was no check at
 // all): this file did not exist before this card.
+//
+// POST /jobs now refuses a repository that is not ready when the brief is
+// sent, so these cases open their job through a repository that reads
+// ready and answer the not-ready case afterwards: they pin the second
+// read, at the door, after the repository changed.
 import type { Server } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import { fromRandom } from '@ocap/wallet';
@@ -255,13 +260,27 @@ function readyFacts(overrides: Partial<RepositoryFacts> = {}): RepositoryFacts {
 }
 
 function githubAnswering(facts: RepositoryFacts): GithubAdapter {
-  const { github } = createStagingLifecycleGithubFake();
-  return { ...github, readRepository: async () => facts };
+  return githubReadyAtTheBriefThen(async () => facts);
 }
 
 function githubRejecting(err: Error): GithubAdapter {
+  return githubReadyAtTheBriefThen(() => Promise.reject(err));
+}
+
+// POST /jobs reads the repository once, at the brief, and refuses one that
+// is not ready. These tests pin the later read at the door, so the first
+// read (the brief's) answers a ready repository and every read after it
+// answers the case under test: the repository changed after the brief.
+function githubReadyAtTheBriefThen(answer: () => Promise<RepositoryFacts>): GithubAdapter {
   const { github } = createStagingLifecycleGithubFake();
-  return { ...github, readRepository: async () => Promise.reject(err) };
+  let reads = 0;
+  return {
+    ...github,
+    readRepository: async (ref) => {
+      reads += 1;
+      return reads === 1 ? github.readRepository(ref) : answer();
+    },
+  };
 }
 
 // The remainder-leg test below needs a repository that reads fine at

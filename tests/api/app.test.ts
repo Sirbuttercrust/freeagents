@@ -10,6 +10,7 @@ import {
 } from '../../src/adapters/storage/types.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { mintSessionToken, testSessionAdapter } from '../helpers/session-fixtures.js';
+import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import type { SessionAdapter } from '../../src/adapters/identity/session.js';
 
 // The one agent every job test hires against. It is planted straight into
@@ -796,7 +797,10 @@ describe('app, job id collision', () => {
       accountRepo,
       seededAgentRepo,
       undefined,
-      undefined,
+      // POST /jobs reads the repository at the brief and logs a failed
+      // read; this test pins that a conflict logs nothing, so the read
+      // has to succeed.
+      createStagingLifecycleGithubFake().github,
       new DuplicateJobRepository(),
       undefined,
       undefined,
