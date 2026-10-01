@@ -97,7 +97,7 @@ export interface Criterion {
 // The rail that settles the price: which token the agreed dollar figure
 // gets paid in. Fixed to two values for v1 (P1 brief); the price itself is
 // always one number in dollars, whatever token settles it.
-export type Rail = 'abt' | 'usdc';
+export type Rail = 'abt' | 'usdc' | 'abt_eth';
 
 export interface Job {
   readonly id: string;
@@ -1233,7 +1233,7 @@ export function proposeCriteria(
     if (typeof price.priceUsd !== 'string' || !isDecimalUsd(price.priceUsd)) {
       throw new JobError('priceUsd must be a decimal string with exactly two places, e.g. "500.00"');
     }
-    if (price.rail !== undefined && price.rail !== 'abt' && price.rail !== 'usdc') {
+    if (price.rail !== undefined && price.rail !== 'abt' && price.rail !== 'usdc' && price.rail !== 'abt_eth') {
       throw new JobError('rail must be "abt" or "usdc"');
     }
     // FIX-B39, rule 1: a proposal that names a rail pins the job to it; one

@@ -5,7 +5,7 @@ import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import { isValidAvatarSpec, type AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
 import type { IssuedCredentialDocument } from '../credentials/types.js';
-import type { CompletedJob, Criterion, Job, JobStatus, Party } from '../../domain/job.js';
+import type { CompletedJob, Criterion, Job, JobStatus, Party, Rail } from '../../domain/job.js';
 import { DEPOSIT_PERCENT, REDO_ALLOWANCE } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
@@ -211,6 +211,22 @@ export class PrismaAccountRepository implements AccountRepository {
       throw err;
     }
   }
+
+  async setOperatorAddressAbtEth(did: string, operatorAddressAbtEth: string): Promise<Account | null> {
+    try {
+      const row = await db().account.update({
+        where: { did },
+        data: { operatorAddressAbtEth },
+      });
+      return toAccount(row);
+    } catch (err) {
+      // P2025, same mapping as setOperatorAddressEvm above.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return null;
+      }
+      throw err;
+    }
+  }
 }
 
 // P8c: the one place PrismaAccountRepository's five methods build an
@@ -224,6 +240,7 @@ function toAccount(row: {
   createdAt: Date;
   operatorAddressEvm: string | null;
   operatorAddressAbt: string | null;
+  operatorAddressAbtEth: string | null;
 }): Account {
   return {
     did: row.did,
@@ -233,6 +250,7 @@ function toAccount(row: {
     createdAt: row.createdAt,
     operatorAddressEvm: row.operatorAddressEvm,
     operatorAddressAbt: row.operatorAddressAbt,
+    operatorAddressAbtEth: row.operatorAddressAbtEth,
   };
 }
 
@@ -1197,7 +1215,7 @@ export class PrismaSettlementRepository implements SettlementRepository {
     return {
       jobId: row.jobId,
       leg: row.leg as 'deposit' | 'remainder',
-      rail: row.rail as 'abt' | 'usdc',
+      rail: row.rail as Rail,
       hash: row.hash,
       secondaryHash: row.secondaryHash,
       operatorAddress: row.operatorAddress,

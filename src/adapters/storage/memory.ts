@@ -95,6 +95,7 @@ export class MemoryAccountRepository implements AccountRepository {
       createdAt: new Date(),
       operatorAddressEvm: null,
       operatorAddressAbt: null,
+      operatorAddressAbtEth: null,
     };
     this.rows.set(input.did, row);
     return row;
@@ -163,6 +164,14 @@ export class MemoryAccountRepository implements AccountRepository {
     const row = this.rows.get(did);
     if (row === undefined) return null;
     const updated: Account = { ...row, operatorAddressAbt };
+    this.rows.set(did, updated);
+    return updated;
+  }
+
+  async setOperatorAddressAbtEth(did: string, operatorAddressAbtEth: string): Promise<Account | null> {
+    const row = this.rows.get(did);
+    if (row === undefined) return null;
+    const updated: Account = { ...row, operatorAddressAbtEth };
     this.rows.set(did, updated);
     return updated;
   }

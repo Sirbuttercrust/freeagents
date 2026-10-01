@@ -333,6 +333,7 @@ class TwoDidsOneLoginAccountRepository implements AccountRepository {
       createdAt: new Date('2026-01-01T00:00:00Z'),
       operatorAddressEvm: null,
       operatorAddressAbt: null,
+      operatorAddressAbtEth: null,
     });
   }
 
@@ -356,6 +357,10 @@ class TwoDidsOneLoginAccountRepository implements AccountRepository {
   }
 
   async setOperatorAddressAbt(): Promise<Account | null> {
+    throw new Error('unused: this stand-in never sets an operator address');
+  }
+
+  async setOperatorAddressAbtEth(): Promise<Account | null> {
     throw new Error('unused: this stand-in never sets an operator address');
   }
 

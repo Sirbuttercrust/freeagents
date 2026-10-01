@@ -245,3 +245,17 @@ describe('assertPriceAboveFloor', () => {
     }
   });
 });
+
+describe('proposeCriteria: the ABT-on-Ethereum rail value', () => {
+  it('accepts a quote that names abt_eth and pins the job to it', () => {
+    const proposed = proposeCriteria(draftJob(), criteriaProposal, { priceUsd: '500.00', rail: 'abt_eth' });
+    expect(proposed.rail).toBe('abt_eth');
+    expect(proposed.priceUsd).toBe('500.00');
+  });
+
+  it('still refuses an unknown rail with the same sentence', () => {
+    expect(() =>
+      proposeCriteria(draftJob(), criteriaProposal, { priceUsd: '500.00', rail: 'eth' as never }),
+    ).toThrow(new JobError('rail must be "abt" or "usdc"'));
+  });
+});

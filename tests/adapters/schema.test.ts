@@ -523,3 +523,64 @@ describe('prisma/schema.prisma, Attachment.messageId (FIX-SW4f)', () => {
     expect(sql).toMatch(/CREATE INDEX\s+"Attachment_messageId_createdAt_idx"\s+ON\s+"Attachment"\("messageId",\s*"createdAt"\)/);
   });
 });
+
+// The ABT-on-Ethereum rail: its rail value, the owner's payout column and
+// its two settlement tables must be in the migration Postgres actually runs,
+// not only in schema.prisma's text.
+describe('prisma, the ABT-on-Ethereum rail value, payout column and settlement tables are actually migrated', () => {
+  const migrationDir = new URL('../../prisma/migrations/20261001120000_abt_eth_rail/', import.meta.url);
+  const sql = existsSync(fileURLToPath(migrationDir)) ? readFileSync(join(fileURLToPath(migrationDir), 'migration.sql'), 'utf8') : '';
+  const code = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  function enumBody(name: string): string {
+    const start = schema.indexOf(`enum ${name} {`);
+    if (start === -1) throw new Error(`enum ${name} not found in schema.prisma`);
+    const bodyStart = schema.indexOf('{', start) + 1;
+    return schema.slice(bodyStart, schema.indexOf('\n}', bodyStart));
+  }
+
+  it('the Rail enum declares abt_eth beside abt and usdc', () => {
+    expect(enumBody('Rail').split('\n').map((l) => l.trim()).filter(Boolean)).toEqual(['abt', 'usdc', 'abt_eth']);
+  });
+
+  it('the migration adds abt_eth to the Rail enum', () => {
+    expect(code).toMatch(/ALTER TYPE\s+"Rail"\s+ADD VALUE\s+'abt_eth'\s*;/);
+  });
+
+  it("the migration names 'abt_eth' only in that one statement, because Postgres cannot use a new enum value in the transaction that adds it", () => {
+    expect(code.match(/abt_eth/g)).toHaveLength(1);
+  });
+
+  it('the migration adds Account.operatorAddressAbtEth as plain nullable TEXT, with no default and no backfill', () => {
+    expect(code).toMatch(/ALTER TABLE\s+"Account"\s+ADD COLUMN\s+"operatorAddressAbtEth"\s+TEXT\s*;/);
+    expect(code).not.toMatch(/\bUPDATE\b/i);
+    expect(code).not.toMatch(/\bINSERT\b/i);
+    expect(code).not.toMatch(/operatorAddressAbtEth[^;]*DEFAULT/i);
+  });
+
+  it('the schema declares operatorAddressAbtEth as nullable, with no default', () => {
+    const account = modelBody('Account');
+    expect(account).toMatch(/operatorAddressAbtEth\s+String\?\s*$/m);
+    expect(account).not.toMatch(/operatorAddressAbtEth[^\n]*@default/);
+  });
+
+  it('the migration creates the ABT-on-Ethereum spent-hash table keyed by hash alone, beside the USDC one', () => {
+    expect(code).toMatch(/CREATE TABLE\s+"AbtEthSpentTransfer"/);
+    expect(code).toMatch(/CONSTRAINT\s+"AbtEthSpentTransfer_pkey"\s+PRIMARY KEY\s+\("hash"\)/);
+    expect(modelBody('AbtEthSpentTransfer')).toMatch(/hash\s+String\s+@id/);
+  });
+
+  it('the migration creates the ABT-on-Ethereum half-paid table with one row per job and leg', () => {
+    expect(code).toMatch(/CREATE TABLE\s+"AbtEthHalfPaidSettlement"/);
+    expect(code).toMatch(/CREATE UNIQUE INDEX\s+"AbtEthHalfPaidSettlement_jobId_leg_key"\s+ON\s+"AbtEthHalfPaidSettlement"\("jobId",\s*"leg"\)/);
+    expect(modelBody('AbtEthHalfPaidSettlement')).toMatch(/@@unique\(\[jobId, leg\]\)/);
+  });
+
+  it('leaves the USDC settlement tables as they were: no statement touches them', () => {
+    expect(code).not.toMatch(/"UsdcSpentTransfer"/);
+    expect(code).not.toMatch(/"UsdcHalfPaidSettlement"/);
+  });
+});

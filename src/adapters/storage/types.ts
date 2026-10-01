@@ -5,7 +5,7 @@
 import type { Agent, Delegation, ProofStatus } from '../../domain/agent.js';
 import type { AvatarSpec } from '../../domain/avatar-spec.js';
 import type { CompromiseReport } from '../../domain/compromise.js';
-import type { CompletedJob, Job, Party } from '../../domain/job.js';
+import type { CompletedJob, Job, Party, Rail } from '../../domain/job.js';
 import type { Attestation } from '../../domain/attestation.js';
 import type { Account } from '../../domain/account.js';
 import type { Review } from '../../domain/review.js';
@@ -85,6 +85,10 @@ export interface AccountRepository {
   // P8c: the ABT sibling of setOperatorAddressEvm, same overwrite and
   // same null-on-unknown-DID stance.
   setOperatorAddressAbt(did: string, operatorAddressAbt: string): Promise<Account | null>;
+  // The ABT-on-Ethereum sibling: same overwrite and null-on-unknown-DID
+  // stance. The address is stored as given for that network and never
+  // copied from another network's column.
+  setOperatorAddressAbtEth(did: string, operatorAddressAbtEth: string): Promise<Account | null>;
 }
 
 // Thrown by AgentRepository.create when the agent DID is already delegated,
@@ -492,7 +496,7 @@ export interface AttestationRepository {
 export interface ObservedSettlementRecord {
   readonly jobId: string;
   readonly leg: 'deposit' | 'remainder';
-  readonly rail: 'abt' | 'usdc';
+  readonly rail: Rail;
   readonly hash: string;
   readonly secondaryHash: string | null;
   readonly operatorAddress: string;
