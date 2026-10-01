@@ -31,6 +31,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { INKLESS_OFF, INKLESS_ON } from '../helpers/ink-toggle.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -394,10 +395,6 @@ const RUNS = `
     return { runs: out, transparent: transparent };
   })()
 `;
-const INKLESS_ON = `(function () { var s = document.createElement('style'); s.id = 'dg-inkless';
-  s.textContent = '*,*::before,*::after{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}';
-  document.head.appendChild(s); return true; })()`;
-const INKLESS_OFF = `(function () { var s = document.getElementById('dg-inkless'); if (s) s.remove(); return true; })()`;
 
 async function contrastAt(b: RealBrowser, path: string): Promise<{ measured: number; transparent: string[]; failures: string[] }> {
   await b.goto(`${baseUrl}${path}`, 500);

@@ -32,6 +32,7 @@ import { createApp } from '../../src/api/app.js';
 import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository } from '../../src/adapters/storage/memory.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import { createJob, type Job } from '../../src/domain/job.js';
+import { INKLESS_OFF, INKLESS_ON } from '../helpers/ink-toggle.js';
 import { RealBrowser, hasRealBrowser } from '../helpers/real-browser.js';
 
 const T_MS = 90_000;
@@ -378,10 +379,6 @@ const RUNS = `
     return { runs: out, transparent: transparent, total: total };
   })()
 `;
-const INKLESS_ON = `(function () { var s = document.createElement('style'); s.id = 'dg-inkless';
-  s.textContent = '*,*::before,*::after{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}';
-  document.head.appendChild(s); return true; })()`;
-const INKLESS_OFF = `(function () { var s = document.getElementById('dg-inkless'); if (s) s.remove(); return true; })()`;
 
 async function contrastAt(b: RealBrowser, url: string): Promise<{ measured: number; total: number; transparent: string[]; failures: string[]; midCount: string[] }> {
   await b.goto(url, 900);
