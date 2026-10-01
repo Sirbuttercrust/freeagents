@@ -156,6 +156,14 @@ export const CAPABILITIES: readonly Capability[] = [
     reason: 'Reading a hire needs no account: anyone with the job id can see where it stands.',
   },
   {
+    id: 'job.payments.read',
+    method: 'GET',
+    path: '/jobs/:jobId/payments',
+    access: 'identified',
+    identityField: null,
+    reason: 'Either side of a hire reads which payments settled; the party comes from your session or signature, never the body.',
+  },
+  {
     id: 'job.criteria.propose',
     method: 'POST',
     path: '/jobs/:jobId/criteria',
