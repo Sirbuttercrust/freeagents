@@ -454,7 +454,9 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.agentRepo.create({ did: agent.did, operatorDid: owner.did, delegation: delegationFixture(agent.did, owner.did) as never, name: 'shape-scout', skills: ['triage'], githubLogin: null });
       await built.jobRepo.create(jobFixture({ id: 'job-draft', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-proposed', buyerDid: buyer.did, agentDid: agent.did, status: 'proposed', criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: false }] }, new Date('2026-08-02T00:00:00Z')));
-      await built.jobRepo.create(jobFixture({ id: 'job-confirmed', buyerDid: buyer.did, agentDid: agent.did, status: 'confirmed', confirmedAt: new Date('2026-08-03T00:00:00Z') }, new Date('2026-08-03T00:00:00Z')));
+      // The confirmed job's date is an offset from one `now`, so it stays inside its 30-day unstaged window.
+      const confirmedAt = new Date(Date.now() - 2 * 86_400_000);
+      await built.jobRepo.create(jobFixture({ id: 'job-confirmed', buyerDid: buyer.did, agentDid: agent.did, status: 'confirmed', confirmedAt }, confirmedAt));
       await built.jobRepo.create(jobFixture({ id: 'job-declined', buyerDid: buyer.did, agentDid: agent.did, status: 'declined' }, new Date('2026-08-04T00:00:00Z')));
 
       const res = await getSigned(built.baseUrl, `/accounts/${buyer.did}/threads`, buyer);

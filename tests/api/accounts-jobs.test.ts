@@ -206,9 +206,13 @@ describe('GET /accounts/:did/jobs: only real jobs, newest first, one row per hir
     const { built, owner, agentDid } = await seededOwner();
     try {
       const stranger = await signingIdentityFromSeed(new Uint8Array(32).fill(49));
+      // Dates are offsets from one `now`, so the job stays inside its 30-day unstaged window.
+      const now = Date.now();
+      const strangerConfirmedAt = new Date(now - 3 * 86_400_000);
+      const mineConfirmedAt = new Date(now - 2 * 86_400_000);
       await built.accountRepo.register({ did: stranger.did, githubLogin: 'myjobs-stranger' });
-      await built.jobRepo.create(jobFixture({ id: 'job-strangers', buyerDid: stranger.did, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-01T00:00:00Z') }, new Date('2026-08-01T00:00:00Z')));
-      await built.jobRepo.create(jobFixture({ id: 'job-mine', buyerDid: owner.did, agentDid, repository: 'buyer/my-repo', brief: 'My own brief', status: 'confirmed', confirmedAt: new Date('2026-08-02T00:00:00Z') }, new Date('2026-08-02T00:00:00Z')));
+      await built.jobRepo.create(jobFixture({ id: 'job-strangers', buyerDid: stranger.did, agentDid, status: 'confirmed', confirmedAt: strangerConfirmedAt }, strangerConfirmedAt));
+      await built.jobRepo.create(jobFixture({ id: 'job-mine', buyerDid: owner.did, agentDid, repository: 'buyer/my-repo', brief: 'My own brief', status: 'confirmed', confirmedAt: mineConfirmedAt }, mineConfirmedAt));
 
       const res = await getSigned(built.baseUrl, `/accounts/${owner.did}/jobs`, owner);
       const body = (await res.json()) as { jobs: Array<Record<string, unknown>> };
@@ -220,7 +224,7 @@ describe('GET /accounts/:did/jobs: only real jobs, newest first, one row per hir
       expect(row.repository).toBe('buyer/my-repo');
       expect(row.status).toBe('confirmed');
       expect(row.bucket).toBe('inProgress');
-      expect(row.date).toBe(new Date('2026-08-02T00:00:00Z').toISOString());
+      expect(row.date).toBe(mineConfirmedAt.toISOString());
     } finally {
       built.server.close();
     }
@@ -229,11 +233,15 @@ describe('GET /accounts/:did/jobs: only real jobs, newest first, one row per hir
   it('the four buckets across a mixed set sum to the All count by construction (mutation proof: the domain function stays total)', async () => {
     const { built, owner, agentDid } = await seededOwner();
     try {
+      // Dates are offsets from one `now`, in the same order as before and
+      // each inside its clock (staged and submitted 7 days, confirmed 30).
+      const now = Date.now();
+      const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
       const rows: Array<{ id: string; status: JobStatus; extra?: Partial<Job> }> = [
-        { id: 'b-staged', status: 'staged', extra: { stagedAt: new Date('2026-08-01T00:00:00Z') } },
-        { id: 'b-submitted', status: 'submitted', extra: { submittedAt: new Date('2026-08-02T00:00:00Z') } },
-        { id: 'b-confirmed', status: 'confirmed', extra: { confirmedAt: new Date('2026-08-03T00:00:00Z') } },
-        { id: 'b-completed', status: 'completed', extra: { mergedAt: new Date('2026-08-04T00:00:00Z') } },
+        { id: 'b-staged', status: 'staged', extra: { stagedAt: daysAgo(5) } },
+        { id: 'b-submitted', status: 'submitted', extra: { submittedAt: daysAgo(4) } },
+        { id: 'b-confirmed', status: 'confirmed', extra: { confirmedAt: daysAgo(3) } },
+        { id: 'b-completed', status: 'completed', extra: { mergedAt: daysAgo(2) } },
         { id: 'b-declined', status: 'declined' },
       ];
       for (const r of rows) {

@@ -425,12 +425,16 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     const me = (await meRes.json()) as { did: string };
     const buyerDid = me.did;
 
+    // Dates are offsets from one `now`, so each job stays inside its clock
+    // (staged 7 days) and the order and gaps below are kept.
+    const now = Date.now();
+    const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
     // A staged job (waitingOnYou), older than the pending offer.
-    await jobRepo.create(jobFixture({ id: 'd1-staged', buyerDid, agentDid, status: 'staged', stagedAt: new Date('2026-08-01T00:00:00Z') }, new Date('2026-08-01T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'd1-staged', buyerDid, agentDid, status: 'staged', stagedAt: daysAgo(6) }, daysAgo(6)));
     // A pending row waiting on the buyer's signature (draft/proposed with
     // every criterion agent-signed), newer than the staged job.
     const buyerCriteria: Criterion[] = [{ text: 'agent signed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
-    await jobRepo.create(jobFixture({ id: 'd1-pending-buyer', buyerDid, agentDid, status: 'proposed', criteria: buyerCriteria }, new Date('2026-08-05T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'd1-pending-buyer', buyerDid, agentDid, status: 'proposed', criteria: buyerCriteria }, daysAgo(2)));
 
     const page = await renderDashboard(baseUrl, buyerSession);
     try {
@@ -442,7 +446,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
 
       const rows = sectionRows(page.document, 'Waiting on you');
       expect(rows.length).toBe(2);
-      // Newest first: the pending row (Aug 5) before the staged job (Aug 1).
+      // Newest first: the pending row (2 days ago) before the staged job (6 days ago).
       const primary = rows[0]?.querySelector('a.btn-primary');
       expect(primary).not.toBeNull();
       expect(primary?.textContent).toBe('Read and sign');
@@ -463,12 +467,16 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     const me = (await meRes.json()) as { did: string };
     const buyerDid = me.did;
 
-    await jobRepo.create(jobFixture({ id: 'd2-confirmed', buyerDid, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-02T00:00:00Z') }, new Date('2026-08-02T00:00:00Z')));
+    // Dates are offsets from one `now`, so the confirmed job stays inside
+    // its 30-day window and the order and gaps below are kept.
+    const now = Date.now();
+    const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
+    await jobRepo.create(jobFixture({ id: 'd2-confirmed', buyerDid, agentDid, status: 'confirmed', confirmedAt: daysAgo(10) }, daysAgo(10)));
     // A draft with no criteria (noReply).
-    await jobRepo.create(jobFixture({ id: 'd2-pending-noreply', buyerDid, agentDid, status: 'draft', criteria: [] }, new Date('2026-08-06T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'd2-pending-noreply', buyerDid, agentDid, status: 'draft', criteria: [] }, daysAgo(6)));
     // A proposed job where the buyer edited (waitingOnOperator).
     const operatorCriteria: Criterion[] = [{ text: 'buyer edit', proposedBy: 'buyer', acceptedByBuyer: true, acceptedByAgent: false }];
-    await jobRepo.create(jobFixture({ id: 'd2-pending-operator', buyerDid, agentDid, status: 'proposed', criteria: operatorCriteria }, new Date('2026-08-07T00:00:00Z')));
+    await jobRepo.create(jobFixture({ id: 'd2-pending-operator', buyerDid, agentDid, status: 'proposed', criteria: operatorCriteria }, daysAgo(5)));
 
     const page = await renderDashboard(baseUrl, buyerSession);
     try {
@@ -478,7 +486,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
 
       const rows = sectionRows(page.document, 'In progress');
       expect(rows.length).toBe(3);
-      // Newest first: operator (Aug 7), noreply (Aug 6), confirmed (Aug 2).
+      // Newest first: operator (5 days ago), noreply (6 days ago), confirmed (10 days ago).
       expect(rows[0]?.textContent).toContain('Waiting on the agent to sign');
       expect(rows[1]?.textContent).toContain('Brief sent, no reply yet');
 
@@ -1157,11 +1165,15 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       });
       const me = (await meRes.json()) as { did: string };
       const criteria: Criterion[] = [{ text: 'agent signed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
+      // Dates are offsets from one `now`, so the staged job stays inside
+      // its 7-day window and the pending row stays the older of the two.
+      const now = Date.now();
+      const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
       // The pending row is OLDER than the staged job: if section 1 sorted
       // "pending first" rather than by date, the pending row would still
       // lead. This proves it leads only because it is newer.
-      await jobRepo.create(jobFixture({ id: 'd9-pending-old', buyerDid: me.did, agentDid, status: 'proposed', criteria }, new Date('2026-08-01T00:00:00Z')));
-      await jobRepo.create(jobFixture({ id: 'd9-staged-new', buyerDid: me.did, agentDid, status: 'staged', stagedAt: new Date('2026-08-10T00:00:00Z') }, new Date('2026-08-10T00:00:00Z')));
+      await jobRepo.create(jobFixture({ id: 'd9-pending-old', buyerDid: me.did, agentDid, status: 'proposed', criteria }, daysAgo(10)));
+      await jobRepo.create(jobFixture({ id: 'd9-staged-new', buyerDid: me.did, agentDid, status: 'staged', stagedAt: daysAgo(1) }, daysAgo(1)));
 
       const page = await renderDashboard(baseUrl2, session);
       try {
@@ -1236,8 +1248,12 @@ describe('the dashboard screen, driven end to end against the real app', () => {
         headers: { Accept: 'application/json', Authorization: `Bearer ${session.token}` },
       });
       const me = (await meRes.json()) as { did: string };
+      // Dates are offsets from one `now`, one day apart as before, so all
+      // eight stay inside the 30-day window.
+      const now = Date.now();
       for (let i = 0; i < 8; i += 1) {
-        await jobRepo.create(jobFixture({ id: `d11-cap-${i}`, buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt: new Date(2026, 7, i + 1) }, new Date(2026, 7, i + 1)));
+        const confirmedAt = new Date(now - (8 - i) * 86_400_000);
+        await jobRepo.create(jobFixture({ id: `d11-cap-${i}`, buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt }, confirmedAt));
       }
 
       const page = await renderDashboard(baseUrl2, session);
@@ -1265,8 +1281,11 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     });
     const me = (await meRes.json()) as { did: string };
     const criteria: Criterion[] = [{ text: 'agent signed', proposedBy: 'agent', acceptedByBuyer: false, acceptedByAgent: true }];
-    await jobRepo.create(jobFixture({ id: 'd12-anchor-pending', buyerDid: me.did, agentDid, status: 'proposed', criteria }, new Date('2026-08-20T00:00:00Z')));
-    await jobRepo.create(jobFixture({ id: 'd12-anchor-job', buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-21T00:00:00Z') }, new Date('2026-08-21T00:00:00Z')));
+    // Dates are offsets from one `now`, so the job stays inside its window.
+    const now = Date.now();
+    const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
+    await jobRepo.create(jobFixture({ id: 'd12-anchor-pending', buyerDid: me.did, agentDid, status: 'proposed', criteria }, daysAgo(3)));
+    await jobRepo.create(jobFixture({ id: 'd12-anchor-job', buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt: daysAgo(2) }, daysAgo(2)));
 
     const page = await renderDashboard(baseUrl, buyerSession);
     try {
@@ -1310,19 +1329,23 @@ describe('the dashboard screen, driven end to end against the real app', () => {
       const me = (await meRes.json()) as { did: string };
       // A pending row: GET /accounts/:did/pending carries agentDid
       // (src/api/app.ts), so this row CAN mount and must.
-      await jobRepo.create(jobFixture({ id: 'd16-avatar-pending', buyerDid: me.did, agentDid, status: 'draft', criteria: [] }, new Date('2026-08-11T00:00:00Z')));
+      // Dates are offsets from one `now`, so the confirmed job stays inside
+      // its window and the pending row stays the newer of the two.
+      const now = Date.now();
+      const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
+      await jobRepo.create(jobFixture({ id: 'd16-avatar-pending', buyerDid: me.did, agentDid, status: 'draft', criteria: [] }, daysAgo(4)));
       // A confirmed hire: GET /accounts/:did/jobs carries agentName and
       // no agentDid today, so this row must render with NO mount rather
       // than an empty one. Never invent a DID, never derive one from a
       // name. When the jobs row shape gains agentDid this assertion is
       // the one that flips, and it flips deliberately.
-      await jobRepo.create(jobFixture({ id: 'd16-avatar-job', buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-10T00:00:00Z') }, new Date('2026-08-10T00:00:00Z')));
+      await jobRepo.create(jobFixture({ id: 'd16-avatar-job', buyerDid: me.did, agentDid, status: 'confirmed', confirmedAt: daysAgo(5) }, daysAgo(5)));
 
       const page = await renderDashboard(baseUrl2, session);
       try {
         const rows = sectionRows(page.document, 'In progress');
         expect(rows.length).toBe(2);
-        // Newest first: the pending row (Aug 11) leads.
+        // Newest first: the pending row (4 days ago) leads.
         const pendingRow = rows[0];
         const jobRow = rows[1];
 
