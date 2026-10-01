@@ -584,3 +584,50 @@ describe('prisma, the ABT-on-Ethereum rail value, payout column and settlement t
     expect(code).not.toMatch(/"UsdcHalfPaidSettlement"/);
   });
 });
+
+// The quoted ABT-on-Ethereum price, one row per checkout start. It must be
+// in the migration Postgres actually runs, and it must not carry a unique key
+// on (jobId, leg): two checkouts of one leg each keep the price they showed.
+describe('prisma, the ABT-on-Ethereum quote lock table is a row per start and is actually migrated', () => {
+  const migrationDir = new URL('../../prisma/migrations/20261001180000_abt_eth_quote_lock/', import.meta.url);
+  const sql = existsSync(fileURLToPath(migrationDir)) ? readFileSync(join(fileURLToPath(migrationDir), 'migration.sql'), 'utf8') : '';
+  const statements = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter((statement) => statement !== '');
+
+  it('the model declares the ten columns and the (jobId, leg) index', () => {
+    const lines = modelBody('AbtEthQuoteLock')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'))
+      .map((line) => line.split(/\s+/));
+    expect(lines).toEqual([
+      ['id', 'String', '@id', '@default(cuid())'],
+      ['jobId', 'String'],
+      ['leg', 'String'],
+      ['amountUsd', 'String'],
+      ['usdPerToken', 'String'],
+      ['rateUpdatedAt', 'DateTime?'],
+      ['amountToken', 'String'],
+      ['feeToken', 'String'],
+      ['lockedAt', 'DateTime'],
+      ['expiresAt', 'DateTime'],
+      ['@@index([jobId,', 'leg])'],
+    ]);
+  });
+
+  it('the model has no unique key on (jobId, leg)', () => {
+    expect(modelBody('AbtEthQuoteLock')).not.toMatch(/@@unique|@unique/);
+  });
+
+  it('the migration creates the table with its primary key on id, then the (jobId, leg) index, and nothing else', () => {
+    expect(statements).toEqual([
+      'CREATE TABLE "AbtEthQuoteLock" ( "id" TEXT NOT NULL, "jobId" TEXT NOT NULL, "leg" TEXT NOT NULL, "amountUsd" TEXT NOT NULL, "usdPerToken" TEXT NOT NULL, "rateUpdatedAt" TIMESTAMP(3), "amountToken" TEXT NOT NULL, "feeToken" TEXT NOT NULL, "lockedAt" TIMESTAMP(3) NOT NULL, "expiresAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "AbtEthQuoteLock_pkey" PRIMARY KEY ("id") )',
+      'CREATE INDEX "AbtEthQuoteLock_jobId_leg_idx" ON "AbtEthQuoteLock"("jobId", "leg")',
+    ]);
+  });
+});

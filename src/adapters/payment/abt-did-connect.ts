@@ -58,6 +58,12 @@ import {
   type RouteLeg,
   checkRailDoorEligible,
 } from './route-support.js';
+import {
+  ABT_QUOTE_LOCK_LIFETIME_MS,
+  LOCK_EXPIRED_MESSAGE,
+  NO_LOCK_MESSAGE,
+  PRICE_CHANGED_MESSAGE,
+} from './quote-lock.js';
 import { createDidConnectSessionStorage } from './session-storage.js';
 import type { DidConnectSessionStorage } from './session-storage-types.js';
 
@@ -182,14 +188,8 @@ function operatorAddressErrorMessage(reason: 'no-job' | 'no-agent' | 'no-account
     : 'this job or its hired agent could not be found';
 }
 
-// How long a locked ABT price stays valid: long enough to open a wallet
-// and approve, short enough that a buyer cannot sit on a quoted ABT price
-// as a free option at the owner's expense while the market moves.
-const ABT_QUOTE_LOCK_LIFETIME_MS = 15 * 60 * 1000;
-
-const NO_LOCK_MESSAGE = 'This payment has no locked ABT price. Start the payment again.';
-const LOCK_EXPIRED_MESSAGE = 'The ABT price for this payment expired. Start the payment again for a fresh price.';
-const PRICE_CHANGED_MESSAGE = 'The agreed price changed after this payment started. Start the payment again.';
+// The lock's lifetime and its three refusal sentences are shared with the
+// ABT-on-Ethereum rail and live in quote-lock.ts.
 const NO_STARTER_MESSAGE =
   'This payment session has no signed-in or signed buyer on record. Start the payment again from the job page while signed in as the buyer.';
 const NOT_THE_BUYER_MESSAGE = "this payment session is bound to a different buyer's job";
