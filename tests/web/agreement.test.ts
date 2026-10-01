@@ -942,7 +942,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
     });
   });
 
-  // QA round 1, D1 unstyled-ported-component: the polished-stack swap
+  // unstyled-ported-component: the polished-stack swap
   // deleted the page-local rules for .who, .steps li/.on/.done and
   // .draftflag, and nothing in base.css, polish.css or agreement.css
   // replaced them, so all three rendered with zero matching author rules.
@@ -1043,7 +1043,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
     }, BROWSER_TIMEOUT_MS);
   });
 
-  // QA round 1 note (not a defect, but worth pinning): renderLockbar's
+  // Not a defect, but worth pinning: renderLockbar's
   // `needed = lines.length * 2` is the only place the "signatures needed"
   // half of the count comes from, and none of the existing assertions
   // read the number pair, only the phrase. A mutation to
@@ -1080,7 +1080,7 @@ describe('the agreement screen, driven end to end against the real app', () => {
     });
   });
 
-  // QA round 2, D2 script-rendered-icon-never-painted: every .ico host
+  // script-rendered-icon-never-painted: every .ico host
   // agreement.js builds in script (the eight .sigdot marks, the .from
   // proposer arrow) ships empty. icons.js paints once on DOMContentLoaded
   // and polish.js paints once in init(), both before the job fetch

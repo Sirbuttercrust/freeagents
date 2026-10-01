@@ -1,4 +1,4 @@
-// CI4 round 3: Vitest's own docs guarantee globalSetup runs "before the
+// Vitest's own docs guarantee globalSetup runs "before the
 // test workers are created" (https://vitest.dev/config/globalsetup). It
 // runs once per `vitest run`, not once per test file, and it has no test
 // timeout, so the cold Chrome start the runner logs show in the opening

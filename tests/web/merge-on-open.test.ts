@@ -1,4 +1,4 @@
-// FIX-B60 (bugs.md B60): a merge on GitHub is recorded when a signed-in
+// FIX-B60 (B60): a merge on GitHub is recorded when a signed-in
 // party opens the hire. Before this, only a signed POST /jobs/:jobId/merge
 // ever asked GitHub, so a buyer who paid and merged entirely from the site
 // never got a merge receipt; after seven days the job was deemed complete

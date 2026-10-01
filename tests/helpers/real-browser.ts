@@ -1,9 +1,9 @@
-// P8n repair round 1: jsdom performs no layout, so a test built on it can
+// jsdom performs no layout, so a test built on it can
 // declare a media query fired or read a static computed style, and never
 // once know whether a row actually overflows a real 320px screen. That is
-// the vacuous-gate defect the P8n review round 1 found in
+// the vacuous-gate defect found in
 // tests/web/myagents.test.ts, and it is the same shape as the P8j, P8l and
-// P8m defects already on the standing ledger.
+// P8m defects.
 //
 // This drives one throwaway headless Chrome over the DevTools protocol, the
 // same driver shape as spec/wireframe/wirebrowse.py, kept to Node's own
@@ -92,10 +92,10 @@ interface CdpMessage {
   error?: { message?: string };
 }
 
-// CI4 round 3: rounds 1 and 2 both tried to bound CONCURRENCY, first a
-// per-process counter (round 1, proven vacuous across vitest's separate
+// Two earlier designs tried to bound CONCURRENCY, first a
+// per-process counter (proven vacuous across vitest's separate
 // worker processes) then a cross-process slot directory held for a
-// browser's whole lifetime (round 2). Review round 2 measured the lifetime
+// browser's whole lifetime. Measuring the lifetime
 // gate directly on the runner (run 35938128610) and found it never once
 // made a launch wait: gate-wait maxed at 3-6ms across 157 acquires per
 // job. The real give-ups in every measurement push landed in the first
@@ -120,7 +120,7 @@ interface CdpMessage {
 // port. This message still fires for a genuinely slow or wedged Chrome.
 const GIVEUP_MESSAGE = 'chrome debug port never came up';
 
-// CI4 round 3: what the runner logs show, and what they do not. Across
+// What the runner logs show, and what they do not. Across
 // every measurement push, the slow opens (6.5 to 19s) and every real
 // give-up landed in the first seconds of a job. Not every first launch was
 // slow (919ms and 1994ms were both first launches), and some slow ones
@@ -170,14 +170,14 @@ export async function warmUpChrome(log: (msg: string) => void = (m) => console.w
   }
 }
 
-// CI4 round 3 sizing: with warmUpChrome taking the cold start (see its
+// Sizing: with warmUpChrome taking the cold start (see its
 // own comment), the worst SINGLE legitimate
 // open across the whole diagnostic history, warmed or not, was 18961ms
-// (round 2 review push, run 35936931195, node 24, the uncensored
+// (run 35936931195, node 24, the uncensored
 // 25s-deadline push). PORT_WAIT_MS stays above that uncensored worst
 // case with real margin, rather than at a number already shown to fail
 // outright (12000ms lost in run 35935765272), and comfortably inside the
-// 30s test timeout every real caller sets. Two round-3 measurement runs
+// 30s test timeout every real caller sets. Two measurement runs
 // under warmUpChrome (runs 36005035993 and 36005938897, both node
 // versions) are consistent with it: the warm-up launch itself took 819ms
 // to 16622ms, and every real test launch after it landed at 301-735ms
@@ -205,7 +205,7 @@ export class RealBrowser {
   private port = 0;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: CdpMessage) => void; reject: (e: Error) => void }>();
-  // Burst-measurement support (FIX-S7 round 2, qa proof r1 defect 3): CDP
+  // Burst-measurement support (FIX-S7): CDP
   // pushes events with no `id` field (Network.requestWillBeSent among
   // them), which the message handler used to just drop on the floor since
   // nothing here ever needed to observe them. `onEvent` lets a caller
@@ -218,10 +218,10 @@ export class RealBrowser {
     this.profile = profile;
   }
 
-  // CI4 round 3: no launch gate and no retry. Review round 2 measured the
-  // round 2 gate directly and found it never bound a single launch on the
+  // No launch gate and no retry. Measuring the lifetime
+  // gate directly showed it never bound a single launch on the
   // runner (gate-wait maxed at 3-6ms across 157 acquires per job in the
-  // run meant to justify it), and the round 1/2 retry could not help
+  // run meant to justify it), and the earlier retry could not help
   // against a give-up that repeats on the very next attempt (run
   // 35935765272: the same test's two consecutive attempts both gave up at
   // the deadline, 12046ms and 12047ms long, 12.2s apart). Launches were
@@ -368,7 +368,7 @@ export class RealBrowser {
     return promise;
   }
 
-  // Burst-measurement support (FIX-S7 round 2, qa proof r1 defect 3):
+  // Burst-measurement support (FIX-S7):
   // subscribes to one CDP event stream (e.g. 'Network.requestWillBeSent').
   // Returns an unsubscribe function so a caller's own measurement window
   // is exact (subscribe, act, unsubscribe, count), never a running total

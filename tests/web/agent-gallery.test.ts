@@ -1,4 +1,4 @@
-// W8 Proof round 1, D1 (gallery-claim-tier-missing): the Portfolio gallery
+// W8 (gallery-claim-tier-missing): the Portfolio gallery
 // (spec/wireframe/agent.html lines 272-422, gallery.css) renders three
 // tiers, not two. A verified hire and verified prior-work item earn a real
 // preview frame and a link row; a portfolio claim earns NEITHER, and the
@@ -239,7 +239,7 @@ describe('the Portfolio gallery renders every tier, including a claim (wireframe
     expect(hireFigure!.querySelector('.work-frame.is-empty')).toBeNull();
   });
 
-  // Proof round 2, D3 (gallery-tier-label-missing): the wireframe puts a
+  // gallery-tier-label-missing: the wireframe puts a
   // tier badge in every card's div.work-head beside the title (lines 296,
   // 321, 348, 379, 409) and closes the panel with a p.callout-sm sentence
   // naming the rule. A dashed border alone does not say which tier a card
@@ -270,7 +270,7 @@ describe('the Portfolio gallery renders every tier, including a claim (wireframe
     expect(callout!.textContent).toContain('A preview is earned by a public repository');
   });
 
-  // Proof round 3, D4 (count-noun-disagreement): the hero badge hardcodes
+  // count-noun-disagreement: the hero badge hardcodes
   // the plural noun in markup while the script sets only the digit, so an
   // agent with exactly one verified hire reads "1 verified hires" even
   // though p.lede on the same screen correctly reads "1 verified hire".

@@ -579,8 +579,8 @@ describe('the pull-request screen, driven end to end against the real app', () =
   // renderWho replaced by a no-op, that suite stayed 105/105 green, because
   // this page's own comments name the attribute while explaining the
   // mechanism. That is the conformance-satisfied-by-dead-markup defect the
-  // conformance file itself already records fixing once (its agent entry,
-  // Proof round 2 D1), in a different shape.
+  // conformance file itself already records fixing once (its agent entry),
+  // in a different shape.
   //
   // So the real assertion lives here, against the RENDERED DOM after the
   // agent read resolves, where a comment cannot reach: the attribute is on

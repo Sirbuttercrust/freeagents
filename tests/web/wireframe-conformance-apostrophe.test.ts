@@ -1,5 +1,5 @@
 // A guard for the apostrophe decodes in clean() (tests/helpers/wireframe-
-// conformance-clean.ts), added by S3 for TRI1 (bugs.md, "clean() does not
+// conformance-clean.ts), added by S3 for TRI1 ("clean() does not
 // unescape entities"). Before the decode, a heading or control written with
 // an apostrophe entity kept the entity as literal text, so the expected
 // string built from a wireframe never matched a built page that used the

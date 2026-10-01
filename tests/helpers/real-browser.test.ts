@@ -61,7 +61,7 @@ describe('RealBrowser: phone-width launches read the same clientWidth on every p
   }, 20_000);
 });
 
-// CI4 round 3: warmUpChrome launches one throwaway Chrome before any test
+// warmUpChrome launches one throwaway Chrome before any test
 // worker exists, so the cold start that the runner logs show in the opening
 // seconds of a job lands outside every per-test timeout (the mechanism and
 // the evidence are in real-browser.ts, above warmUpChrome). These tests pin
@@ -140,12 +140,12 @@ describe('warmUpChrome: runs one real Chrome before the tests, and says so when 
   });
 });
 
-// CI4 round 3: rounds 1 and 2's retry (withLaunchRetry) assumed a give-up
-// was an unlucky single loss. Review round 2's own data contradicts that:
+// An earlier retry (withLaunchRetry) assumed a give-up
+// was an unlucky single loss. The runner data contradicts that:
 // run 35935765272 shows the SAME test's two consecutive attempts both
 // giving up at the deadline (12046ms and 12047ms long, 12.2s apart),
 // meaning whatever starved attempt 1 was still starving attempt 2. A retry only helps
-// against a transient loss; the round 1/2 failure was not transient, so
+// against a transient loss; the failure was not transient, so
 // there is no retry left to test here. What matters instead is that a
 // single attempt, launched after warm-up, finishes well inside the
 // timeout every real caller sets, and that a launch which genuinely never
@@ -213,7 +213,7 @@ describe('RealBrowser.launch: never passes Chrome a port it did not choose (FIX-
   // The brief's own reproduction: hold a port with a real listener (the
   // exact shape a losing race left Chrome bound to), then prove a launch
   // still succeeds and never touches that port. Holding an UNRELATED
-  // random port proved nothing (qa proof r1 defect 1): freePort() picks
+  // random port proved nothing: freePort() picks
   // its own random port, so an incidental listener almost never collides
   // with it, and the old code passed this test too. The spy below forces
   // the actual collision instead of hoping for one: it makes ANY
@@ -272,7 +272,7 @@ describe('RealBrowser.launch: never passes Chrome a port it did not choose (FIX-
   }, 30_000);
 });
 
-// FIX-S7 round 2 (qa proof r1, defect 3): the burst-measurement scripts
+// FIX-S7: the burst-measurement scripts
 // need to COUNT real network requests a page load fires, per class, so the
 // PR body's own numbers are reproducible rather than typed by hand. CDP's
 // Network.requestWillBeSent event names the exact request (method, url)

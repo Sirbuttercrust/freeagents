@@ -300,8 +300,8 @@ describe('rows that state nothing for every agent do not ship (S2 target 5)', ()
   });
 });
 
-// Round 2 (Proof FAIL, commit a7fbb89): D1 conformance-satisfied-by-dead-markup
-// and D2 wireframe-element-absent. Both fixed at the row-rendering level
+// Two defects, conformance-satisfied-by-dead-markup
+// and wireframe-element-absent, both fixed at the row-rendering level
 // (agent.js's tierRow), never by widening the conformance test's string
 // scan: a verified-hire row carries a verify link cloned from the page's
 // own template, its diff size (DATA-CONTRACT section 4, readable off
@@ -312,7 +312,7 @@ describe('rows that state nothing for every agent do not ship (S2 target 5)', ()
 // S2 renamed the verify link to "See the receipt" (it links to the receipt;
 // "credential" is a machine word) and took the job id and merge commit off
 // the row: both are on the receipt it links to.
-describe('verified-hire and claim rows carry the wireframe row shape (Proof round 2, D1/D2)', () => {
+describe('verified-hire and claim rows carry the wireframe row shape', () => {
   it('a verified-hire row\'s verify affordance reads "See the receipt" and links to that receipt', async () => {
     const document = await render();
     const hireRow = document.getElementById('history')?.firstElementChild;

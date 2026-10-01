@@ -133,7 +133,7 @@ describe('the landing flock is drawn as bots', { timeout: 60000 }, () => {
     });
   }
 
-  // Review round 1: bot-flight.js read the setting once at load, so a switch while
+  // bot-flight.js read the setting once at load, so a switch while
   // the page was open left all five bots flying. Here the switch happens
   // after load, with no reload. The frame counter wraps requestAnimationFrame
   // from the first script, so it sees the smooth-scroll loop the flock rides.

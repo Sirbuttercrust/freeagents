@@ -1,4 +1,4 @@
-// The league look (t_c662b9f5, DESIGN.md 2.1, 2.6, 2.8, 6.1): what the
+// The league look (DESIGN.md 2.1, 2.6, 2.8, 6.1): what the
 // rebuilt pages promise, pinned as rules a browser measures rather than as
 // screenshots someone has to eyeball.
 //

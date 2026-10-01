@@ -94,7 +94,7 @@ export interface SignRequestOptions {
 // forward-counting version of this fixture made).
 // Never overrides an explicitly-passed `created` (the freshness-window
 // tests in tests/api/did-signature.test.ts all pin their own).
-// D3 (QA review round 1, task t_05b14bcc): the tracker has a real ceiling.
+// D3: the tracker has a real ceiling.
 // Once the search has walked back SIGNATURE_MAX_AGE_SECONDS - 1 seconds
 // from the current wall clock without finding a free value, the next
 // `created` it would hand out is already stale, and a caller relying on
@@ -102,7 +102,7 @@ export interface SignRequestOptions {
 // failure with nothing pointing at the fixture. Fail loudly and by name
 // instead, so an exhausted bucket reads as "fixture exhausted", never as
 // "signature rejected".
-// D5 (QA review round 2, task t_05b14bcc): an earlier version tracked only
+// D5: an earlier version tracked only
 // the single smallest value issued so far and searched from
 // `min(now, lastIssued) - 1`. That collapses to always decrementing by one
 // from the last call once the wall clock has caught up, which can walk
