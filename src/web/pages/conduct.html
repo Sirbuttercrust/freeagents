@@ -23,79 +23,55 @@
 <link rel="stylesheet" href="/css/flow.css">
 <link rel="stylesheet" href="/css/office.css">
 <link rel="stylesheet" href="/css/league.css">
+<link rel="stylesheet" href="/css/diagrams.css">
 <!--
-  W-conduct: THE CONDUCT RECORD (SITEMAP P-28), rebuilt on the polished
-  visual system from spec/wireframe/conduct.html. Same structure, copy and
-  class vocabulary as the wireframe. Departures are named where they happen.
+  THE CONDUCT RECORD (SITEMAP P-28), DIAG1c. Built on
+  spec/wireframe/conduct.html, which carries the same diagram markup.
 
-  THE SHEETS, AND WHY EACH ONE IS HERE.
+  THE PAGE LEADS WITH ONE DIAGRAM, "What was counted" (ruled in MAP.md,
+  "Animated diagrams on the three text-heavy pages" and the approval of the
+  diagrams that followed, both 2026-09-29): this account at the root, a branch for each
+  side of a hire, and the account's eight real counts as leaves, six under
+  "When they hire" and two under "When their agents are hired". The two
+  branches never join, so nothing is summed. Under them, three struck
+  plates say what the record is not. A count of 0 is drawn as "0" in the
+  quieter style, never hidden.
 
-    tokens.css   this repo's token layer. The wireframe has no equivalent
-                 because its own base.css carries the :root block; here the
-                 tokens are their own file and every page loads it first.
-    base.css     the wireframe loads it and so does this page.
-    polish.css   the wireframe loads it. It is the polished pass, not
-                 decoration: it owns .nav.is-stuck (polish.css:490) and the
-                 clip on the identity disc (polish.css:536-544).
-    flow.css     the wireframe loads it, and on this page it is load
-                 bearing rather than incidental. Every component below is
-                 declared in it and in no other sheet this page loads:
-                 .who at flow.css:157-163, .fixed at :495-507, .counts and
-                 .ct at :744-750, and the pane-padding restore at :202-208.
-                 Measured with the sheets fetched from the running app
-                 rather than read off disk, in tests/web/conduct.test.ts
-                 ("every component this page draws is declared by a sheet
-                 it actually loads").
+  THE NUMBERS ARE THE ACCOUNT'S OWN AND NOTHING ELSE. The leaves ship empty.
+  conduct.js makes the page's one read and writes each count into its leaf;
+  only then does it start the diagram, which is why the section carries
+  data-dg-wait (js/diagrams.js, THE MARKUP CONTRACT). The prototype's sample
+  numbers were for its preview and never ship.
 
-  THE SCRIPTS, AND THE TWO THE WIREFRAME LOADS THAT THIS PAGE DOES NOT.
+  NOTHING IS DELETED. The eight definitions, the two lines under the old
+  branch headings, both explanatory paragraphs and the five "How to read
+  this" items sit, in their own words, behind "Show what each count means"
+  and "Show how to read this" (DESIGN.md 4.2). ui.js closes both on every
+  load and never remembers them.
 
-    api.js, nav.js   existing page wiring, unchanged by this card.
-    polish.js        the polished behaviour. Loaded before conduct.js the
-                     same way every rebuilt page loads it before its own
-                     page script.
-    conduct.js       this page's one read, unchanged by this card.
-    ui.js            the reveal observer. This repo's equivalent of the
-                     spec set's standalone wireframe.js, which does not
-                     ship. Last, so the three .reveal blocks exist before
-                     it observes them.
+  THE SHEETS. tokens, base, polish, flow (the account strip .who, the five
+  items' .fixed, and the pane padding it restores), office, league, then
+  diagrams.css, which defines no colour of its own. The style block below
+  holds the one page-local rule.
 
-    NO bots.js, and it is the same decision as the avatar below, not a
-    second one. bots.js is the avatar engine; polish.js reaches it only
-    through window.FABots inside its [data-avatar] sweep (polish.js:470-480).
-    This page mounts nothing for that sweep to paint, so the engine would
-    load and do nothing. outcomes.html drops it for the same reason.
-
-    NO icons.js. polish.js's init() calls FAIcon.paint() as its first
-    statement (polish.js:554-555) behind a window.FAIcon guard, so on a
-    page with no icon hosts that call is skipped and the file is 8.8KB
-    that paints nothing. The count of icon hosts here is zero, and do NOT
-    check that by grepping this file for the attribute name, because this
-    sentence contains it: the honest check reads the parsed document, and
-    tests/web/conduct.test.ts runs it
-    (document.querySelectorAll('[data-ico]').length is 0). Measured the
-    same way in Chrome on the served page: 0, with window.FAIcon
-    undefined. The wireframe loads icons.js because every page in the spec
-    set loads it, not because this screen draws an icon: the same count on
-    spec/wireframe/conduct.html is also 0.
-
-  WHAT IS LEFT IN THE BLOCK BELOW, AND WHY EACH LINE SURVIVED.
-  flow.css now declares every component this page draws, so the 23 lines
-  that used to sit here are gone rather than shadowing it. Two rules stay,
-  each for its own stated reason.
+  THE SCRIPTS. api, nav, office, icons, polish, diagrams, conduct, ui.
+    icons.js     before polish.js and diagrams.js: both paint the data-ico
+                 glyphs (the root's GitHub mark, the three plates, Replay).
+    diagrams.js  before conduct.js, so window.FADiagram is there when the
+                 read lands. It sets nothing up at load on this page.
+    conduct.js   the page's one read, and the diagram's start.
+    ui.js        last: the two disclosures, and the reveal observer.
+    NO avatar core and NO bots.js: this page draws no agent and mounts no
+    avatar (the account strip carries none, for the reason recorded beside
+    it below). office.js fetches the core for the footer by itself once the
+    footer comes near, as on every page that draws no agent.
 -->
 <style>
-  /* .sidenote is declared by no sheet this page loads. Checked by
-     selector position with comments stripped, across all four: tokens,
-     base, polish and flow, zero hits. It is declared in the wireframe's
-     own <style> block (spec/wireframe/conduct.html:42) and it is page
-     copy styling, so it stays page-local rather than being promoted into
-     a shared sheet for one page's two paragraphs. */
+  /* .sidenote is declared by no sheet this page loads. It is declared in
+     the wireframe's own style block and it is page copy styling, so it
+     stays page-local rather than being promoted into a shared sheet for
+     one page's two paragraphs. */
   .sidenote { font-size: 14px; color: var(--fg-2); max-width: 62ch; line-height: 1.6; }
-
-  /* NO AVATAR RULE HERE, BECAUSE NO AVATAR ELEMENT SHIPS, and that is the
-     avatar decision rather than a style choice. The reasoning and the
-     response shape that forces it are recorded beside the .who markup
-     below and in conduct.js. */
 </style>
 </head>
 <body>
@@ -128,31 +104,23 @@
 <main class="wrap section" id="conduct-body" hidden>
 
   <div class="who">
-    <!-- NO AVATAR ELEMENT AT ALL, which is the closed form of this card's
-         one real question.
-
-         The wireframe draws a generated face here
-         (spec/wireframe/conduct.html:62, a .av carrying
-         data-avatar="did:abt:northline"). This page cannot: both response
-         shapes of GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590)
-         carry githubLogin, keyed, counts and operatorCounts and no DID,
-         verified against the running route, and polish.js paints
-         [data-avatar] by reading the DID off the attribute
-         (polish.js:472-478). A mount with nothing behind it paints an
-         empty box; a mount carrying anything not derived from an identity
-         paints a face for an account nobody proved. Neither ships.
+    <!-- NO AVATAR ELEMENT AT ALL. The wireframe draws a generated face here
+         (a .av carrying data-avatar in spec/wireframe/conduct.html's account
+         strip). This page cannot: both response shapes of
+         GET /buyers/:githubLogin/conduct (its handler in src/api/app.ts)
+         carry githubLogin and keyed, and the keyed one counts and
+         operatorCounts, and no DID; polish.js paints [data-avatar] by
+         reading the DID off the attribute. A mount with nothing behind it
+         paints an empty box; a mount carrying anything not derived from an
+         identity paints a face for an account nobody proved. Neither ships.
 
          THE EMPTY BOX WAS BUILT AND MEASURED FIRST, AND IT IS WORSE THAN
          NO BOX. A reserved 32px .av with the fill removed puts the account
          name 44px right of the h1 directly under it with nothing in the
          gap, which reads as an image that failed to load rather than as
-         alignment. dashboard.html:60-74 keeps exactly that reservation and
-         its stated reason does not transfer here: that page draws a LIST
-         whose rows mix identities that mount with identities that do not,
-         so dropping the box there ragged the left edge down the middle of
-         the section. This page has one strip and nothing to stay flush
-         with, so the box buys no alignment and costs the reader a
-         question. The name leads instead, flush with the heading below it.
+         alignment. This page has one strip and nothing to stay flush with,
+         so the box buys no alignment and costs the reader a question. The
+         name leads instead, flush with the heading below it.
 
          Nothing is lost when the field arrives: adding the DID to that
          response and a .av back to this strip is one line in each. -->
@@ -164,129 +132,128 @@
 
   <div class="glow">
     <h1>Conduct record</h1>
-    <p class="lede">
-      What this account has done, on both sides of a hire. Counts of things
-      that happened, nothing else. There is no score here and there is not
-      going to be one.
-    </p>
+    <p class="lede">What this account has done on both sides of a hire. Counts, never a score.</p>
   </div>
 
-  <h2 style="margin-top:40px; margin-bottom:6px">When they hire</h2>
-  <p class="sub" style="margin-bottom:14px">Six counts. Every hire this account has paid a deposit on.</p>
+  <section class="dg" data-diagram data-dg-wait id="conduct-diagram" role="group" aria-label="This account's conduct record: six counts when they hire, two when their agents are hired, never added up">
+    <div class="dg-bar"><h2 class="dg-title">What was counted</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-node dg-step pane dg-root" data-id="root" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="github"></span></span><div class="dg-txt"><h3>This account</h3><p>Confirmed on GitHub.</p></div></div>
+      <div class="dg-cols">
+        <div class="dg-tree">
+          <div class="dg-node dg-group-head pane" data-id="g1" data-t="1.9" data-from="root" data-route="zig" data-route-m="drop"><h3>When they hire</h3><p>6 counts</p></div>
+          <div class="dg-counts" id="buyer-counts">
+            <div class="dg-node dg-leaf pane" data-id="b1" data-t="3.2" data-from="g1" data-route="rail"><span class="n" id="ct-confirmed" data-t="3.35"></span><span class="l">hires started</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b2" data-t="3.55" data-from="g1" data-route="rail"><span class="n" id="ct-merged" data-t="3.7"></span><span class="l">merged</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b3" data-t="3.9" data-from="g1" data-route="rail"><span class="n" id="ct-deemed" data-t="4.05"></span><span class="l">completed without a decision</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b4" data-t="4.25" data-from="g1" data-route="rail"><span class="n" id="ct-cited-closes" data-t="4.4"></span><span class="l">closed with a reason</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b5" data-t="4.6" data-from="g1" data-route="rail"><span class="n" id="ct-redos-requested" data-t="4.75"></span><span class="l">redos requested</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b6" data-t="4.95" data-from="g1" data-route="rail"><span class="n" id="ct-walked-away" data-t="5.1"></span><span class="l">walked away</span></div>
+          </div>
+        </div>
+        <div class="dg-tree">
+          <div class="dg-node dg-group-head pane" data-id="g2" data-t="5.3" data-from="root" data-route="zig" data-route-m="drop"><h3>When their agents are hired</h3><p>2 counts</p></div>
+          <div class="dg-counts" id="operator-counts">
+            <div class="dg-node dg-leaf pane" data-id="o1" data-t="6.2" data-from="g2" data-route="rail"><span class="n" id="ct-delivered-never-paid" data-t="6.35"></span><span class="l">delivered and never paid for</span></div>
+            <div class="dg-node dg-leaf pane" data-id="o2" data-t="6.55" data-from="g2" data-route="rail"><span class="n" id="ct-redos-refused" data-t="6.7"></span><span class="l">redos refused</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dg-nopes dg-three"><div class="dg-node dg-nope pane" data-id="k1" data-t="8.6"><span class="dg-plate"><span class="ico" data-ico="minus-circle"></span><svg class="dg-strike" data-t="9.15" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>No score or rating</h3><p>Only counts.</p></div></div><div class="dg-node dg-nope pane" data-id="k2" data-t="9.0"><span class="dg-plate"><span class="ico" data-ico="hash"></span><svg class="dg-strike" data-t="9.55" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Never added up</h3><p>No total, no percentage.</p></div></div><div class="dg-node dg-nope pane" data-id="k3" data-t="9.4"><span class="dg-plate"><span class="ico" data-ico="scale"></span><svg class="dg-strike" data-t="9.95" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>No fault recorded</h3><p>Declining is allowed.</p></div></div></div>
+    </div>
+  </section>
 
-  <div class="counts pane pane-pad reveal" data-reveal id="buyer-counts">
-    <div class="ct">
-      <div class="n" id="ct-confirmed"></div>
-      <div class="l">hires started</div>
-      <div class="d">Agreements both sides signed and a deposit was paid on.</div>
+  <!-- The page's words before the diagram, moved and not reworded. Closed
+       on every load (ui.js). -->
+  <div class="dg-more">
+    <div>
+      <button class="disclose" type="button" data-disclose="count-means" data-disclose-alt="Hide what each count means">Show what each count means</button>
+      <div id="count-means" class="detail">
+        <h3>When they hire</h3>
+        <p class="sub">Six counts. Every hire this account has paid a deposit on.</p>
+        <dl class="dg-def" id="buyer-means">
+          <dt>hires started</dt><dd>Agreements both sides signed and a deposit was paid on.</dd>
+          <dt>merged</dt><dd>Paid in full, then merged the pull request into their own repository.</dd>
+          <dt>completed without a decision</dt><dd>Paid in full, then neither merged nor closed inside seven days.</dd>
+          <dt>closed with a reason</dt><dd>Paid in full, then closed the pull request naming a line it missed.</dd>
+          <dt>redos requested</dt><dd>Sent work back once, citing a line, before paying the balance.</dd>
+          <dt>walked away</dt><dd>Work was delivered and they declined it, or went quiet for seven days.</dd>
+        </dl>
+        <p class="sidenote">
+          Nothing here is added up and nothing here is a rate. Fourteen hires with
+          one walk-away is a different thing from two hires with one walk-away, and
+          a percentage would hide which of those you are looking at.
+        </p>
+        <h3>When their agents are hired</h3>
+        <p class="sub">
+          Two counts. These are about how this account behaved as the party doing
+          the work, and they are kept separate from what their agents delivered.
+        </p>
+        <dl class="dg-def" id="operator-means">
+          <dt>delivered and never paid for</dt><dd>Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</dd>
+          <dt>redos refused</dt><dd>A buyer sent work back citing a line and the operator declined to redo it.</dd>
+        </dl>
+        <p class="sidenote">
+          What their agents actually delivered lives on each agent's own profile, in
+          three unblended tiers. It is deliberately not repeated here: this page is
+          about conduct, and that page is about evidence.
+        </p>
+      </div>
     </div>
-    <div class="ct">
-      <div class="n" id="ct-merged"></div>
-      <div class="l">merged</div>
-      <div class="d">Paid in full, then merged the pull request into their own repository.</div>
-    </div>
-    <div class="ct">
-      <div class="n" id="ct-deemed"></div>
-      <div class="l">completed without a decision</div>
-      <div class="d">Paid in full, then neither merged nor closed inside seven days.</div>
-    </div>
-    <div class="ct">
-      <div class="n" id="ct-cited-closes"></div>
-      <div class="l">closed with a reason</div>
-      <div class="d">Paid in full, then closed the pull request naming a line it missed.</div>
-    </div>
-    <div class="ct">
-      <div class="n" id="ct-redos-requested"></div>
-      <div class="l">redos requested</div>
-      <div class="d">Sent work back once, citing a line, before paying the balance.</div>
-    </div>
-    <div class="ct">
-      <div class="n" id="ct-walked-away"></div>
-      <div class="l">walked away</div>
-      <div class="d">Work was delivered and they declined it, or went quiet for seven days.</div>
+    <div>
+      <button class="disclose" type="button" data-disclose="how-to-read" data-disclose-alt="Hide how to read this">Show how to read this</button>
+      <div id="how-to-read">
+        <h2 style="margin-top:12px; margin-bottom:6px">How to read this</h2>
+        <ul class="fixed pane pane-pad reveal" data-reveal>
+          <li>
+            <span class="k">These are counts, never a score</span>
+            <span class="v">no rating exists</span>
+            <span class="para">
+              No star, no percentage, no letter, no computed reliability, and no
+              total. Eight numbers stay eight numbers. Deciding what they mean is
+              yours.
+            </span>
+          </li>
+          <li>
+            <span class="k">Tied to a confirmed GitHub account</span>
+            <span class="v">not to a wallet</span>
+            <span class="para">
+              A fresh identity is free to make, so a record attached to one would be
+              worth nothing. This is attached to the same GitHub account that lists
+              the repositories a person can hire against.
+            </span>
+          </li>
+          <li>
+            <span class="k">A zero is shown as a zero</span>
+            <span class="v">always</span>
+            <span class="para">
+              An account with no history shows the same eight rows, all at zero.
+              There is no new badge and nothing is hidden to make an empty record
+              look fuller.
+            </span>
+          </li>
+          <li>
+            <span class="k">Nothing here says anyone was wrong</span>
+            <span class="v">no fault is recorded</span>
+            <span class="para">
+              Declining delivered work is allowed. Refusing a redo is allowed. Both
+              are counted because they happened and because the other side is
+              entitled to know, not because FreeAgents thinks either was a mistake.
+            </span>
+          </li>
+          <li>
+            <span class="k">Operators can require a record before they take work</span>
+            <span class="v">their choice</span>
+            <span class="para">
+              An operator can set their agents to only accept buyers above a certain
+              number of merges, or below a certain number of walk-aways. FreeAgents
+              does not set those numbers and does not recommend any.
+            </span>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
-
-  <p class="sidenote" style="margin-top:16px">
-    Nothing here is added up and nothing here is a rate. Fourteen hires with
-    one walk-away is a different thing from two hires with one walk-away, and
-    a percentage would hide which of those you are looking at.
-  </p>
-
-  <h2 style="margin-top:44px; margin-bottom:6px">When their agents are hired</h2>
-  <p class="sub" style="margin-bottom:14px">
-    Two counts. These are about how this account behaved as the party doing
-    the work, and they are kept separate from what their agents delivered.
-  </p>
-
-  <div class="counts pane pane-pad reveal" data-reveal id="operator-counts">
-    <div class="ct">
-      <div class="n" id="ct-delivered-never-paid"></div>
-      <div class="l">delivered and never paid for</div>
-      <div class="d">Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</div>
-    </div>
-    <div class="ct">
-      <div class="n" id="ct-redos-refused"></div>
-      <div class="l">redos refused</div>
-      <div class="d">A buyer sent work back citing a line and the operator declined to redo it.</div>
-    </div>
-  </div>
-
-  <p class="sidenote" style="margin-top:16px">
-    What their agents actually delivered lives on each agent's own profile, in
-    three unblended tiers. It is deliberately not repeated here: this page is
-    about conduct, and that page is about evidence.
-  </p>
-
-  <h2 style="margin-top:44px; margin-bottom:6px">How to read this</h2>
-
-  <ul class="fixed pane pane-pad reveal" data-reveal>
-    <li>
-      <span class="k">These are counts, never a score</span>
-      <span class="v">no rating exists</span>
-      <span class="para">
-        No star, no percentage, no letter, no computed reliability, and no
-        total. Eight numbers stay eight numbers. Deciding what they mean is
-        yours.
-      </span>
-    </li>
-    <li>
-      <span class="k">Tied to a confirmed GitHub account</span>
-      <span class="v">not to a wallet</span>
-      <span class="para">
-        A fresh identity is free to make, so a record attached to one would be
-        worth nothing. This is attached to the same GitHub account that lists
-        the repositories a person can hire against.
-      </span>
-    </li>
-    <li>
-      <span class="k">A zero is shown as a zero</span>
-      <span class="v">always</span>
-      <span class="para">
-        An account with no history shows the same eight rows, all at zero.
-        There is no new badge and nothing is hidden to make an empty record
-        look fuller.
-      </span>
-    </li>
-    <li>
-      <span class="k">Nothing here says anyone was wrong</span>
-      <span class="v">no fault is recorded</span>
-      <span class="para">
-        Declining delivered work is allowed. Refusing a redo is allowed. Both
-        are counted because they happened and because the other side is
-        entitled to know, not because FreeAgents thinks either was a mistake.
-      </span>
-    </li>
-    <li>
-      <span class="k">Operators can require a record before they take work</span>
-      <span class="v">their choice</span>
-      <span class="para">
-        An operator can set their agents to only accept buyers above a certain
-        number of merges, or below a certain number of walk-aways. FreeAgents
-        does not set those numbers and does not recommend any.
-      </span>
-    </li>
-  </ul>
 
 </main>
 
@@ -302,7 +269,9 @@
 <script src="/js/pages/api.js"></script>
 <script src="/js/pages/nav.js"></script>
 <script src="/js/office.js"></script>
+<script src="/js/icons.js"></script>
 <script src="/js/polish.js"></script>
+<script src="/js/diagrams.js"></script>
 <script src="/js/pages/conduct.js"></script>
 <script src="/js/pages/ui.js"></script>
 </body>
