@@ -1,4 +1,4 @@
-// FIX-B39 (bugs.md B39): shared open-rail HTTP test harness for
+// FIX-B39 (B39): shared open-rail HTTP test harness for
 // tests/api/job-open-rail.test.ts and tests/api/job-payment-rail-door-
 // eligibility.test.ts (both drive an open quote, both need a buyer, an
 // agent whose operator carries zero, one or two payout addresses, and a

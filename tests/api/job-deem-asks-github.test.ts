@@ -1,4 +1,4 @@
-// FIX-B60D (bugs.md B60, second half): before a submitted job past its
+// FIX-B60D (B60, second half): before a submitted job past its
 // review window is deemed complete, the platform asks GitHub once whether
 // its pull request merged. A merge GitHub dates inside the window completes
 // the job with the merge receipt (the work-history credential); a pull

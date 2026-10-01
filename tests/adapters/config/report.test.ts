@@ -308,7 +308,7 @@ describe('formatConfigReport: never prints a value', () => {
     expect(output).toContain('usdcRail: not configured (missing FREEAGENTS_USDC_RPC_URL');
   });
 
-  // ISS1 (bugs.md B30): FREEAGENTS_PLATFORM_DID is gone as a configuration
+  // ISS1 (B30): FREEAGENTS_PLATFORM_DID is gone as a configuration
   // knob, but an operator still needs to see, at boot, which DID this
   // deployment signs credentials as. The derived DID is passed in
   // separately (server.ts resolves it once via platformIssuerFromEnv, the

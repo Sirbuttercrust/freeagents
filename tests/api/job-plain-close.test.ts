@@ -1,4 +1,4 @@
-// FIX-B71 (bugs.md B71): a plain close on GitHub, with no cited reason, does
+// FIX-B71 (B71): a plain close on GitHub, with no cited reason, does
 // not end a paid job. MISSION.md: "Completion is deemed if the buyer neither
 // merges nor closes with a cited reason within the review window." The merge
 // route used to record a closed, unmerged pull request as the terminal

@@ -1,4 +1,4 @@
-// FIX-B37 (bugs.md B37 + B42): every door that starts a deposit refuses
+// FIX-B37 (B37 + B42): every door that starts a deposit refuses
 // what confirm would refuse, before any money moves. Confirm (app.ts
 // POST /jobs/:jobId/confirm) has always checked more than the three
 // deposit-start doors did: the agreement (confirmSpec's own criteria and

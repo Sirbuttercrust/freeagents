@@ -110,7 +110,7 @@ export interface QuoteSentEvent {
   readonly criteriaCount: number;
 }
 
-// STEER (bugs.md B19): a settlement leg observed on chain
+// STEER (B19): a settlement leg observed on chain
 // becomes a row in the thread the instant it is recorded, so a buyer who
 // has paid can see it. leg names which of the two legs settled; the
 // amount is always in USD (never a token amount) and the rail names
@@ -125,7 +125,7 @@ export interface DepositPaidEvent {
   readonly rail: Rail;
 }
 
-// STEER (bugs.md B19): the remainder leg's sibling event, named
+// STEER (B19): the remainder leg's sibling event, named
 // 'remainder_paid' rather than 'balance_paid' -- 'remainder' is this
 // codebase's own established name for the second payment leg (RouteLeg,
 // src/adapters/payment/route-support.ts; remainderUsd,
@@ -158,7 +158,7 @@ export interface CompletedEvent {
 // surface (and the operator reading the same thread) is told the
 // staging repository waits on that invitation, with GitHub's own accept
 // link -- rather than silently answering 200 while the agent has no
-// push access yet (bugs.md B14b). githubLogin names the account that
+// push access yet (B14b). githubLogin names the account that
 // must accept it, since the buyer's operator reads this row too and has
 // no other way to know whose invitation it is.
 export interface StagingInvitedEvent {

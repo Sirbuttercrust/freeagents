@@ -1,4 +1,4 @@
-// B23 and B25 (bug ledger, C1 rehearsal s7 and s8): the payment surface's
+// B23 and B25: the payment surface's
 // two status-independent guards.
 //
 // B23: every payment start route (both rails) and the USDC wallet-response

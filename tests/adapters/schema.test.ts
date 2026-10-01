@@ -496,7 +496,7 @@ describe('prisma, Account.unprovedGithubLogin is declared and migrated (FIX-B62b
   });
 });
 
-// FIX-SW4f (bugs.md SW4-05): which message sends an upload is a stored fact.
+// FIX-SW4f (SW4-05): which message sends an upload is a stored fact.
 describe('prisma/schema.prisma, Attachment.messageId (FIX-SW4f)', () => {
   it('the schema declares messageId as nullable, with no default', () => {
     const attachment = modelBody('Attachment');

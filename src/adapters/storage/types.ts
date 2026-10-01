@@ -593,7 +593,7 @@ export interface AttachmentRepository {
 // (a rare but real event, e.g. after clearing site data) replaces the
 // prior key material rather than accumulating a stale duplicate.
 //
-// FIX-SW4b (bugs.md SW4-02): a subscription belongs to the account that
+// FIX-SW4b (SW4-02): a subscription belongs to the account that
 // registered it. removeForAccount deletes the row only when that account
 // holds the endpoint and does nothing otherwise; findByEndpoint lets the
 // caller of upsert see who holds an endpoint before it takes it over.

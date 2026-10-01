@@ -195,7 +195,7 @@ export function buildConfigReport(env: Record<string, string | undefined> = proc
 // "<capability>: not configured (missing FOO, BAR)". Callers must not
 // concatenate this with anything containing a live env var value.
 //
-// ISS1 (bugs.md B30): derivedIssuerDid is the platform's own issuer DID,
+// ISS1 (B30): derivedIssuerDid is the platform's own issuer DID,
 // resolved once by the caller through platformIssuerFromEnv (the exact
 // value the running process signs credentials with), never recomputed or
 // guessed here. FREEAGENTS_PLATFORM_DID is gone as a configuration knob,

@@ -272,7 +272,7 @@ export class JobPriceError extends Error {
 
 // DEP1 (B24 ruling, 2026-09-23, answering "yes" to the recommendation):
 // once the buyer's deposit has settled, the agent can no longer simply
-// decline. FIX-B74 (bugs.md B74) applies the same rule to the other two
+// decline. FIX-B74 (B74) applies the same rule to the other two
 // doors that reopen a paid agreement: three doors, one rule. A proposed
 // job whose deposit has settled takes no decline, no criteria/price
 // proposal and no withdraw. A state conflict, the same 409 shape
@@ -481,7 +481,7 @@ export function isTerminal(status: JobStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
 }
 
-// FIX-B37 (bugs.md B37): the agreement rule confirm has always enforced,
+// FIX-B37 (B37): the agreement rule confirm has always enforced,
 // lifted into a pure function so a deposit door can ask the identical
 // question BEFORE any money moves (route-support.ts's checkAgreementReady
 // and checkDepositReadiness are the callers on that side; confirmSpec below
@@ -644,7 +644,7 @@ export function attachStagingRepository(
 // the repository's CURRENT name), but job.repository stayed stale, so
 // confirm either kept 409ing on the old path or succeeded while the job
 // still named a repository the pull-request route's base-repository check
-// (app.ts:5910) would never match again (bugs.md B36). A pure function,
+// (app.ts:5910) would never match again (B36). A pure function,
 // not a transition, the same stance attachStagingRepository above takes:
 // confirm's own status edge is confirmSpec's job alone, and this function
 // never touches status, only ever `repository`. Refused once the job is
@@ -1126,7 +1126,7 @@ function isDecimalUsd(value: string): boolean {
   return /^\d+\.\d{2}$/.test(value);
 }
 
-// FIX-B39 (bugs.md B39), rule 1: rail is OPTIONAL. A quote may leave the
+// FIX-B39 (B39), rule 1: rail is OPTIONAL. A quote may leave the
 // currency open (the ABT ruling, 2026-09-15: "the buyer pays in whatever
 // they came with"); a proposal that names one still pins the job to it,
 // exactly as before this card.
@@ -1208,7 +1208,7 @@ export function proposeCriteria(
     const existing = pool[matchIndex];
     return {
       text,
-      // FIX-B45 (bugs.md B45): a matched line is unchanged text, so it
+      // FIX-B45 (B45): a matched line is unchanged text, so it
       // keeps the stored line's own author along with its marks. Only a
       // new or changed line (the matchIndex === -1 branch above) takes the
       // input's proposedBy, which is the sender's seat by the time this

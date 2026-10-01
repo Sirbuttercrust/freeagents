@@ -42,7 +42,7 @@ function toRouteLeg(leg: CreateRequestInput['leg']): RouteLeg {
   return leg === 'balance' ? 'remainder' : 'deposit';
 }
 
-// B23 (bug ledger, C1 rehearsal s7): each leg is only ever eligible while
+// B23: each leg is only ever eligible while
 // the job is in the status that leg belongs to. Shared here, in the
 // exempted payment directory, so every door onto the payment surface --
 // both rails' /start routes, the USDC wallet-response route, the ABT
@@ -66,7 +66,7 @@ export function legStatusConflictMessage(leg: RouteLeg, status: JobStatus): stri
   return `the ${leg} leg is not payable while this job is in status "${status}"; it is only payable while the job is ${eligible}`;
 }
 
-// B25 (bug ledger, C1 rehearsal s8): each rail's routes refuse a job
+// B25: each rail's routes refuse a job
 // priced on the OTHER rail, in both directions. Shared for the identical
 // reason legStatusEligible above is: every door onto the payment surface
 // must apply the same rule.
@@ -74,7 +74,7 @@ export function legRailMismatchMessage(routeRail: Rail, jobRail: Rail | null): s
   return `this job is priced on the "${jobRail}" rail; the "${routeRail}" payment routes refuse it`;
 }
 
-// FIX-B39 (bugs.md B39), rule 5: the message a door answers when the
+// FIX-B39 (B39), rule 5: the message a door answers when the
 // SETTLED DEPOSIT, not the job's own quote pin, disagrees with the rail
 // this door belongs to. A buyer can act on this: pay the leg on the rail
 // that already settled.
@@ -154,7 +154,7 @@ export async function checkRailDoorEligible(input: {
   return { ok: true };
 }
 
-// B49 (bugs.md, this card): a leg that already has a settlement row must
+// B49 (this card): a leg that already has a settlement row must
 // never be paid again. Before this check, a buyer who reloaded checkout
 // before confirm was offered a fresh full payment for a leg that had
 // already settled. Shared here for the same reason legStatusEligible and
@@ -417,7 +417,7 @@ export async function checkRepositoryReady(
   return { ok: true };
 }
 
-// FIX-B37 (bugs.md B37 + B42): confirm refuses more than the deposit doors
+// FIX-B37 (B37 + B42): confirm refuses more than the deposit doors
 // ever checked (the brief's own measured gap). Everything below is the
 // deposit-readiness surface that closes it, shared by every door onto the
 // payment surface the same way checkRepositoryReady already is.

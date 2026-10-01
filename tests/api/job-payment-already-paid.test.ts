@@ -1,4 +1,4 @@
-// B49 (bugs.md, this card): a leg already paid could be paid again. Measured
+// B49 (this card): a leg already paid could be paid again. Measured
 // on 2e27cf2: with the USDC deposit settled and the job still 'proposed',
 // POST .../deposit/usdc/start answered 200 with fresh transfer intents, so a
 // buyer who reloaded checkout before confirm was offered a second full

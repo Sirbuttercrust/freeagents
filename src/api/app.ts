@@ -624,7 +624,7 @@ function jobProjection(row: Job): Record<string, unknown> {
   };
 }
 
-// FIX-B39 (bugs.md B39), rule 2: the job's payable currencies. The pinned
+// FIX-B39 (B39), rule 2: the job's payable currencies. The pinned
 // one if a quote pinned it; otherwise every currency the hired agent's
 // owner has a payout address for. Rule 3 (settlement fixes the
 // currency): once a deposit has settled, only that deposit's currency,
@@ -1012,7 +1012,7 @@ async function withBuyerGithubLogins(
   }));
 }
 
-// FIX-SW4f (bugs.md SW4-05): the quota's refusal and the sweep's pace. The
+// FIX-SW4f (SW4-05): the quota's refusal and the sweep's pace. The
 // caps and the TTL live with the counting rule in src/domain/attachment.ts.
 // Sending a file frees a place and takes seconds, so a minute is a fair wait.
 const UNSENT_UPLOAD_RETRY_AFTER_SECONDS = 60;
@@ -1261,7 +1261,7 @@ export function createApp(
   // and an unknown key with their own distinct 401 rather than falling
   // through to "as if unsigned".
   //
-  // B29 (bug ledger, C1 rehearsal s2): 'unknown-key' and a refused signature
+  // B29: 'unknown-key' and a refused signature
   // are kept as two separate outcomes all the way out to the route layer, not
   // folded back into one here. A caller who signed correctly with a key this
   // service has simply never registered was being told their cryptography was
@@ -1597,7 +1597,7 @@ export function createApp(
     // account URL, not the statement text as written: a third party
     // reconstructs the same bytes from the gist alone (invariant 2).
     //
-    // PRF1 (bugs.md B31): the statement's optional `key` line is passed
+    // PRF1 (B31): the statement's optional `key` line is passed
     // through as a candidate. identityAdapter.verify only trusts it after
     // checking it derives this agent's own DID (the same binding check
     // buildDidAbtLoader already applies), so this is never a bypass, only
@@ -1672,7 +1672,7 @@ export function createApp(
     });
   });
 
-  // ISS1 (bugs.md B30): the one place a third party learns which DID is
+  // ISS1 (B30): the one place a third party learns which DID is
   // FreeAgents' own issuer -- published outside any credential, so a
   // credential cannot forge it. Public, unauthenticated, cacheable: the
   // identity changes only when the deployment's signing key changes, so a
@@ -2101,7 +2101,7 @@ export function createApp(
   // party's own claim, checked below the same way it always was; only the
   // session-or-signature gate in front of it is gone.
   //
-  // FIX-B62a (bugs.md B62): the body is { did, githubLogin?, gist?,
+  // FIX-B62a (B62): the body is { did, githubLogin?, gist?,
   // passkeySubject? }. Registration stays open to anyone, but a GitHub
   // login on the row is a claim about a person, so it is stored only when
   // a public gist authored by that GitHub account, signed by this DID's
@@ -3065,7 +3065,7 @@ export function createApp(
       res.status(400).json({ error: 'body must be { endpoint, keys: { p256dh, auth } }, the standard PushSubscription.toJSON() shape' });
       return;
     }
-    // FIX-SW4a (bugs.md SW4-08): the endpoint is an address the platform
+    // FIX-SW4a (SW4-08): the endpoint is an address the platform
     // will send to, so it must be https on the public internet. A browser's
     // push service always is; a loopback, private, link-local or metadata
     // address, plain http or file: is refused here, before anything is
@@ -3077,7 +3077,7 @@ export function createApp(
       return;
     }
     try {
-      // FIX-SW4b (bugs.md SW4-02): the upsert is keyed by endpoint alone, so
+      // FIX-SW4b (SW4-02): the upsert is keyed by endpoint alone, so
       // without this look-up a POST naming another account's endpoint would
       // move that row to the caller with the caller's keys. The same account
       // posting its own endpoint again (a browser renewing its keys) passes.
@@ -3123,7 +3123,7 @@ export function createApp(
       return;
     }
     try {
-      // FIX-SW4b (bugs.md SW4-02): removes the caller's own row only. The
+      // FIX-SW4b (SW4-02): removes the caller's own row only. The
       // answer is 204 whether or not a row was removed, so it tells a caller
       // nothing about an endpoint another account holds.
       await pushSubscriptionRepo.removeForAccount(did, body.endpoint);
@@ -3134,7 +3134,7 @@ export function createApp(
     }
   });
 
-  // FIX-SW4f (bugs.md SW4-05): removes uploads no message carries once they
+  // FIX-SW4f (SW4-05): removes uploads no message carries once they
   // are older than UNSENT_UPLOAD_TTL_MS. Called from the upload route, at
   // most once per UNSENT_SWEEP_INTERVAL_MS for this app, with no timer; the
   // run is recorded before anything is awaited and it never throws. Per old
@@ -3169,7 +3169,7 @@ export function createApp(
     }
   }
 
-  // FIX-SW4f (bugs.md SW4-05): makes the quota and the admission one step.
+  // FIX-SW4f (SW4-05): makes the quota and the admission one step.
   // The route decodes and writes before its row exists, so stored rows alone
   // let every upload arriving meanwhile pass. An admitted upload holds a place
   // under the caller's DID until its request ends; the count adds held places
@@ -3238,7 +3238,7 @@ export function createApp(
         res.status(400).json({ error: 'body must be { filename, dataBase64 }; dataBase64 the file bytes, base64-encoded, up to 10 MB' });
         return;
       }
-      // FIX-SW4f (bugs.md SW4-05): sweep old unsent uploads, then refuse the
+      // FIX-SW4f (SW4-05): sweep old unsent uploads, then refuse the
       // caller past either cap, after the checks above (a stranger still gets
       // 403, a read-only thread 409) and before anything is decoded or written.
       await sweepUnsentUploads();
@@ -4491,7 +4491,7 @@ export function createApp(
   // is gone from this route entirely: this adapter's resolveDid can never
   // learn that field for real (identity.ts's own header comment), so
   // requiring it meant this route answered 503 for every agent, forever
-  // (bugs.md B22). Everything this route already checked about the gist
+  // (B22). Everything this route already checked about the gist
   // itself stays unchanged.
   // S3+S4 follow-on (security sweep, item 3): this route was also in the
   // ungated /agents/:agentDid/* write family. Same treatment as
@@ -4911,7 +4911,7 @@ export function createApp(
       res.status(400).json({ error: 'notifyWebhookUrl must be an https:// URL' });
       return;
     }
-    // FIX-SW4a (bugs.md SW4-01): an https URL is not yet a URL the platform
+    // FIX-SW4a (SW4-01): an https URL is not yet a URL the platform
     // may post to. A loopback, private, link-local or metadata address, or
     // `localhost`, is refused here, before the party gate, and again at send
     // time by the webhook sender (which also refuses a name that resolves to
@@ -5188,7 +5188,7 @@ export function createApp(
     }
   });
 
-  // FIX-B58 (bugs.md B58): the agent's work-history extension block, for the
+  // FIX-B58 (B58): the agent's work-history extension block, for the
   // owner to add to the agent's own A2A card. FreeAgents serves the block and
   // never a whole card, because a card needs the address where the agent
   // answers A2A calls and only the agent has it. The credential summary reads
@@ -5228,7 +5228,7 @@ export function createApp(
       .json(buildWorkHistoryExtension({ agent: row, credentials: evidence, publicBaseUrl: publicBaseUrlFromEnv(), attestedBy }));
   });
 
-  // B9 (launch ledger): the receipts listing every agent profile already
+  // B9: the receipts listing every agent profile already
   // links to. Same shape as GET /agents/:agentDid/reviews above: look the
   // agent up first, 404 when it is not registered, then read the listing,
   // and map a storage throw to 503. credentialEvidenceOf is the one
@@ -5719,7 +5719,7 @@ export function createApp(
       return;
     }
     const accessNeeded = githubAccessNeededFor(jobAgent, row, github.platformLogin);
-    // FIX-B39 (bugs.md B39), rule 6: payableRails rides GET /jobs/:jobId
+    // FIX-B39 (B39), rule 6: payableRails rides GET /jobs/:jobId
     // only, and only while the job is still 'proposed' and carries a
     // price -- the same conditional stance githubAccessNeeded takes on
     // this route. After confirm, price.rail is the one currency; there
@@ -6148,7 +6148,7 @@ export function createApp(
   // with the receipt, not the 409 of a job completed by an earlier request.
   const completedOnLoad = new WeakMap<Job, VerifiableCredential>();
 
-  // FIX-B60D (bugs.md B60, second half): what applyLiveLapses asks, once,
+  // FIX-B60D (B60, second half): what applyLiveLapses asks, once,
   // before the deem clock runs on a submitted job whose review window has
   // passed. The clock is pure and cannot know the buyer merged on day 3 of a
   // job nobody opened until day 8, so the platform asks GitHub through the
@@ -6703,7 +6703,7 @@ export function createApp(
   // never wait on a third-party push service, and PushSender.send is
   // already total per push.ts's own header comment).
   //
-  // FIX-B56 (bugs.md B56): the push payload carries jobId alongside
+  // FIX-B56 (B56): the push payload carries jobId alongside
   // title and body, so the notification can open the conversation it is
   // about. Never message text or any other field -- push.ts's own
   // interface comment states the same rule at the type.
@@ -6785,7 +6785,7 @@ export function createApp(
     for (const subscriber of subscribers) sseSend(subscriber, 'notification', notificationProjection(row));
   }
 
-  // STEER (bugs.md B19, 2026-09-25): "when the platform observes
+  // STEER (B19, 2026-09-25): "when the platform observes
   // a deposit or a balance leg settle... it writes a `deposit paid` or
   // `balance paid` system row into the hire thread, readable by both
   // parties. The row carries the leg, the amount in USD and the rail,
@@ -6982,7 +6982,7 @@ export function createApp(
       // without permission never even learns its own floor was consulted.
       if (!(await requireNegotiationAllowed('POST /jobs/:jobId/criteria', res, current, gate.did, gate.party))) return;
 
-      // FIX-B74 (bugs.md B74): the third door DEP1 left open. A proposed
+      // FIX-B74 (B74): the third door DEP1 left open. A proposed
       // job whose deposit has settled takes no change to its lines or its
       // price, from either side: a change would clear marks the buyer paid
       // against. The gate is read only at 'proposed' (a draft has no
@@ -7041,7 +7041,7 @@ export function createApp(
         };
       }
 
-      // B26 (bug ledger, C1 rehearsal s9), narrowed by FIX-B45 (bugs.md
+      // B26, narrowed by FIX-B45 (bugs.md
       // B45): every input line here is stamped with the caller's own
       // resolved seat (gate.party, from resolveJobActingParty above),
       // never the request body's own claim. A body naming the other seat
@@ -7247,7 +7247,7 @@ export function createApp(
         }
       }
 
-      // FIX-B39 (bugs.md B39), rule 3: a job whose quote left the
+      // FIX-B39 (B39), rule 3: a job whose quote left the
       // currency open gets one from the settled DEPOSIT, backfilled
       // BEFORE confirmSpec runs. specHash still carries rail:<currency>
       // in the same position (confirmSpec itself is unchanged) so
@@ -7281,7 +7281,7 @@ export function createApp(
       try {
         confirmed = confirmSpec(jobForConfirm, new Date());
       } catch (err) {
-        // B27 (bug ledger, C1 rehearsal s1): confirmSpec only ever throws
+        // B27: confirmSpec only ever throws
         // JobError here for a criteria-readiness gap (no criteria at all,
         // or some outstanding) -- a state conflict, the identical fact
         // JobPriceError already answers with 409 two lines down. Nothing
@@ -7364,7 +7364,7 @@ export function createApp(
       // yet cannot be granted push on a repository nobody proved it
       // controls.
       //
-      // B28 (bug ledger, C1 rehearsal s4 and s6): a missing or unverified
+      // B28: a missing or unverified
       // GitHub login is a fact about the AGENT's own record, not a GitHub
       // service fault -- confirm answered 503 for both, which told a
       // caller to retry something that would never work no matter how
@@ -7542,7 +7542,7 @@ export function createApp(
   // withdrawn, terminal, a timing fact. Body-less like request-changes;
   // every rule lives in recordWithdrawn, the route only names the label.
   //
-  // FIX-B74 (bugs.md B74): once the buyer's deposit has settled, a
+  // FIX-B74 (B74): once the buyer's deposit has settled, a
   // proposed job can no longer be withdrawn; the buyer's way forward is
   // confirm. Same rule as decline and criteria below and above: three
   // doors, one rule. The settlement gate is asked only at 'proposed'
@@ -7730,7 +7730,7 @@ export function createApp(
         await github.getCommit({ owner: stagingRepo.owner, repo: stagingRepo.repo, sha: stagedCommit });
       } catch (err) {
         console.error(`${label}: staged commit ${stagedCommit} not found in staging repository`, err);
-        // FIX-B14b (bugs.md B14b): the commit not being visible here can
+        // FIX-B14b (B14b): the commit not being visible here can
         // mean it was genuinely never pushed, OR it can mean the agent
         // never accepted the collaborator invitation confirm sent it, so
         // it never had anywhere to push TO. Reading the agent's real,
@@ -8391,7 +8391,7 @@ export function createApp(
       : remainderUsd(String(job.priceUsd), job.depositPercent);
   }
 
-  // B23 (bug ledger, C1 rehearsal s7) and B25 (s8): legStatusEligible,
+  // B23 and B25 (s8): legStatusEligible,
   // legStatusConflictMessage and legRailMismatchMessage now live in
   // route-support.ts (imported above), shared by every door onto the
   // payment surface -- both rails' /start routes below, the USDC
@@ -8424,7 +8424,7 @@ export function createApp(
     return { ok: true, operatorAddress: account.operatorAddressEvm };
   }
 
-  // FIX-B39 (bugs.md B39), rule 5: whether the hired agent's operator has
+  // FIX-B39 (B39), rule 5: whether the hired agent's operator has
   // an ABT payout address on record, resolved the same way
   // usdcOperatorAddressForJob resolves the USDC sibling, so
   // checkRailDoorEligible's operatorAddressOk input never has to reach
@@ -8507,7 +8507,7 @@ export function createApp(
         res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
         return;
       }
-      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
       // address for this rail. This door mints only ABT sessions
@@ -8527,7 +8527,7 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
-      // B49 (bugs.md, this card): a leg that already settled must never be
+      // B49 (this card): a leg that already settled must never be
       // paid again. This door mints a payment session for the SAME leg
       // /start would start, so it needs the identical refusal.
       const tokenDoorAlreadySettled = await checkLegNotAlreadySettled({
@@ -8655,7 +8655,7 @@ export function createApp(
         res.status(409).json({ error: 'this job has no agreed price to pay against' });
         return;
       }
-      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
       // address for this rail.
@@ -8675,7 +8675,7 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
-      // B49 (bugs.md, this card): a leg that already settled must never be
+      // B49 (this card): a leg that already settled must never be
       // paid again, on either rail.
       const abtAlreadySettled = await checkLegNotAlreadySettled({
         jobId: gate.job.id,
@@ -8799,7 +8799,7 @@ export function createApp(
       // eligibility check below (rule 5) and for the actual recipient
       // address the rail needs to quote against.
       const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
-      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
       // address for this rail.
@@ -8819,7 +8819,7 @@ export function createApp(
         res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
         return;
       }
-      // B49 (bugs.md, this card): a leg that already settled must never be
+      // B49 (this card): a leg that already settled must never be
       // paid again.
       const usdcStartAlreadySettled = await checkLegNotAlreadySettled({
         jobId: gate.job.id,
@@ -8955,7 +8955,7 @@ export function createApp(
         normalizeUsdcTxHash(alreadyRecorded.hash) === normalizeUsdcTxHash(priceTxHashForIdempotencyCheck) &&
         incomingFeeHashNormalized === recordedFeeHashNormalized;
       if (!isIdempotentReplay) {
-        // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+        // FIX-B39 (B39), rule 5: ONE shared check, in place of
         // B25's job-rail-only check, in this order: the job's pinned
         // currency, the settled deposit's currency, then the operator
         // address for this rail.
@@ -8979,7 +8979,7 @@ export function createApp(
           res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
           return;
         }
-        // B49 (bugs.md, this card): a leg that already settled must never
+        // B49 (this card): a leg that already settled must never
         // be paid again. isIdempotentReplay above already lets the exact
         // recorded pair through unchanged; anything else touching a
         // settled leg is a fresh attempt and is refused here.

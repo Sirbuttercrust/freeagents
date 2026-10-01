@@ -1,4 +1,4 @@
-// FIX-B14b (bugs.md B14b): confirm's own thread gets one staging_invited
+// FIX-B14b (B14b): confirm's own thread gets one staging_invited
 // row when the collaborator grant it just made came back a pending
 // invitation, naming GitHub's own accept link -- because after confirm
 // answers 200, the agent has NO push access to the repository it was just

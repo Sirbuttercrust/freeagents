@@ -146,7 +146,7 @@ async function startAbtApp(
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      // FIX-B37 (bugs.md B37 + B42): confirm has always refused an agent
+      // FIX-B37 (B37 + B42): confirm has always refused an agent
       // with no verified GitHub login, and the deposit doors this file
       // exercises now check the identical fact before a session ever
       // mints (route-support.ts's checkAgentGithubVerified). This
@@ -542,7 +542,7 @@ describe('POST /jobs/:jobId/payments/deposit/abt/start: an unconfigured rail ref
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+      // FIX-B37 (B37 + B42): see the identical comment on the
       // first startAbtApp fixture above.
       githubLogin: 'scout-abt-unconfigured',
       negotiatesOnOwnersBehalf: true,
@@ -899,7 +899,7 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
         delegation: { fixture: true } as never,
         name: 'self-hired-scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // FIX-B37 (B37 + B42): see the identical comment on the
         // first startAbtApp fixture above.
         githubLogin: 'self-hired-scout-login',
         negotiatesOnOwnersBehalf: true,
@@ -1005,7 +1005,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         delegation: { fixture: true } as never,
         name: 'scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // FIX-B37 (B37 + B42): see the identical comment on the
         // first startAbtApp fixture above.
         githubLogin: 'scout-abt-unset',
         negotiatesOnOwnersBehalf: true,
@@ -1112,7 +1112,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         delegation: { fixture: true } as never,
         name: 'scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // FIX-B37 (B37 + B42): see the identical comment on the
         // first startAbtApp fixture above.
         githubLogin: 'scout-abt-set',
         negotiatesOnOwnersBehalf: true,

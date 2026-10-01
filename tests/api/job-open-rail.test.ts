@@ -1,4 +1,4 @@
-// FIX-B39 (bugs.md B39): rules 2, 3 and 6, on the lightweight open-rail
+// FIX-B39 (B39): rules 2, 3 and 6, on the lightweight open-rail
 // harness (deposits are settled by writing straight to settlementRepo,
 // the shortcut tests/api/job-confirm-staging.test.ts also takes).
 // Rule 6: GET /jobs/:jobId carries payableRails while 'proposed' and
