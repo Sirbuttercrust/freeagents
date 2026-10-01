@@ -19,7 +19,9 @@ import {
   MemoryAccountRepository,
   MemoryJobRepository,
   MemoryAttestationRepository,
+  MemorySettlementRepository,
 } from '../../src/adapters/storage/memory.js';
+import type { ObservedSettlementRecord } from '../../src/adapters/storage/types.js';
 import { createJob, REDO_LAPSE_EXTENSION_DAYS, type Job } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession, mintSessionToken } from '../helpers/session-fixtures.js';
 import { alwaysSettledGate } from '../helpers/settlement-fixtures.js';
@@ -50,6 +52,38 @@ const STRANGER_LOGIN = 'operatorjob-page-stranger';
 // is computed from the real wall clock instead (staged.test.ts's own
 // RECENT pattern).
 const RECENT = new Date(Date.now() - 60 * 60 * 1000);
+
+// Settlement records for the money box, as the payment routes write them
+// once a leg confirms: a 1000.00 price at 25 percent is a 250.00 deposit and
+// a 750.00 balance. Fixed instants so each readable date can be written out.
+const OWNER_EVM_ADDRESS = '0x7Cd2E91b04aF5c3D86e1B0a9F24c7D35e8B16a02';
+const DEPOSIT_OBSERVED_AT = new Date('2026-09-28T10:00:00.000Z');
+const BALANCE_OBSERVED_AT = new Date('2026-09-30T15:00:00.000Z');
+const SETTLED_DEPOSIT: ObservedSettlementRecord = {
+  jobId: 'set-per-job',
+  leg: 'deposit',
+  rail: 'usdc',
+  hash: '0xoperatorjob-deposit-transfer',
+  secondaryHash: '0xoperatorjob-deposit-fee',
+  operatorAddress: OWNER_EVM_ADDRESS,
+  feeAddress: '0xFee0000000000000000000000000000000000007',
+  amountUsd: '250.00',
+  observedAt: DEPOSIT_OBSERVED_AT,
+};
+const SETTLED_BALANCE: ObservedSettlementRecord = {
+  ...SETTLED_DEPOSIT,
+  leg: 'remainder',
+  hash: '0xoperatorjob-balance-transfer',
+  secondaryHash: '0xoperatorjob-balance-fee',
+  amountUsd: '750.00',
+  observedAt: BALANCE_OBSERVED_AT,
+};
+// The date the page prints, computed the way api.js readableDate computes
+// it, so the expectation holds in whatever locale and zone the suite runs.
+const readable = (d: Date): string => d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+// Each row of the money box as "label | value", in order.
+const moneyRows = (doc: Document): string[] =>
+  Array.from(doc.querySelectorAll('#money-facts > li')).map((li) => `${li.querySelector('.f')?.textContent ?? ''} | ${li.querySelector('.v')?.textContent ?? ''}`);
 
 function delegationFixture(did: string, operatorDid: string): Delegation {
   return {
@@ -146,6 +180,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
   let agentRepo: MemoryAgentRepository;
   let jobRepo: MemoryJobRepository;
   let attestationRepo: MemoryAttestationRepository;
+  let settlementRepo: MemorySettlementRepository;
   let server: Server;
   let baseUrl: string;
   let operatorSession: Session;
@@ -175,6 +210,9 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
 
     jobRepo = new MemoryJobRepository();
     attestationRepo = new MemoryAttestationRepository();
+    // What GET /jobs/:jobId/payments reads. Only the money-box fixtures
+    // below have settled legs; every other job reads as nothing settled.
+    settlementRepo = new MemorySettlementRepository();
     const { github } = createStagingLifecycleGithubFake();
 
     // Registers a staging repository the fake github recognises, matching
@@ -202,6 +240,9 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       alwaysSettledGate(),
       anyCommitStagingObserver(),
       attestationRepo,
+      undefined,
+      undefined,
+      settlementRepo,
     );
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -322,6 +363,38 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
     // fixtures carry no confirmedSpecHash and no confirmedAt.
     await jobRepo.create(jobFixture({ id: 'job-withdrawn-never-confirmed', status: 'withdrawn', criteria: [] }));
     await jobRepo.create(jobFixture({ id: 'job-declined-never-confirmed', status: 'declined', criteria: [] }));
+
+    // The money box. Four staged jobs on the same 1000.00 terms: deposit
+    // settled, both settled, and two for the currency names, one priced in
+    // ABT on ArcBlock and one whose legs carry abt_eth, the rail value the
+    // ABT-on-Ethereum work adds (the stored record's type does not name it
+    // yet, and the route passes rail through as stored).
+    const OWNER_ABT_ADDRESS = 'zNKoperatorjobOwnerAbtAddress001';
+    const moneyFixtures: ReadonlyArray<readonly [id: string, jobRail: 'usdc' | 'abt', legRail: string, address: string, balance: boolean]> = [
+      ['job-money-deposit', 'usdc', 'usdc', OWNER_EVM_ADDRESS, false],
+      ['job-money-both', 'usdc', 'usdc', OWNER_EVM_ADDRESS, true],
+      ['job-money-abt', 'abt', 'abt', OWNER_ABT_ADDRESS, true],
+      ['job-money-abt-eth', 'abt', 'abt_eth', OWNER_EVM_ADDRESS, true],
+    ];
+    for (const [id, jobRail, legRail, address, balance] of moneyFixtures) {
+      await jobRepo.create(jobFixture({
+        id,
+        status: 'staged',
+        criteria: [{ text: 'The login bug is fixed', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '1000.00',
+        rail: jobRail,
+        depositPercent: 25,
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+        confirmedSpecHash: `sha256:${id}`,
+        confirmedAt: RECENT,
+        stagedAt: RECENT,
+        stagedCommit: `commit-${id}`,
+      }));
+      const rail = legRail as ObservedSettlementRecord['rail'];
+      await settlementRepo.record({ ...SETTLED_DEPOSIT, jobId: id, rail, operatorAddress: address });
+      if (balance) await settlementRepo.record({ ...SETTLED_BALANCE, jobId: id, rail, operatorAddress: address });
+    }
   });
 
   afterAll(async () => {
@@ -763,6 +836,123 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(text).toContain('$675.00'); // remainder
       } finally {
         page.close();
+      }
+    });
+  });
+
+  // SITEMAP P-25: "Shows the money as amounts that have moved or have not".
+  // Each leg reads from GET /jobs/:jobId/payments: received, with the date,
+  // amount, currency and the owner's address, or not paid yet.
+  describe('the money box, per leg, from GET /jobs/:jobId/payments', () => {
+    const received = (leg: 'Deposit' | 'Balance', at: Date, amount: string, currency: string, address: string): string =>
+      `${leg} received, ${readable(at)} | ${amount} in ${currency}, to ${address}`;
+
+    it('(c) the deposit settled in USDC: a received row with its date, amount, currency and address; the balance not paid yet', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-money-deposit', operatorSession);
+      try {
+        expect(moneyRows(page.document)).toEqual([
+          'Agreed price | $1000.00',
+          received('Deposit', DEPOSIT_OBSERVED_AT, '$250.00', 'USDC', OWNER_EVM_ADDRESS),
+          'Balance, not paid yet | $750.00',
+          'Platform fee | paid by the buyer, on top',
+        ]);
+        expect(page.document.getElementById('state-heading')?.textContent).toBe('Work staged, waiting on the buyer');
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(d) both legs settled: two received rows, the heading and lede say the balance is paid, and "when the buyer pays it" appears nowhere on the page', async () => {
+      const page = await renderOperatorJob(baseUrl, 'job-money-both', operatorSession);
+      try {
+        expect(moneyRows(page.document)).toEqual([
+          'Agreed price | $1000.00',
+          received('Deposit', DEPOSIT_OBSERVED_AT, '$250.00', 'USDC', OWNER_EVM_ADDRESS),
+          received('Balance', BALANCE_OBSERVED_AT, '$750.00', 'USDC', OWNER_EVM_ADDRESS),
+          'Platform fee | paid by the buyer, on top',
+        ]);
+        expect(page.document.getElementById('state-heading')?.textContent).toBe('Balance paid, pull request next');
+        expect(page.document.getElementById('state-lede')?.textContent).toBe('The buyer paid the balance. The agent opens the pull request next.');
+        expect(page.document.body.textContent).not.toContain('when the buyer pays it');
+        expect(page.document.body.textContent).not.toContain('not paid yet');
+        expect(page.document.body.textContent).not.toContain('waiting on the buyer');
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each([
+      ['answers 503', 503],
+      ['never reaches the server', 0],
+    ] as const)('(e) the payments read %s: the rows the box had before the read existed, and no sentence about payment', async (_label, failWith) => {
+      const page = await renderOperatorJob(baseUrl, 'job-money-both', operatorSession, undefined, (input) => {
+        if (input !== '/jobs/job-money-both/payments') return null;
+        // A rejected fetch is what a request that never left the browser
+        // looks like; renderPage passes a returned promise straight through.
+        if (failWith === 0) return Promise.reject(new TypeError('network down')) as unknown as Response;
+        return new Response(JSON.stringify({ error: 'storage unavailable' }), { status: failWith });
+      });
+      try {
+        expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(false);
+        expect(moneyRows(page.document)).toEqual([
+          'Agreed price | $1000.00',
+          'Deposit | $250.00',
+          'Balance, when the buyer pays it | $750.00',
+          'Platform fee | paid by the buyer, on top',
+        ]);
+        const text = page.document.getElementById('money-facts')?.textContent ?? '';
+        expect(text).not.toMatch(/not paid|received|paid yet/i);
+        expect(page.document.getElementById('state-heading')?.textContent).toBe('Work staged, waiting on the buyer');
+        expect(page.document.getElementById('load-error')?.hidden).toBe(true);
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each([
+      ['usdc', 'job-money-both', 'USDC', OWNER_EVM_ADDRESS],
+      ['abt', 'job-money-abt', 'ABT on ArcBlock', 'zNKoperatorjobOwnerAbtAddress001'],
+      ['abt_eth', 'job-money-abt-eth', 'ABT on Ethereum', OWNER_EVM_ADDRESS],
+    ] as const)('(g) legs settled on the %s rail (%s) are named %s', async (_rail, jobId, currency, address) => {
+      const page = await renderOperatorJob(baseUrl, jobId, operatorSession);
+      try {
+        expect(moneyRows(page.document).slice(1, 3)).toEqual([
+          received('Deposit', DEPOSIT_OBSERVED_AT, '$250.00', currency, address),
+          received('Balance', BALANCE_OBSERVED_AT, '$750.00', currency, address),
+        ]);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(f) a stranger to a paid hire gets the existing party refusal and nothing else: no money box, no second error', async () => {
+      const strangerAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: STRANGER_LOGIN, id: 88103 }) });
+      const strangerAccountRepo = new MemoryAccountRepository();
+      await strangerAccountRepo.register({ did: 'did:abt:operatorjob-page-stranger-account', githubLogin: STRANGER_LOGIN });
+      const strangerServer = createApp(
+        strangerAccountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined,
+        strangerAdapter, undefined, alwaysSettledGate(), anyCommitStagingObserver(), attestationRepo, undefined, undefined, settlementRepo,
+      ).listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => strangerServer.once('listening', resolve));
+      const strangerBaseUrl = `http://127.0.0.1:${(strangerServer.address() as AddressInfo).port}`;
+      try {
+        const token = await mintSessionToken(strangerAdapter);
+        const page = await renderOperatorJob(strangerBaseUrl, 'job-money-both', { token });
+        try {
+          // The same session on the payments route meets a 403 as well, so
+          // the page was handed two refusals and shows one.
+          const probe = await fetch(`${strangerBaseUrl}/jobs/job-money-both/payments`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+          expect(probe.status).toBe(403);
+          expect(page.document.getElementById('party-error')?.hidden).toBe(false);
+          expect(page.document.getElementById('party-error-detail')?.textContent).toBe('the authenticated party is not a party to this job');
+          expect(page.document.getElementById('operatorjob-body')?.hidden).toBe(true);
+          expect(page.document.getElementById('load-error')?.hidden).toBe(true);
+          expect(page.document.getElementById('money-facts')?.children.length).toBe(0);
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => strangerServer.close(() => resolve()));
       }
     });
   });
