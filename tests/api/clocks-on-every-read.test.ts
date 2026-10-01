@@ -69,6 +69,8 @@ interface Rig {
   readonly credentialRepo: MemoryCredentialRepository;
   readonly fixture: StagingLifecycleFixture;
   readonly failingPullRequests: Set<number>;
+  // Every getPullRequest attempt, answered or refused, in order.
+  readonly asked: PullRequestRef[];
 }
 
 const servers: Server[] = [];
@@ -81,12 +83,15 @@ afterEach(() => {
 async function boot(issuer: { did: string; seed: Uint8Array } = { did: ISSUER_DID, seed: ISSUER_SEED }): Promise<Rig> {
   const fixture = createStagingLifecycleGithubFake();
   const failingPullRequests = new Set<number>();
+  const asked: PullRequestRef[] = [];
   const github: GithubAdapter = {
     ...fixture.github,
-    getPullRequest: (ref) =>
-      failingPullRequests.has(ref.number)
+    getPullRequest: (ref) => {
+      asked.push(ref);
+      return failingPullRequests.has(ref.number)
         ? Promise.reject(new Error('connection refused by github'))
-        : fixture.github.getPullRequest(ref),
+        : fixture.github.getPullRequest(ref);
+    },
   };
   // The merge receipt names the agent's key, which the resolver answers
   // for a signing agent.
@@ -149,7 +154,7 @@ async function boot(issuer: { did: string; seed: Uint8Array } = { did: ISSUER_DI
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('expected server to listen on a port');
-  return { baseUrl: `http://127.0.0.1:${address.port}`, jobRepo, credentialRepo, fixture, failingPullRequests };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, jobRepo, credentialRepo, fixture, failingPullRequests, asked };
 }
 
 // One stored row whose clock timestamp sits `daysAgo` days before the
@@ -433,6 +438,44 @@ describe('(c) the public conduct record runs the clocks', () => {
       },
       operatorCounts: { deliveredNeverPaid: 1, redosRefused: 0, walkedAfterDeposit: 1 },
     });
+  });
+});
+
+describe('a self-hired job is clocked once per request', () => {
+  // The owner of the agent is also the buyer, so the same job is both a
+  // buyer job and an operator job. Its pull request is unreachable, so the
+  // job keeps its stored row and nothing persisted by the first pass would
+  // stop the second pass from asking GitHub again: only the one-clock-per-
+  // request rule does.
+  async function plantUnreachableSelfHire(rig: Rig, id: string): Promise<void> {
+    const job: Job = { ...rowAt(id, 'submitted', 8, new Date()), buyerDid: OWNER_DID, pullRequestUrl: prUrl(7) };
+    await rig.jobRepo.create(job);
+    rig.failingPullRequests.add(7);
+  }
+
+  it('the conduct record asks GitHub once for a job that counts as both buyer and operator job', async () => {
+    const rig = await boot();
+    silenceErrors();
+    await plantUnreachableSelfHire(rig, 'j-clk-self-conduct');
+
+    const { status, body } = await readConduct(rig, OWNER_LOGIN);
+
+    expect(status).toBe(200);
+    expect((body.counts as { deemed: number }).deemed).toBe(0);
+    expect(rig.asked).toEqual([{ owner: 'buyer', repo: 'target-repo', number: 7 }]);
+  });
+
+  it('the thread list lists it once, as the buyer, and asks GitHub once', async () => {
+    const rig = await boot();
+    silenceErrors();
+    await plantUnreachableSelfHire(rig, 'j-clk-self-thread');
+
+    const res = await getSigned(rig, `/accounts/${OWNER_DID}/threads`, ownerIdentity);
+    const body = (await res.json()) as { threads: ThreadRow[] };
+
+    expect(res.status).toBe(200);
+    expect(body.threads.map((t) => [t.jobId, t.seat, t.status])).toEqual([['j-clk-self-thread', 'buyer', 'submitted']]);
+    expect(rig.asked).toEqual([{ owner: 'buyer', repo: 'target-repo', number: 7 }]);
   });
 });
 
