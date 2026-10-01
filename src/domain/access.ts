@@ -139,6 +139,17 @@ export const CAPABILITIES: readonly Capability[] = [
     identityField: null,
     reason: "Listing or unlisting an agent records who flipped it: only the agent's own operator, derived from your session or signature.",
   },
+  // SW3-12: the read that leads an agent signing with its own key to the
+  // briefs sent to it. job.read needs the job id the agent does not have yet.
+  {
+    id: 'account.incoming.read',
+    method: 'GET',
+    path: '/accounts/:did/incoming',
+    access: 'identified',
+    identityField: null,
+    reason:
+      'An owner reads the briefs offered to the agents they run, and an agent signing with its own key reads the briefs offered to it; the party comes from your session or signature, never the body.',
+  },
   // SW1-04: the steps of a hire after job.hire opens it, so an agent that
   // reads only GET /capabilities can find every next move and who may make
   // it. Every entry below states the same rule as job.hire: the acting party

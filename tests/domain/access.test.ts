@@ -61,6 +61,10 @@ describe('CAPABILITIES', () => {
       { id: 'job.hire', method: 'POST', path: '/jobs', access: 'identified', identityField: null },
       { id: 'agent.negotiation', method: 'PUT', path: '/agents/:agentDid/negotiation', access: 'identified', identityField: null },
       { id: 'agent.listing', method: 'PUT', path: '/agents/:agentDid/listing', access: 'identified', identityField: null },
+      // SW3-12: account.incoming.read joined after agent.listing, so an
+      // agent signing with its own key can find the briefs sent to it
+      // without a job id.
+      { id: 'account.incoming.read', method: 'GET', path: '/accounts/:did/incoming', access: 'identified', identityField: null },
       // SW1-04: the list grew by 18 because GET /capabilities stopped at
       // job.hire, so an agent reading only it had no declared step after
       // opening a hire. job.payments.read, the party-only read of which
