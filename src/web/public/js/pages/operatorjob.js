@@ -4,6 +4,8 @@
    attached (the same party-probe pattern staged.js and agreement.js
    already use: no side effect, but 401/403 comes back through the same
    resolveJobActingParty gate every acting control is checked against).
+   GET /jobs/:jobId/payments rides beside it with the same session and
+   feeds only the money box (renderMoney).
    P8v's own operator relation means this same probe now also admits a
    signed-in session that resolves to the agent's OWN OPERATOR, not just
    the agent's key or the buyer.
@@ -42,11 +44,10 @@
    rather than rendering the brief and draft inline (agreement.html
    already is that screen, and duplicating it here would be a second
    copy of the same page, the inert-declared-control class this
-   codebase's other handoffs are written against); no history rows this
-   job's real projection carries no timestamp for (the wireframe's own
-   fixed narrative names deposit/balance events this build's price
-   projection does not carry a settlement timestamp for; see
-   MONEY FACTS below); both redo dialogs render the consequence rows
+   codebase's other handoffs are written against); no deposit or balance
+   rows in the history (the wireframe's fixed narrative names both
+   payments there; this build shows each payment once, as a dated
+   "received" row in the money box, see MONEY FACTS below); both redo dialogs render the consequence rows
    from the job's own real numbers (redoAllowance, redo.usedCount, the
    price line) rather than the wireframe's fixed prose figures,
    renderRedoConsequences below, joined to both dialogs, not just one.
@@ -120,9 +121,13 @@
   }
 
   function reload() {
+    // The payments read rides beside the attestation read, with the same
+    // session. Only renderMoney uses its answer, and a failed read leaves
+    // the money box exactly as it reads without one.
     Promise.all([
       A.get("/jobs/" + encodeURIComponent(jobId)),
-      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token)
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token),
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments", token)
     ]).then(onLoaded);
   }
 
@@ -157,7 +162,7 @@
   }
 
   function onLoaded(results) {
-    var jobResult = results[0], gate = results[1];
+    var jobResult = results[0], gate = results[1], legs = A.settledLegs(results[2]);
     if (jobResult.state === "absent") { failLoad("There is no hire at that address."); return; }
     if (jobResult.state !== "ok") { failLoad("The record could not be loaded just now. Reloading may work."); return; }
     job = jobResult.value;
@@ -193,7 +198,7 @@
         return;
       }
       A.showById("operatorjob-body", true);
-      render(job);
+      render(job, legs);
       // FIX-B60: once per load, ask the platform to look at GitHub. When it
       // records an outcome, the page reads the hire again and renders it
       // the way a fresh load of that status would.
@@ -201,17 +206,17 @@
     });
   }
 
-  function render(job_) {
+  function render(job_, legs) {
     document.title = "Job " + job_.id + ", operator view: FreeAgents";
     // MSG1b: the way into this hire's conversation. The body this link
     // sits in shows only after the party check above has passed.
     var msgLink = A.el("messages-link");
     if (msgLink) msgLink.setAttribute("href", "/messages?job=" + encodeURIComponent(job_.id));
     renderWho(job_);
-    renderState(job_);
+    renderState(job_, legs);
     renderRedoPanel(job_);
     renderStagePanel(job_);
-    renderMoney(job_);
+    renderMoney(job_, legs);
     renderHistory(job_);
     renderDrafting(job_);
     renderTechnical(job_);
@@ -264,8 +269,17 @@
     });
   }
 
-  function renderState(job_) {
+  function renderState(job_, legs) {
     var status = typeof job_.status === "string" ? job_.status : "";
+    // A staged hire whose balance has settled is no longer waiting on the
+    // buyer, and the staged lede ("unpaid ... until the buyer settles the
+    // balance") would contradict the money box under it. Only a settled
+    // balance leg the payments read reported changes these two lines.
+    if (status === "staged" && legs && legs.remainder) {
+      A.setTextById("state-heading", "Balance paid, pull request next");
+      A.setTextById("state-lede", "The buyer paid the balance. The agent opens the pull request next.");
+      return;
+    }
     A.setTextById("state-heading", STATE_HEADINGS[status] || status);
     A.setTextById("state-lede", STATE_LEDES[status] || "");
   }
@@ -369,14 +383,16 @@
     A.showById("stage-panel", true);
   }
 
-  // MONEY FACTS: the job's own price line, never a suggested figure.
-  // This build's projection carries no deposit/balance SETTLEMENT
-  // timestamp (job.price carries the agreed terms; settlement is
-  // observed on the buyer's own payment routes, out of this card's
-  // scope), so "received" and "settles when paid" read as states, not
-  // dated facts -- a departure from the wireframe's fixed dates, named
-  // in the handoff above.
-  function renderMoney(job_) {
+  // MONEY FACTS: the job's own price line, never a suggested figure, and
+  // for each payment what GET /jobs/:jobId/payments says moved. A settled
+  // leg reads as the wireframe's dated "received" row, with the amount the
+  // settlement recorded, the currency and the owner's address it went to,
+  // in full so the owner can match it against their own wallet. A leg
+  // with no settlement reads "not paid yet" beside the agreed figure.
+  // When the payments read failed (legs is null) the rows say nothing
+  // about payment either way: a deposit and a balance as figures, the way
+  // the box read before the payments read existed.
+  function renderMoney(job_, legs) {
     var price = job_.price && typeof job_.price === "object" ? job_.price : null;
     var host = A.el("money-facts");
     host.textContent = "";
@@ -389,9 +405,22 @@
     var deposit = roundHalfUpCents((priceUsd * depositPercent) / 100);
     var remainder = roundHalfUpCents(priceUsd - deposit);
     host.appendChild(factRow("Agreed price", money(priceUsd)));
-    host.appendChild(factRow("Deposit", money(deposit)));
-    host.appendChild(factRow("Balance, when the buyer pays it", money(remainder)));
+    if (legs === null) {
+      host.appendChild(factRow("Deposit", money(deposit)));
+      host.appendChild(factRow("Balance, when the buyer pays it", money(remainder)));
+    } else {
+      host.appendChild(legRow("Deposit", legs.deposit, deposit));
+      host.appendChild(legRow("Balance", legs.remainder, remainder));
+    }
     host.appendChild(factRow("Platform fee", "paid by the buyer, on top"));
+  }
+
+  function legRow(name, leg, agreed) {
+    if (leg === null) return factRow(name + ", not paid yet", money(agreed));
+    var date = A.readableDate(leg.observedAt);
+    var currency = A.railName(leg.rail);
+    return factRow(name + " received" + (date ? ", " + date : ""),
+      money(parseFloat(leg.amountUsd)) + (currency ? " in " + currency : "") + ", to " + leg.operatorAddress);
   }
 
   function factRow(label, valueText) {
