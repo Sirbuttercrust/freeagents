@@ -1,4 +1,4 @@
-// AV1 (ENT-2.3 ruling, 2026-09-22, MAP.md "Agent avatars ruling"): the
+// AV1 (ENT-2.3 ruling, 2026-09-22): the
 // agent avatar spec. Pure domain, no vendor import (domain-purity.test.ts
 // enforces this structurally -- import only node: builtins or other
 // src/domain modules from this file).

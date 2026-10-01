@@ -208,7 +208,7 @@
          Switching it off again starts the loop from where they sit. The
          media listener carries the way back, since no frame is running to
          notice it; the frame check carries the way in, since Chrome was
-         measured (review round 1) not delivering the change event while the loop
+         measured not delivering the change event while the loop
          held the frame. */
       var stopLoop = null;
 

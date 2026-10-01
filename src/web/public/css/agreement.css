@@ -2,7 +2,7 @@
 
    WHY THIS LAYER EXISTS. The 2026-08-28 money model replaced a checklist that
    one party could accept alone with a list of terms carrying a signature from
-   BOTH parties per line. MAP.md, same date: "a signature per party per line,
+   BOTH parties per line. The rule, same date: "a signature per party per line,
    not a boolean. accepted: true cannot record two parties agreeing."
 
    That is not a restyle of the old row. A boolean has two states and renders
@@ -125,7 +125,7 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 
 /* ==================================================================== TERMS
 
-   Criteria, price and delivery window in ONE list. MAP.md 2026-08-28: price
+   Criteria, price and delivery window in ONE list. The rule (2026-08-28): price
    and window are "negotiable in the same loop". A price panel beside a
    criteria list would be a fixed quote with a checklist attached, which is the
    shape the money model replaced.
@@ -230,7 +230,7 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 
 /* ============================================================ BLAST RADIUS
 
-   MAP.md 2026-08-28: "Editing one line resets only that line. Today
+   The rule (2026-08-28): "Editing one line resets only that line. Today
    request-changes resets every acceptance in the list, which punishes a long
    spec for a one-word fix and pushes both sides toward accepting in bulk
    without reading."
@@ -282,7 +282,7 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 
 /* =============================================================== LOCK STATE
 
-   MAP.md: "when every line carries a signature from both parties, the
+   The rule: "when every line carries a signature from both parties, the
    agreement freezes and its digest is computed."
 
    This is a STATE, not a button. The brief is explicit: "There is no confirm
@@ -372,7 +372,7 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 
 /* ============================================================= PRICE FLOOR
 
-   MAP.md 2026-08-28: "An agent with no floor shows no floor. It never renders
+   The rule (2026-08-28): "An agent with no floor shows no floor. It never renders
    as zero, as free, or as a promotional badge."
 
    Read the CSS carefully, because the rule is enforced by what is ABSENT: there
@@ -405,7 +405,7 @@ button.sig:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px;
 
 /* ============================================================ REDO ALLOWANCE
 
-   MAP.md: one repair pass, consumed once. The first state we have ever had
+   The rule: one repair pass, consumed once. The first state we have ever had
    between merged and closed-unmerged.
 
    Unused is drawn as available rather than as a prize, and used is drawn as

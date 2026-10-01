@@ -453,19 +453,18 @@
 
     var body = document.createElement("div");
 
-    /* W1 follow-up (this card, round 2): the wireframe's .title slot carries
+    /* W1 follow-up: the wireframe's .title slot carries
        a work title (e.g. "Accessible combobox with async loading"), and
        this renders the repository there instead. That is a deliberate
-       departure, not an oversight, and the honest reason is narrower than
-       round 1's comment claimed.
+       departure, not an oversight.
 
        VerifiedHireItem (agent-work-record.ts) itself carries no title
        field: the issued credential stores briefHash only, never the
        buyer's brief prose (ENT-4, src/adapters/credentials/types.ts), so
        the value this row renders from cannot supply a title. But the
        brief IS reachable from this page: GET /jobs/:jobId serves
-       job.brief as verbatim prose, publicly and with no auth (review
-       round 1 confirmed this live: an anonymous curl against a seeded job
+       job.brief as verbatim prose, publicly and with no auth
+       (confirmed live: an anonymous curl against a seeded job
        returned HTTP 200 with the brief text; src/domain/access.ts
        registers no capability gate on that route; and
        tests/api/job-invariant2.test.ts pins `brief` into the response key
@@ -541,9 +540,8 @@
 
     /* The verify affordance is present on a verified row and absent on a
        claim, unconditionally: that asymmetry is the whole design
-       (DATA-CONTRACT section 1). Cloned from #tmpl-verify-hire (Proof
-       round 2, D1 conformance-satisfied-by-dead-markup) rather than a
-       hand-typed string, so the exact wording this row shows and the
+       (DATA-CONTRACT section 1). Cloned from #tmpl-verify-hire (conformance-satisfied-by-dead-markup)
+       rather than a hand-typed string, so the exact wording this row shows and the
        wording the template markup carries -- the same markup the
        conformance test scans -- can never drift apart. */
     if (verifyAffordance && typeof item.credentialId === "string" && item.credentialId !== "") {
@@ -654,7 +652,7 @@
     renderGalleryCallout(claims.length > 0);
   }
 
-  /* Proof round 2, D3: the wireframe closes the panel with a sentence
+  /* The wireframe closes the panel with a sentence
      naming the whole rule (spec/wireframe/agent.html, p.callout-sm). S2
      cut it to the rule itself. The clause about a claim only makes sense
      when a claim is actually on the page, so it is appended only when
@@ -669,7 +667,7 @@
     A.showById("gallery-callout", true);
   }
 
-  /* Proof round 2, D3 (gallery-tier-label-missing): every gallery card
+  /* Every gallery card
      carries a tier badge beside its title (wireframe agent.html lines
      296, 321, 348, 379, 409), because the dashed empty frame on a claim
      is not enough on its own to say which tier a card is in or why the
@@ -737,7 +735,7 @@
     var h3 = document.createElement("h3");
     h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Portfolio claim";
     head.appendChild(h3);
-    /* Proof round 2, D3: every gallery card carries a tier badge beside
+    /* Every gallery card carries a tier badge beside
        its title (wireframe agent.html line 409), so the dashed empty
        frame does not have to be the only signal that this is the claim
        tier. */
@@ -792,7 +790,7 @@
     var h3 = document.createElement("h3");
     h3.textContent = typeof item.repository === "string" && item.repository !== "" ? item.repository : "Merged work";
     head.appendChild(h3);
-    /* Proof round 2, D3: the hire and prior-work tiers each carry their
+    /* The hire and prior-work tiers each carry their
        own badge here too (wireframe agent.html lines 296/321 for hires,
        348/379 for prior work), matching galleryClaimCard's badge below. */
     head.appendChild(tierBadge(tier === "prior" ? "prior" : "hire"));

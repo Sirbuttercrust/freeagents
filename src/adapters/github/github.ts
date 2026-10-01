@@ -282,7 +282,7 @@ export function createGithubAdapter(options: CreateGithubAdapterOptions = {}): G
   }
 
   return {
-    // ORG1 r2 fix: exposes the resolved value directly, not the raw env
+    // Exposes the resolved value directly, not the raw env
     // var, so a caller sees exactly what requirePlatformOwner compares
     // against (including the options.platformLogin override tests use).
     platformLogin,

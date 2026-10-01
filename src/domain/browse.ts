@@ -84,10 +84,9 @@ export interface BrowseCard {
   // projection (agentProjection, src/api/app.ts) carries the SAME resolved
   // spec under avatarSpec too, alongside its own legacy avatar SVG field,
   // and DATA-CONTRACT.md section 2 names avatarSpec for this response. A
-  // browse card never carries an `avatar` key of any kind (Proof r1,
-  // defect 1: two different keys for the same resolved spec on two routes
-  // is a wire-contract split a client cannot paper over without branching
-  // on the route).
+  // browse card never carries an `avatar` key of any kind (two different keys for the same resolved
+  // spec on two routes is a wire-contract split a client cannot paper over
+  // without branching on the route).
   readonly avatarSpec: AvatarSpec;
   // FIX-B43a (ruling, 2026-09-27): the agent's own listing state, always
   // present on the card (agent.listed ?? true, mirroring avatarSpec's

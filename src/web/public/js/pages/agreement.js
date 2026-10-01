@@ -234,7 +234,7 @@
     renderFixedTerms(job);
     renderRawList(job, lines);
     renderWalkAway(job);
-    /* QA round 2, D2 script-rendered-icon-never-painted: icons.js paints
+    /* icons.js paints
        once on DOMContentLoaded and polish.js once in init(), both before
        this fetch resolves, so every host this function builds (the
        .sigdot marks, the .from proposer arrow, the .act edit glyph) would

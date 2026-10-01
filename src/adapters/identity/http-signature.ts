@@ -14,7 +14,7 @@
 // mirrors verifyDelegation (src/adapters/identity/identity.ts) so callers
 // never need a try/catch to tell "not signed" from "signed wrong".
 //
-// B29 (bug ledger, C1 rehearsal s2): a well-formed request whose signature
+// B29: a well-formed request whose signature
 // bytes genuinely verify but names a DID keyResolver has never heard of
 // (unregistered, or the fingerprint-to-DID binding check fails) is a
 // DIFFERENT fact from a signature that does not verify at all -- the caller
@@ -45,7 +45,7 @@ export interface SignedRequestLike {
 export interface SigningKeyResolver {
   (did: string, keyid: string): Promise<{
     readonly publicKeyPem: string;
-    // D4/D5 (task t_8a82c865): recording an observation is deferred to
+    // Recording an observation is deferred to
     // this optional callback, invoked by verify() below ONLY after the
     // request's own ed25519 signature bytes have checked out -- never at
     // resolution time, when only the keyid's binding check (public data:
@@ -278,7 +278,7 @@ export async function verifyWithReason(
       }
     }
 
-    // D4 (task t_8a82c865): the signature has now genuinely verified, so
+    // The signature has now genuinely verified, so
     // recording the observation is safe to attempt -- but a failure here
     // is a storage-layer fact, not a verdict on this signature. Swallow
     // it rather than let it flip an already-decided "yes" back to a failure.
@@ -286,7 +286,7 @@ export async function verifyWithReason(
       await resolved.onVerified?.();
     } catch (err) {
       // Durable bookkeeping failed; the signature still verified. The
-      // failure is logged (Review residue, t_84d1a099): a fault nobody
+      // failure is logged: a fault nobody
       // records is a fault nobody fixes, and this one silently loses the
       // observed-key record that the outage-window liveness read relies on.
       console.error('http-signature: onVerified durable write failed after a verified signature', err);

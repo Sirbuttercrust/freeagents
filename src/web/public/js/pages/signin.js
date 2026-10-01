@@ -19,8 +19,7 @@
    The page shows the account boundary only. SW1-04: the document also
    names the steps of a hire after it opens (every capability whose path
    contains /jobs/:jobId). Those are the machine's route list, one set per
-   job, and eighteen more rows of them here would make this page busy, which
-   the simplicity law (MAP.md, "Design law: simplicity") rules out. render()
+   job, and eighteen more rows of them here would make this page busy. render()
    drops them; job.hire (/jobs) is the door to a hire, not a step inside
    one, so it stays.
 
@@ -87,7 +86,7 @@
        injected link) owns this section too, and runs once on every page
        load before this file's own start() does: by the time this line
        would have run, the section is already correct. Adding a second
-       call here was the round 1 defect (Proof, D1): a rule that fires on
+       call here was a defect: a rule that fires on
        load but is never told when the session clears is not the nav's
        rule, it is a copy of the nav's rule at one instant. nav.js's
        render() is also what FANav.refresh() calls (see finish()

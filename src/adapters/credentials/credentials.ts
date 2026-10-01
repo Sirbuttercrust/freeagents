@@ -41,7 +41,7 @@ export function isValidPlatformSeedHex(value: string): boolean {
 // but the credentials it signs will not verify past this process's
 // lifetime, since the seed backing the proof is thrown away on restart.
 //
-// ISS1 (bugs.md B30): the issuer DID is ALWAYS derived from this key,
+// ISS1 (B30): the issuer DID is ALWAYS derived from this key,
 // through the exact same call createOperatorDid uses (did-from-seed.ts's
 // deriveDidFromSeed), never configured. A verifier holding only the
 // credential can already derive did:abt from the key named in
@@ -104,7 +104,7 @@ async function resolveStoredCredential(
   return document;
 }
 
-// ISS1 (bugs.md B30): the public description of the issuer, for
+// ISS1 (B30): the public description of the issuer, for
 // GET /.well-known/freeagents-issuer.json. Derives the SAME key
 // signWithPlatformKey below signs with (Ed25519VerificationKey2020.generate
 // from issuer.seed with issuer.did as controller), so the published
@@ -340,7 +340,7 @@ export function createCredentialsAdapter(
     // in this factory.
     issueDeemedCompletionCredential: async (subjectDid: string, claim: DeemedCompletionClaim) =>
       signDeemedCompletionDocument(await issuerPromise, base, subjectDid, claim),
-    // ISS1 (bugs.md B30): the well-known route's data source, resolved
+    // ISS1 (B30): the well-known route's data source, resolved
     // from the SAME issuerPromise every signing path above awaits, so the
     // published key is provably the signing key.
     describeIssuer: async () => describeIssuerFromKey(await issuerPromise),

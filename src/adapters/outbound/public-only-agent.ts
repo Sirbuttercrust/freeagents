@@ -1,4 +1,4 @@
-// FIX-SW4a (bugs.md SW4-01 and SW4-08): the send-time half of the outbound
+// FIX-SW4a (SW4-01 and SW4-08): the send-time half of the outbound
 // rule. src/domain/outbound-destination.ts refuses an internal address
 // typed into a URL; it cannot see a public NAME that resolves to an internal
 // address, or whose DNS answer changes after the name was stored. This

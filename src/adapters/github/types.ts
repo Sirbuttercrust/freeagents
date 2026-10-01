@@ -66,7 +66,7 @@ export interface CommitSignatureStatus {
   readonly reason: string;
 }
 
-// B14a: the staging repository half of the hire loop (bugs.md B14/B14a).
+// B14a: the staging repository half of the hire loop (B14/B14a).
 // STG2: every staged commit lives in an EMPTY repository the platform
 // created -- no seeded tree, no root commit, never any history the
 // platform authored -- and the agent seeds it itself by pushing a real
@@ -325,7 +325,7 @@ export class StagingComparisonTruncatedError extends Error {
 }
 
 export interface GithubAdapter {
-  // ORG1 r2 fix: exposes the resolved value directly, not the raw env
+  // Exposes the resolved value directly, not the raw env
   // var, so a caller sees exactly what requirePlatformOwner compares
   // against (including the options.platformLogin override tests use).
   // Every method that runs on the platform's single token

@@ -296,7 +296,7 @@
     }
     /* The frame path reads the setting itself rather than trusting the
        change event to arrive. In Chrome that event did not fire at all while
-       bots held the frame loop (review round 1, emulated media switched after
+       bots held the frame loop (emulated media switched after
        load), so every bot kept animating. Checking here costs one property
        read per bot per frame, and the first frame after the switch takes
        the bot off the loop and repaints it at rest. */

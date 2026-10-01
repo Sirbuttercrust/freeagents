@@ -1,4 +1,4 @@
-// FIX-SW4a (bugs.md SW4-01 and SW4-08): the one rule for where the platform
+// FIX-SW4a (SW4-01 and SW4-08): the one rule for where the platform
 // may send a webhook or a push. A caller supplies the address (the agent's
 // notifyWebhookUrl, a browser's push endpoint), so an unchecked address turns
 // the platform into a client that reaches its own loopback, its private

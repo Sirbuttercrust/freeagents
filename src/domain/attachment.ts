@@ -103,7 +103,7 @@ export function contentTypeFor(kind: AllowedAttachmentKind): 'image/jpeg' | 'app
   return isImageKind(kind) ? 'image/jpeg' : 'application/pdf';
 }
 
-// FIX-SW4f (bugs.md SW4-05): how many uploads a caller may hold that no
+// FIX-SW4f (SW4-05): how many uploads a caller may hold that no
 // message carries. The conversation page sends each upload within seconds
 // of storing it, so these numbers are far above real use and only stop a
 // caller that stores files it never sends.

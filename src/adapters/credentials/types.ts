@@ -185,7 +185,7 @@ export interface CredentialsAdapter {
     subjectDid: string,
     claim: DeemedCompletionClaim,
   ): Promise<DeemedCompletionCredential>;
-  // ISS1 (bugs.md B30): the platform's own issuer identity, for
+  // ISS1 (B30): the platform's own issuer identity, for
   // GET /.well-known/freeagents-issuer.json. The same did:abt and public
   // key every credential this adapter signs actually carries, never a
   // second computation -- so a caller of this method and a verifier

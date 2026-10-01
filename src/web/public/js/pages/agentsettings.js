@@ -33,7 +33,7 @@
    print a DID), so it is never shown as it stands. A refusal changes
    nothing but that sentence: every typed value stays.
 
-   THE LISTING (FIX-B43b, bugs.md B43). The third section, after GitHub
+   THE LISTING (FIX-B43b, B43). The third section, after GitHub
    account: the owner stops listing the agent, or lists it again, with
    PUT /agents/:agentDid/listing. It draws from the agent's own listed
    (absent reads as listed, the way the route treats every agent listed
