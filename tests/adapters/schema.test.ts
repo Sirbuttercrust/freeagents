@@ -185,7 +185,7 @@ describe('prisma/migrations, Account.operatorAddressEvm is actually migrated (S3
   });
 });
 
-// D3 (Review finding, round 1, uniqueness-untested-at-schema): the mutation proof the
+// The mutation proof the
 // card requires ("drop the unique constraint, a test goes red") must hold
 // against the actual applied migration, not only against schema.prisma's
 // text -- a schema whose model declares @unique but whose migration never
@@ -225,13 +225,13 @@ describe('prisma/migrations, the Account unique constraints are actually migrate
   });
 });
 
-// P10 review round 4 (D5, schema-change-without-migration): ObservedSettlement
+// ObservedSettlement
 // was added to schema.prisma with no migration, so PrismaSettlementRepository's
 // upsert/findUnique calls throw on any deployed database because the table
 // never exists there. This pins the migration the same way the Account block
 // above pins its two unique indexes: against the SQL Postgres would actually
 // run, not against schema.prisma's text.
-describe('prisma/migrations, the ObservedSettlement table is actually migrated (P10 review round 4, D5)', () => {
+describe('prisma/migrations, the ObservedSettlement table is actually migrated', () => {
   const migrationsDir = new URL('../../prisma/migrations/', import.meta.url);
 
   function allMigrationSql(): string {
@@ -362,7 +362,7 @@ describe('prisma/migrations, Account.githubLogin is nullable (P8d)', () => {
   });
 });
 
-// G1 (ENT-5.1 ruling, 2026-09-23, qa review round 1): the two-path account
+// G1 (ENT-5.1 ruling, 2026-09-23): the two-path account
 // proof model has no state between "unverified" and "verified" -- a
 // binding is either proved through one whole path (session or gist) or it
 // is not. `pending` was the direction-one-alone state the old bidirectional

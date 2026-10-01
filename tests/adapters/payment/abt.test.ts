@@ -174,7 +174,7 @@ describe('createAbtPaymentRail: createRequest (the prepareTx claim shape)', () =
     ]);
   });
 
-  // D1 (review, round 1): createRequest used to route amountToken/feeToken
+  // createRequest used to route amountToken/feeToken
   // back through Number(), undoing the BigInt discipline src/domain/payment.ts
   // exists to guarantee. A float add (Number('0.1') + Number('0.2')) can
   // make the requirement total EXCEED the sum of its own two outputs, which
@@ -195,7 +195,7 @@ describe('createAbtPaymentRail: createRequest (the prepareTx claim shape)', () =
     expect(requirementTotal).toBe(outputSum);
   });
 
-  // D1 (review, round 1): a valid 8-decimal-place token amount (exactly what
+  // A valid 8-decimal-place token amount (exactly what
   // usdToTokenAmount's RATE_PRECISION produces) used to make Number() emit
   // scientific notation ("1e-8"), which @ocap/util's BN parser rejects with
   // an untyped "Invalid character" error rather than the typed failure this
@@ -264,8 +264,7 @@ function fakeChainClient(overrides: Partial<AbtChainClient> = {}): {
 // -- exactly what the DID Connect claim answer's `finalTx` field carries in
 // the working reference (qr-server.mjs: `client.decodeTx(fromBase58(c.finalTx))`).
 // `outputsOverride`, when supplied, replaces the outputs the claim itself
-// named before signing -- simulating a WALLET that redirects a payment,
-// the exact shape review round 2's D1 reproduction used.
+// named before signing -- simulating a WALLET that redirects a payment.
 async function walletSignedFinalTxBase58(
   claim: {
     readonly partialTx: { readonly from: string; readonly pk: string; readonly itx: { readonly outputs: unknown } };
@@ -558,7 +557,7 @@ describe('createAbtPaymentRail: confirm (S2, binds the chain\'s own record to wh
     expect(confirmation.status).toBe('mismatched');
   });
 
-  // Review round 2, D1: a hand-built ref cannot prove the recipient check
+  // A hand-built ref cannot prove the recipient check
   // binds, because a ref built by hand can always name the correct
   // address regardless of what onWalletResponse would actually have put
   // there. This test drives the REAL path end to end: createRequest ->
@@ -725,7 +724,7 @@ describe('createAbtPaymentRail: confirm (S2, binds the chain\'s own record to wh
     await expect(rail.confirm(refFor('abc123'))).rejects.toThrow('spent-transfer storage unavailable');
   });
 
-  // D4 (review, round 1, retained by S2): confirm reads both output
+  // confirm reads both output
   // balances once the transaction confirms, for a caller that wants to
   // display them. types.ts's own comment on these fields is now explicit
   // that they are not evidence of anything by themselves.

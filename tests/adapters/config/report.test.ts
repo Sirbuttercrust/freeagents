@@ -66,7 +66,7 @@ describe('buildConfigReport: abt rail', () => {
     expect(abt?.missing).toEqual(['FREEAGENTS_ABT_TOKEN']);
   });
 
-  // Same defect class as D1/D2 (review round 1), on the abt rail's
+  // Same defect class as the USDC chain id and the platform seed below, on the abt rail's
   // own sibling variable: createAbtPaymentRail (abt.ts) constructs a wallet
   // from FREEAGENTS_ABT_PLATFORM_SK via @ocap/wallet's fromSecretKey, which
   // throws on a malformed key. The report must not call that value
@@ -102,7 +102,7 @@ describe('buildConfigReport: usdc rail', () => {
     expect(usdc?.missing).toEqual(['FREEAGENTS_USDC_RPC_URL']);
   });
 
-  // D2 (review round 1): readUsdcEnvConfig (usdc.ts) throws
+  // readUsdcEnvConfig (usdc.ts) throws
   // PaymentConfigError on a chain id that does not parse as a positive
   // integer. The report must not call that same value "configured": the
   // reviewer's reproduction showed the startup log saying usdcRail was
@@ -181,7 +181,7 @@ describe('buildConfigReport: credentials, github sign-in, github api', () => {
     expect(credentials?.configured).toBe(true);
   });
 
-  // D1 (review round 1): platformIssuerFromEnv (credentials.ts) only
+  // platformIssuerFromEnv (credentials.ts) only
   // accepts a 64-hex-character seed and falls back to an ephemeral dev key
   // for anything else, including a non-empty malformed value. The report
   // must not call a malformed seed "configured": that is the exact
@@ -230,7 +230,7 @@ describe('buildConfigReport: credentials, github sign-in, github api', () => {
   });
 });
 
-describe('buildConfigReport: enabledRails (D3, review round 1)', () => {
+describe('buildConfigReport: enabledRails', () => {
   // FREEAGENTS_ENABLED_RAILS was declared and documented but nothing ever
   // read it (inert-declared-control). Unset or empty keeps existing
   // behaviour (all three rails offered), which this report treats as trivially

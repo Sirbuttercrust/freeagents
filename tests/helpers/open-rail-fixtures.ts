@@ -52,8 +52,7 @@ interface OpenRailActors {
 // fill(111)/fill(112) precedent): a random seed per identity had a
 // 1-in-200 chance of colliding buyer and agent into one signer, making
 // every criterion-accept land against a single party so confirm answers
-// the wrong 409 ("criteria outstanding") on an otherwise-correct run
-// (review r2, defect 2).
+// the wrong 409 ("criteria outstanding") on an otherwise-correct run.
 const OPEN_RAIL_BUYER_SEED = 121;
 const OPEN_RAIL_AGENT_SEED = 122;
 
