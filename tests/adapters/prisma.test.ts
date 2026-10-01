@@ -42,6 +42,9 @@ const mock = vi.hoisted(() => ({
   passkeyCredentialUpdate: vi.fn(),
   pushSubscriptionDeleteMany: vi.fn(),
   pushSubscriptionFindUnique: vi.fn(),
+  attachmentUpdateMany: vi.fn(),
+  attachmentFindMany: vi.fn(),
+  attachmentDeleteMany: vi.fn(),
 }));
 
 vi.mock('../../src/generated/prisma/index.js', async () => {
@@ -71,6 +74,11 @@ vi.mock('../../src/generated/prisma/index.js', async () => {
         update: mock.passkeyCredentialUpdate,
       };
       pushSubscription = { deleteMany: mock.pushSubscriptionDeleteMany, findUnique: mock.pushSubscriptionFindUnique };
+      attachment = {
+        updateMany: mock.attachmentUpdateMany,
+        findMany: mock.attachmentFindMany,
+        deleteMany: mock.attachmentDeleteMany,
+      };
     },
     Prisma: actual.Prisma,
   };
@@ -87,6 +95,7 @@ const {
   PrismaReviewRepository,
   PrismaPasskeyCredentialRepository,
   PrismaPushSubscriptionRepository,
+  PrismaAttachmentRepository,
 } = await import('../../src/adapters/storage/prisma.js');
 const {
   AgentAlreadyExistsError,
@@ -2259,5 +2268,74 @@ describe('PrismaPushSubscriptionRepository: the owner rule', () => {
 
     expect(await new PrismaPushSubscriptionRepository().findByEndpoint('https://push.example.test/none')).toBeNull();
     expect(mock.pushSubscriptionFindUnique).toHaveBeenCalledWith({ where: { endpoint: 'https://push.example.test/none' } });
+  });
+});
+
+// FIX-SW4f (bugs.md SW4-05): the four methods the unsent-upload quota and
+// the sweep read and write, against the stubbed client.
+describe('PrismaAttachmentRepository: unsent uploads (FIX-SW4f)', () => {
+  const createdAt = new Date('2026-09-30T12:00:00.000Z');
+  const domainRow = {
+    id: 'att-1',
+    jobId: 'job_1',
+    uploaderDid: 'did:example:buyer',
+    kind: 'application/pdf',
+    originalFilename: 'plan.pdf',
+    sizeBytes: 26,
+    path: '/files/att-1',
+    thumbnailPath: null,
+    messageId: null,
+    createdAt,
+  };
+  const dbRow = { ...domainRow, extraColumn: 'not part of the domain shape' };
+
+  afterEach(() => {
+    vi.mocked(mock.attachmentUpdateMany).mockReset();
+    vi.mocked(mock.attachmentFindMany).mockReset();
+    vi.mocked(mock.attachmentDeleteMany).mockReset();
+  });
+
+  it('markSent: sets messageId on exactly the named ids, in one statement', async () => {
+    vi.mocked(mock.attachmentUpdateMany).mockResolvedValue({ count: 2 });
+
+    await new PrismaAttachmentRepository().markSent(['att-1', 'att-2'], 'm-1');
+
+    expect(mock.attachmentUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mock.attachmentUpdateMany).toHaveBeenCalledWith({ where: { id: { in: ['att-1', 'att-2'] } }, data: { messageId: 'm-1' } });
+  });
+
+  it("listUnsentByUploader: asks for that uploader's rows with no message, at or after since, oldest first, and maps them", async () => {
+    vi.mocked(mock.attachmentFindMany).mockResolvedValue([dbRow]);
+    const since = new Date('2026-09-30T11:00:00.000Z');
+
+    const rows = await new PrismaAttachmentRepository().listUnsentByUploader('did:example:buyer', since);
+
+    expect(mock.attachmentFindMany).toHaveBeenCalledWith({
+      where: { uploaderDid: 'did:example:buyer', messageId: null, createdAt: { gte: since } },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(rows).toEqual([domainRow]);
+  });
+
+  it('listUnsentOlderThan: asks for rows with no message created before the cutoff, oldest first, at most limit, and maps them', async () => {
+    vi.mocked(mock.attachmentFindMany).mockResolvedValue([dbRow]);
+    const before = new Date('2026-09-30T11:00:00.000Z');
+
+    const rows = await new PrismaAttachmentRepository().listUnsentOlderThan(before, 100);
+
+    expect(mock.attachmentFindMany).toHaveBeenCalledWith({
+      where: { messageId: null, createdAt: { lt: before } },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    expect(rows).toEqual([domainRow]);
+  });
+
+  it('remove: deletes the one row by id', async () => {
+    vi.mocked(mock.attachmentDeleteMany).mockResolvedValue({ count: 1 });
+
+    await new PrismaAttachmentRepository().remove('att-1');
+
+    expect(mock.attachmentDeleteMany).toHaveBeenCalledWith({ where: { id: 'att-1' } });
   });
 });

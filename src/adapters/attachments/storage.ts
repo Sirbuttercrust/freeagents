@@ -5,7 +5,7 @@
 // calls, and this file exposes no directory-listing capability of its
 // own.
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 // A generic default, no real deployment path baked in (CLAUDE.md "This
@@ -42,4 +42,16 @@ export async function writeAttachmentFile(dir: string, id: string, bytes: Buffer
 
 export async function readAttachmentFile(path: string): Promise<Buffer> {
   return readFile(path);
+}
+
+// FIX-SW4f: deletes one stored file. A file that is already gone (ENOENT)
+// counts as deleted, so the sweep and the failed-row cleanup can run twice
+// without failing; any other error is thrown.
+export async function removeAttachmentFile(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
 }

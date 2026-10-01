@@ -233,7 +233,16 @@ import {
   type Notification,
   type NotificationEventType,
 } from '../domain/notification.js';
-import { assertAttachmentAllowed, AttachmentError, isImageKind, contentTypeFor, type Attachment } from '../domain/attachment.js';
+import {
+  assertAttachmentAllowed,
+  AttachmentError,
+  isImageKind,
+  contentTypeFor,
+  unsentUploadCapReached,
+  unsentUploadExpired,
+  UNSENT_UPLOAD_TTL_MS,
+  type Attachment,
+} from '../domain/attachment.js';
 import {
   createMessageRepository,
   createThreadReadStateRepository,
@@ -248,7 +257,13 @@ import type {
   AttachmentRepository,
   PushSubscriptionRepository,
 } from '../adapters/storage/types.js';
-import { attachmentsDirFromEnv, randomFileId, readAttachmentFile, writeAttachmentFile } from '../adapters/attachments/storage.js';
+import {
+  attachmentsDirFromEnv,
+  randomFileId,
+  readAttachmentFile,
+  removeAttachmentFile,
+  writeAttachmentFile,
+} from '../adapters/attachments/storage.js';
 import { reencodeImage, ImageReencodeError } from '../adapters/attachments/image.js';
 import { createWebhookSender, type WebhookSender } from '../adapters/webhook/webhook.js';
 import { createPushSender, type PushSender } from '../adapters/push/push.js';
@@ -980,6 +995,21 @@ async function withBuyerGithubLogins(
     ...hire,
     buyerGithubLogin: loginByBuyerDid.get(hire.buyerDid) ?? null,
   }));
+}
+
+// FIX-SW4f (bugs.md SW4-05): the quota's refusal and the sweep's pace. The
+// caps and the TTL live with the counting rule in src/domain/attachment.ts.
+// Sending a file frees a place and takes seconds, so a minute is a fair wait.
+const UNSENT_UPLOAD_RETRY_AFTER_SECONDS = 60;
+// Running the sweep on every upload would repeat its read for no gain.
+const UNSENT_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+// A large backlog is cleared over several uploads, not in one request.
+const UNSENT_SWEEP_BATCH = 100;
+
+function unsentUploadSentence(cap: 'job' | 'account'): string {
+  return cap === 'job'
+    ? 'Too many files were uploaded to this conversation without being sent. Send one of them, or try again later.'
+    : 'Too many files were uploaded by this account without being sent. Send one of them, or try again later.';
 }
 
 // SW4-06 and B76: the cookie that ties a GitHub sign-in, and a one-click
@@ -2521,6 +2551,11 @@ export function createApp(
             });
             return;
           }
+          // FIX-SW4f: the sweep removes an unsent upload after the TTL.
+          if (unsentUploadExpired(attachment.createdAt, new Date())) {
+            res.status(400).json({ error: `${attachmentId} expired before it was sent; upload the file again.` });
+            return;
+          }
           attachmentRefs.push({ attachmentId });
         }
       }
@@ -2550,6 +2585,16 @@ export function createApp(
       }
       try {
         const row = await messageRepo.create(message);
+        if (attachmentRefs.length > 0) {
+          // FIX-SW4f: record which message carries each upload, so the quota
+          // stops counting it and the sweep keeps it. The message is stored:
+          // a failure here is logged, and the sweep records it later.
+          try {
+            await attachmentRepo.markSent(attachmentRefs.map((ref) => ref.attachmentId), row.id);
+          } catch (err) {
+            console.error(`${label}: markSent failed for message ${row.id}; the message is stored`, err);
+          }
+        }
         broadcastThreadEvent(gate.job.id, 'message', messageProjection(row));
         const excludeDid = gate.party === 'agent' && gate.did !== gate.job.agentDid ? gate.job.agentDid : gate.did;
         await notifyJobParties(gate.job, 'new_message', excludeDid);
@@ -3065,6 +3110,87 @@ export function createApp(
     }
   });
 
+  // FIX-SW4f (bugs.md SW4-05): removes uploads no message carries once they
+  // are older than UNSENT_UPLOAD_TTL_MS. Called from the upload route, at
+  // most once per UNSENT_SWEEP_INTERVAL_MS for this app, with no timer; the
+  // run is recorded before anything is awaited and it never throws. Per old
+  // row (oldest first, at most UNSENT_SWEEP_BATCH): a message that carries it
+  // gets its id recorded and the row kept; otherwise the files (full, then
+  // thumbnail) and then the row are removed. A failed row is logged, not fatal.
+  let lastUnsentSweepAt = Number.NEGATIVE_INFINITY;
+  async function sweepUnsentUploads(): Promise<void> {
+    const startedAt = Date.now();
+    if (startedAt - lastUnsentSweepAt < UNSENT_SWEEP_INTERVAL_MS) return;
+    lastUnsentSweepAt = startedAt;
+    try {
+      const old = await attachmentRepo.listUnsentOlderThan(new Date(startedAt - UNSENT_UPLOAD_TTL_MS), UNSENT_SWEEP_BATCH);
+      for (const row of old) {
+        try {
+          const carrying = (await messageRepo.listByJobId(row.jobId)).find((message) =>
+            message.attachments.some((ref) => ref.attachmentId === row.id),
+          );
+          if (carrying !== undefined) {
+            await attachmentRepo.markSent([row.id], carrying.id);
+            continue;
+          }
+          await removeAttachmentFile(row.path);
+          if (row.thumbnailPath !== null) await removeAttachmentFile(row.thumbnailPath);
+          await attachmentRepo.remove(row.id);
+        } catch (err) {
+          console.error(`unsent upload sweep: could not clear upload ${row.id}`, err);
+        }
+      }
+    } catch (err) {
+      console.error('unsent upload sweep: could not list unsent uploads', err);
+    }
+  }
+
+  // FIX-SW4f (bugs.md SW4-05): makes the quota and the admission one step.
+  // The route decodes and writes before its row exists, so stored rows alone
+  // let every upload arriving meanwhile pass. An admitted upload holds a place
+  // under the caller's DID until its request ends; the count adds held places
+  // to stored rows. Places live in this process only, like the sweep's clock.
+  // The check and the hold run in one synchronous stretch after the rows
+  // return. A release by the same DID during the read could leave an upload
+  // in neither the rows nor the places, so the read is repeated then; another
+  // DID's release never does. A DID's state lives while it holds or reads.
+  interface UnsentUploadState { held: Map<string, string>; released: number; reads: number }
+  const unsentUploadStates = new Map<string, UnsentUploadState>();
+  const dropIdleState = (did: string, state: UnsentUploadState): void => {
+    if (state.reads === 0 && state.held.size === 0) unsentUploadStates.delete(did);
+  };
+  async function reserveUnsentUpload(did: string, jobId: string, uploadId: string): Promise<'job' | 'account' | null> {
+    const state = unsentUploadStates.get(did) ?? { held: new Map<string, string>(), released: 0, reads: 0 };
+    unsentUploadStates.set(did, state);
+    state.reads += 1;
+    try {
+      for (;;) {
+        const releasedBefore = state.released;
+        const stored = await attachmentRepo.listUnsentByUploader(did, new Date(Date.now() - UNSENT_UPLOAD_TTL_MS));
+        if (state.released !== releasedBefore) continue;
+        const storedIds = new Set(stored.map((row) => row.id));
+        const now = new Date();
+        const pending = [...state.held]
+          .filter(([heldId]) => !storedIds.has(heldId))
+          .map(([, heldJobId]) => ({ jobId: heldJobId, messageId: null, createdAt: now }));
+        const reached = unsentUploadCapReached([...stored, ...pending], jobId, now);
+        if (reached !== null) return reached;
+        state.held.set(uploadId, jobId);
+        return null;
+      }
+    } finally {
+      state.reads -= 1;
+      dropIdleState(did, state);
+    }
+  }
+  function releaseUnsentUpload(did: string, uploadId: string): void {
+    const state = unsentUploadStates.get(did);
+    if (state === undefined) return;
+    state.held.delete(uploadId);
+    state.released += 1;
+    dropIdleState(did, state);
+  }
+
   // POST /jobs/:jobId/attachments (attachments STEER): base64-encoded
   // upload, checked from its own bytes (assertAttachmentAllowed), never
   // its declared filename or content type. Images are decoded and
@@ -3088,74 +3214,104 @@ export function createApp(
         res.status(400).json({ error: 'body must be { filename, dataBase64 }; dataBase64 the file bytes, base64-encoded, up to 10 MB' });
         return;
       }
-      let bytes: Buffer;
-      try {
-        bytes = Buffer.from(body.dataBase64, 'base64');
-      } catch {
-        res.status(400).json({ error: 'dataBase64 is not valid base64' });
-        return;
-      }
-      let kind;
-      try {
-        kind = assertAttachmentAllowed(bytes);
-      } catch (err) {
-        if (err instanceof AttachmentError) {
-          res.status(400).json({ error: err.message });
-          return;
-        }
-        throw err;
-      }
-      const dir = attachmentsDirFromEnv();
+      // FIX-SW4f (bugs.md SW4-05): sweep old unsent uploads, then refuse the
+      // caller past either cap, after the checks above (a stranger still gets
+      // 403, a read-only thread 409) and before anything is decoded or written.
+      await sweepUnsentUploads();
       const id = randomFileId();
-      let storedPath: string;
-      let thumbnailPath: string | null = null;
-      if (isImageKind(kind)) {
-        let reencoded;
-        try {
-          reencoded = await reencodeImage(bytes, kind === 'image/heic');
-        } catch (err) {
-          if (err instanceof ImageReencodeError) {
-            console.error(`${label}: image re-encode failed`, err.detail);
-            res.status(400).json({ error: err.message });
-            return;
-          }
-          throw err;
-        }
-        storedPath = await writeAttachmentFile(dir, id, reencoded.bytes);
-        thumbnailPath = await writeAttachmentFile(dir, id + '-thumb', reencoded.thumbnailBytes);
-      } else {
-        // A PDF has no EXIF/GPS payload to strip (the domain's own
-        // header comment); the uploaded bytes, already verified by
-        // their magic bytes above, are stored verbatim.
-        storedPath = await writeAttachmentFile(dir, id, bytes);
-      }
-      let attachment: Attachment;
+      let capReached: 'job' | 'account' | null;
       try {
-        attachment = await attachmentRepo.create({
-          id,
-          jobId: gate.job.id,
-          uploaderDid: gate.did,
-          kind,
-          originalFilename: body.filename,
-          sizeBytes: bytes.length,
-          path: storedPath,
-          thumbnailPath,
-          createdAt: new Date(),
-        });
+        capReached = await reserveUnsentUpload(gate.did, gate.job.id, id);
       } catch (err) {
         console.error(`${label}: storage failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
         return;
       }
-      res.status(201).json({
-        id: attachment.id,
-        jobId: attachment.jobId,
-        kind: attachment.kind,
-        contentType: contentTypeFor(attachment.kind),
-        originalFilename: attachment.originalFilename,
-        sizeBytes: attachment.sizeBytes,
-        createdAt: attachment.createdAt.toISOString(),
-      });
+      if (capReached !== null) {
+        res.setHeader('retry-after', String(UNSENT_UPLOAD_RETRY_AFTER_SECONDS));
+        res.status(429).json({ error: unsentUploadSentence(capReached) });
+        return;
+      }
+      try {
+        let bytes: Buffer;
+        try {
+          bytes = Buffer.from(body.dataBase64, 'base64');
+        } catch {
+          res.status(400).json({ error: 'dataBase64 is not valid base64' });
+          return;
+        }
+        let kind;
+        try {
+          kind = assertAttachmentAllowed(bytes);
+        } catch (err) {
+          if (err instanceof AttachmentError) {
+            res.status(400).json({ error: err.message });
+            return;
+          }
+          throw err;
+        }
+        const dir = attachmentsDirFromEnv();
+        let storedPath: string;
+        let thumbnailPath: string | null = null;
+        if (isImageKind(kind)) {
+          let reencoded;
+          try {
+            reencoded = await reencodeImage(bytes, kind === 'image/heic');
+          } catch (err) {
+            if (err instanceof ImageReencodeError) {
+              console.error(`${label}: image re-encode failed`, err.detail);
+              res.status(400).json({ error: err.message });
+              return;
+            }
+            throw err;
+          }
+          storedPath = await writeAttachmentFile(dir, id, reencoded.bytes);
+          thumbnailPath = await writeAttachmentFile(dir, id + '-thumb', reencoded.thumbnailBytes);
+        } else {
+          // A PDF has no EXIF/GPS payload to strip (the domain's own
+          // header comment); the uploaded bytes, already verified by
+          // their magic bytes above, are stored verbatim.
+          storedPath = await writeAttachmentFile(dir, id, bytes);
+        }
+        let attachment: Attachment;
+        try {
+          attachment = await attachmentRepo.create({
+            id,
+            jobId: gate.job.id,
+            uploaderDid: gate.did,
+            kind,
+            originalFilename: body.filename,
+            sizeBytes: bytes.length,
+            path: storedPath,
+            thumbnailPath,
+            messageId: null,
+            createdAt: new Date(),
+          });
+        } catch (err) {
+          console.error(`${label}: storage failed`, err);
+          // FIX-SW4f: the files were written first; nothing else would remove them.
+          for (const orphan of thumbnailPath === null ? [storedPath] : [storedPath, thumbnailPath]) {
+            try {
+              await removeAttachmentFile(orphan);
+            } catch (removeErr) {
+              console.error(`${label}: could not remove the file of an upload that was not stored`, removeErr);
+            }
+          }
+          res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        res.status(201).json({
+          id: attachment.id,
+          jobId: attachment.jobId,
+          kind: attachment.kind,
+          contentType: contentTypeFor(attachment.kind),
+          originalFilename: attachment.originalFilename,
+          sizeBytes: attachment.sizeBytes,
+          createdAt: attachment.createdAt.toISOString(),
+        });
+      } finally {
+        releaseUnsentUpload(gate.did, id);
+      }
     }),
   );
 

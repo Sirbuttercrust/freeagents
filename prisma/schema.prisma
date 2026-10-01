@@ -740,9 +740,20 @@ model Attachment {
   sizeBytes        Int
   path             String
   thumbnailPath    String?
+  // FIX-SW4f: the message recorded as carrying this upload. The unsent-upload
+  // quota and the sweep read it; null means no message has been recorded as
+  // carrying it (a fresh upload, a row stored before this column, or a row
+  // whose markSent failed). No default, nothing is backfilled.
+  messageId        String?
   createdAt        DateTime @default(now())
 
   @@index([jobId])
+  // FIX-SW4f: the quota reads one uploader's unsent rows since a time
+  // (equality on uploaderDid and messageId IS NULL, then a createdAt range).
+  @@index([uploaderDid, messageId, createdAt])
+  // FIX-SW4f: the sweep reads every unsent row older than a cutoff, oldest
+  // first (messageId IS NULL, then createdAt range and order).
+  @@index([messageId, createdAt])
 }
 
 // HT1 Part B (STEER item 4): one row per browser Push API subscription

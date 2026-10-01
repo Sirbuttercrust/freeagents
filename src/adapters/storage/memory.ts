@@ -675,8 +675,8 @@ export class MemoryNotificationRepository implements NotificationRepository {
 }
 
 // HT1 Part B (attachments STEER): one stored attachment per uploaded
-// file, keyed by id. No update method (the interface's own header
-// comment: an attachment, once stored, is immutable).
+// file, keyed by id. A row changes only through markSent (FIX-SW4f) and
+// is deleted only through remove (FIX-SW4f), as the interface says.
 export class MemoryAttachmentRepository implements AttachmentRepository {
   private readonly rows = new Map<string, Attachment>();
 
@@ -696,6 +696,30 @@ export class MemoryAttachmentRepository implements AttachmentRepository {
     return [...this.rows.values()]
       .filter((row) => row.jobId === jobId)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async markSent(ids: readonly string[], messageId: string): Promise<void> {
+    for (const id of ids) {
+      const row = this.rows.get(id);
+      if (row !== undefined) this.rows.set(id, { ...row, messageId });
+    }
+  }
+
+  async listUnsentByUploader(uploaderDid: string, since: Date): Promise<readonly Attachment[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.uploaderDid === uploaderDid && row.messageId === null && row.createdAt.getTime() >= since.getTime())
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async listUnsentOlderThan(before: Date, limit: number): Promise<readonly Attachment[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.messageId === null && row.createdAt.getTime() < before.getTime())
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .slice(0, limit);
+  }
+
+  async remove(id: string): Promise<void> {
+    this.rows.delete(id);
   }
 }
 

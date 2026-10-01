@@ -556,8 +556,9 @@ export interface NotificationRepository {
 }
 
 // HT1 Part B (attachments STEER): one stored attachment per uploaded
-// file. No update method: an attachment, once stored, is immutable (the
-// same stance AttestationRepository already takes on its own rows).
+// file. A row is written once by create; the only later changes are
+// markSent (FIX-SW4f: record the message that carries it) and remove
+// (FIX-SW4f: the sweep deleting an upload no message carries).
 export interface AttachmentRepository {
   create(attachment: Attachment): Promise<Attachment>;
   findById(id: string): Promise<Attachment | null>;
@@ -570,6 +571,17 @@ export interface AttachmentRepository {
   // every other per-job repository in this file makes no judgement
   // about the caller's further filtering.
   listByJobId(jobId: string): Promise<readonly Attachment[]>;
+  // FIX-SW4f: records that the message `messageId` carries each named
+  // upload. Ids that name no row are ignored.
+  markSent(ids: readonly string[], messageId: string): Promise<void>;
+  // The upload quota counts one uploader's rows with no message recorded,
+  // created at or after `since`, oldest first.
+  listUnsentByUploader(uploaderDid: string, since: Date): Promise<readonly Attachment[]>;
+  // FIX-SW4f: rows with no message recorded, created strictly before
+  // `before`, oldest first, at most `limit`. The sweep reads these.
+  listUnsentOlderThan(before: Date, limit: number): Promise<readonly Attachment[]>;
+  // FIX-SW4f: deletes the row. Does nothing when the id names no row.
+  remove(id: string): Promise<void>;
 }
 
 // HT1 Part B (STEER item 4): one row per browser Push API subscription.
