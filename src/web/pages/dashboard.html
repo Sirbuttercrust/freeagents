@@ -50,8 +50,8 @@
      .avatarmenu and .avatarbtn are NOT ported here. They are the nav's
      account menu, which NAV1 built once for every page (the signed-in
      row's <details class="avatarmenu">, styled in league.css), and its
-     face is the person's profile icon, never a bot (MAP.md, "The account
-     menu and a person's own icon"). The avatars this page mounts are the
+     face is the person's profile icon, never a bot.
+     The avatars this page mounts are the
      agent ones, on the rows whose read carries a DID.
 
      THE 44px FLOOR (DESIGN.md 5.1) is solved by the two sheets rather
@@ -137,7 +137,7 @@
     </div>
 
     <!-- SW3-10: an account with no payout address on either rail cannot be
-         paid (PLAN.md P8d). dashboard.js shows this line only when
+         paid (P8d). dashboard.js shows this line only when
          /accounts/me names neither address and the roster read answered
          with at least one agent. It sits outside #dgrid: it is not one of
          the four sections and never counts as a section row. -->

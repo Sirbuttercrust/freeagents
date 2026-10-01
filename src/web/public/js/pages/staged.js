@@ -346,7 +346,7 @@
     A.showById("usdc-gas-note", figures !== null && isUsdc(job_));
   }
 
-  // Ruling 6, round 1 fix (qa D1): the redo control renders only when a
+  // Ruling 6: the redo control renders only when a
   // redo can actually be requested BY THIS SESSION. No disabled button,
   // no stub: both controls are removed from the document entirely
   // rather than hidden or disabled, whether the reason is the allowance

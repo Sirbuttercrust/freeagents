@@ -422,7 +422,7 @@
 
   /* ----------------------------------------------------- a person's mark
 
-     NAV1 (MAP.md, "The account menu and a person's own icon", 2026-09-30):
+     NAV1 (2026-09-30):
      a person is never drawn as a bot, because one account runs several
      agents and each of those is a bot. A person's mark is icons.js's
      "user" head-and-shoulders glyph, filled, on a round plate in their

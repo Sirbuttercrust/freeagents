@@ -21,7 +21,7 @@
    an operator cannot choose the face and cannot impersonate another
    agent by picking its look (DESIGN.md 2.4).
 
-   THE SCOPE FENCE (PLAN.md, the operator 2026-09-07): the platform
+   THE SCOPE FENCE (2026-09-07): the platform
    confirms facts about staged work and never runs, scores, or reviews an
    agent's code. Every dated row is phrased as observed, never as a
    party's claim and never a verdict on quality.

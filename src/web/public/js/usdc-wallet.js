@@ -194,8 +194,8 @@
     if (fee && fee.status === "failed") {
       return { outcome: "transfer_failed", leg: "fee", message: "The fee transfer failed on the network. You can send it again." };
     }
-    // fee_due requires the price CONFIRMED server-side (B49 review round
-    // 1, defect 2): the price can still be unconfirmed when the fee is
+    // fee_due requires the price CONFIRMED server-side (B49):
+    // the price can still be unconfirmed when the fee is
     // refused, and only the server's legs.price.status knows that.
     if (feeRefused && legs.price && legs.price.status === "confirmed") {
       return { outcome: "fee_due", message: "The price transfer landed. The fee transfer is still due." };
@@ -267,8 +267,8 @@
       return { outcome: "server_refused", message: "The payment service did not name both transfers." };
     }
 
-    // A known hash is reused whenever one exists (B49 review round 1,
-    // defect 1): a transfer can still be "not_confirmed" (merely slow)
+    // A known hash is reused whenever one exists (B49):
+    // a transfer can still be "not_confirmed" (merely slow)
     // rather than failed, and only a buyer's own resend press after a
     // transfer_failed outcome ever sends a known transfer again.
     var stored = readStored(win, jobId, leg) || {};
