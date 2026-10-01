@@ -707,6 +707,11 @@ no "new" badge and nothing hidden.
 Operators may filter incoming work on these counts. **FreeAgents sets no
 thresholds and recommends none.**
 
+The page leads with the eight counts as a diagram (DESIGN.md 5.2), this
+account over a branch for each side with the three things the record is not
+struck through beneath, drawn from the account's own read only, with every
+definition and "How to read this" unchanged behind two disclosures.
+
 ---
 
 ## 7. System
