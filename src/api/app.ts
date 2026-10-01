@@ -164,6 +164,7 @@ import {
   checkDepositReadiness,
   checkLegNotAlreadySettled,
   checkRailDoorEligible,
+  checkRepositoryReady,
   confirmPayment,
   legStatusConflictMessage,
   legStatusEligible,
@@ -5426,9 +5427,10 @@ export function createApp(
         return;
       }
     }
-    // owner/name on GitHub (ENT-4), syntactic only: this issue makes no
-    // GitHub calls, so a repo that does not exist surfaces when the PR
-    // route lands, not here.
+    // owner/name on GitHub (ENT-4). This check is syntactic only; whether
+    // the repository exists and can take the work is read once, further
+    // down, after every cheaper refusal has passed and before any job is
+    // written.
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repository)) {
       res.status(400).json({
         error: 'repository must be an owner/name pair like buyer/target-repo',
@@ -5550,6 +5552,31 @@ export function createApp(
         throw err;
       }
       jobsToCreate.push(job);
+    }
+
+    // The request's one repository is read once here, whatever the agent
+    // count, after every cheaper refusal above (so a request refused
+    // anyway makes no GitHub call) and before the first row is written
+    // (so a refusal writes zero jobs and notifies nobody). The deposit
+    // doors and confirm read it again, because the repository can change
+    // between the brief and the money. No job exists yet, so the
+    // sentences carry no job address.
+    //
+    // A GitHub failure (a 503 from the shared check) does not refuse the
+    // brief: a brief moves no money, and both money doors and confirm
+    // re-read the repository before anything is paid or staged. It is
+    // logged for the operator and the hire opens.
+    const repositoryReadiness = await checkRepositoryReady(github, {
+      repository,
+      jobId: null,
+      agentGithubLogin: null,
+    });
+    if (!repositoryReadiness.ok) {
+      if (repositoryReadiness.status === 409) {
+        res.status(409).json({ error: repositoryReadiness.message });
+        return;
+      }
+      console.error('POST /jobs: repository read failed', repositoryReadiness.cause);
     }
 
     const createdRows: Job[] = [];
