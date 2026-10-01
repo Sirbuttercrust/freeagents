@@ -43,4 +43,9 @@ export interface Account {
   // without a wallet backing its DID can never be handed money nobody
   // controls).
   readonly operatorAddressAbt: string | null;
+  // The ABT-on-Ethereum payout address: an Ethereum mainnet address, null
+  // until the account sets one. Never derived from another network's
+  // address: operatorAddressEvm (Arbitrum) is not copied here, because the
+  // same address on two networks can belong to two different people.
+  readonly operatorAddressAbtEth: string | null;
 }

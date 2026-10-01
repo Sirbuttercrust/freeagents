@@ -501,6 +501,9 @@ describe('app, storage failures', () => {
     async setOperatorAddressAbt(): Promise<never> {
       throw registerError;
     }
+    async setOperatorAddressAbtEth(): Promise<never> {
+      throw registerError;
+    }
     async promoteUnprovedGithubLogin(): Promise<never> {
       throw registerError;
     }

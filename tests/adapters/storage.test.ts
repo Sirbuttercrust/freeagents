@@ -836,3 +836,57 @@ describe('MemoryPasskeyCredentialRepository', () => {
     expect((await repo.findById('cred-1'))?.publicKey).toEqual(new Uint8Array([1, 2, 3]));
   });
 });
+
+// The ABT-on-Ethereum payout address is its own box. Setting it writes that
+// one field, so an address typed for one network is never copied into
+// another network's column.
+describe('MemoryAccountRepository.setOperatorAddressAbtEth', () => {
+  const EVM = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
+  const ABT = 'zNKexampleabtaddress';
+  const ABT_ETH = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+
+  it('returns the account with the address in operatorAddressAbtEth and stores it', async () => {
+    const repo = new MemoryAccountRepository();
+    await repo.register({ did: 'did:abt:mem-abt-eth', githubLogin: 'operator-mem-abt-eth' });
+
+    const updated = await repo.setOperatorAddressAbtEth('did:abt:mem-abt-eth', ABT_ETH);
+
+    expect(updated?.operatorAddressAbtEth).toBe(ABT_ETH);
+    expect(await repo.findByDid('did:abt:mem-abt-eth')).toEqual(updated);
+  });
+
+  it('changes operatorAddressAbtEth and nothing else on the account', async () => {
+    const repo = new MemoryAccountRepository();
+    await repo.register({ did: 'did:abt:mem-abt-eth-2', githubLogin: 'operator-mem-abt-eth-2' });
+    await repo.setOperatorAddressEvm('did:abt:mem-abt-eth-2', EVM);
+    await repo.setOperatorAddressAbt('did:abt:mem-abt-eth-2', ABT);
+    // The memory driver hands back its stored row, so a copy taken before the
+    // call is the only baseline a setter that writes in place cannot also change.
+    const before = structuredClone(await repo.findByDid('did:abt:mem-abt-eth-2'));
+    expect(before?.operatorAddressEvm).toBe(EVM);
+    expect(before?.operatorAddressAbt).toBe(ABT);
+
+    const updated = await repo.setOperatorAddressAbtEth('did:abt:mem-abt-eth-2', ABT_ETH);
+
+    expect(updated).toEqual({ ...before, operatorAddressAbtEth: ABT_ETH });
+  });
+
+  it('changes nothing but operatorAddressAbtEth when the other network columns are empty', async () => {
+    const repo = new MemoryAccountRepository();
+    await repo.register({ did: 'did:abt:mem-abt-eth-3', githubLogin: 'operator-mem-abt-eth-3' });
+    const before = structuredClone(await repo.findByDid('did:abt:mem-abt-eth-3'));
+    expect(before?.operatorAddressEvm).toBeNull();
+    expect(before?.operatorAddressAbt).toBeNull();
+
+    const updated = await repo.setOperatorAddressAbtEth('did:abt:mem-abt-eth-3', ABT_ETH);
+
+    expect(updated).toEqual({ ...before, operatorAddressAbtEth: ABT_ETH });
+  });
+
+  it('answers null for a DID that was never registered', async () => {
+    const repo = new MemoryAccountRepository();
+
+    expect(await repo.setOperatorAddressAbtEth('did:abt:nobody', ABT_ETH)).toBeNull();
+    expect(await repo.findByDid('did:abt:nobody')).toBeNull();
+  });
+});
