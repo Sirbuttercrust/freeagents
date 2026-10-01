@@ -92,12 +92,11 @@
      5. NEW HERE. The wireframe's nav account menu
         (spec/wireframe/pullrequest.html:64-73, a <details class="avatarmenu">
         whose drop holds Dashboard, Settings and Sign out) carries the
-        second of the wireframe's two data-avatar hosts, and it is not
-        built anywhere on this site. nav.js:85-89 and nav.js:107-110 record
-        that decision: all three destinations are already flat controls in
-        the shared bar, so a menu would put two Dashboard links and two
-        Settings links in one nav. So this page mounts ONE avatar, in the
-        who strip, not two. */
+        second of the wireframe's two data-avatar hosts. NAV1 built that
+        menu on every page, and its face is the person's profile icon,
+        never a bot (MAP.md, "The account menu and a person's own icon"),
+        so it is no data-avatar mount. So this page mounts ONE avatar, in
+        the who strip, not two. */
 
   /* THE PULL REQUEST LINE. Page-local because no sheet this page loads
      declares .prlink, counted above; the wireframe keeps it local too
@@ -200,7 +199,17 @@
     <div class="links"><a href="/browse">Browse</a><a href="/how">How it works</a></div>
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
-    <div class="row" id="nav-signed-in" hidden><button class="btn btn-sm" type="button" id="nav-signout">Sign out</button></div>
+    <div class="row" id="nav-signed-in" hidden>
+      <details class="avatarmenu" id="nav-account">
+        <summary class="avatarbtn" id="nav-account-btn" aria-label="Account menu"><span class="pmark" id="nav-account-mark"></span></summary>
+        <div class="avatardrop" id="nav-account-drop">
+          <p class="avatarname" id="nav-account-name" hidden></p>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings">Settings</a>
+          <button type="button" id="nav-signout">Sign out</button>
+        </div>
+      </details>
+    </div>
   </div>
 </nav>
 <main class="wrap section">

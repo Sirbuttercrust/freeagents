@@ -186,23 +186,19 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // (spec/wireframe/myjobs.html:71-132) carry .rowtext and .rowtrail and
     // no avatar at all.
     //
-    // The menu is not built, and this card does not reopen that: all three
-    // of its destinations already sit in the bar as flat controls, so a
-    // second copy inside a menu would put two Dashboard links and two
-    // Settings links in one nav. nav.js appends Dashboard (nav.js:91-105)
-    // and Settings (nav.js:112-126) into .links on every page that loads
-    // it, and Sign out is each page's own #nav-signout button, which
-    // nav.js shows once a session exists (nav.js:149-150) and wires
-    // (nav.js:153-180). nav.js:85-89 and nav.js:107-110 record the menu as
-    // a nav decision deferred to the polish pass, and dashboard.html:35-43
-    // records the same ruling from the page side.
+    // NAV1 built that menu on every page (each page's #nav-signed-in row,
+    // wired by nav.js), and its face is the person's profile icon
+    // (FAApi.personMark), never a bot, by the ruling in MAP.md "The account
+    // menu and a person's own icon" (2026-09-30). A profile icon is not a
+    // data-avatar bot mount, so this page still mounts none; this
+    // wireframe's menu face predates the ruling.
     //
     // Nor do the rows get avatars: GET /accounts/:did/jobs returns id,
     // brief, agentName, repository, status, bucket and date
     // (src/api/app.ts:1629-1637) with no DID on the row, so the only way to
     // draw a face there would be to derive an identity from a name, which
     // this codebase never does.
-    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/myjobs.html:41), never a row: its six rows carry .rowtext and .rowtrail and no avatar. The menu is not built because all three of its destinations are already flat controls in the shared bar (nav.js:91-126 appends Dashboard and Settings; #nav-signout is the page's own button, shown by nav.js:149-150), and GET /accounts/:did/jobs returns no DID on a row (src/api/app.ts:1629-1637), so a row avatar could only come from deriving an identity out of a name",
+    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/myjobs.html:41), never a row: its six rows carry .rowtext and .rowtrail and no avatar. The menu is built (NAV1, every page's #nav-signed-in row), and its face is the person's profile icon, never a bot (MAP.md, \"The account menu and a person's own icon\"), so it is no data-avatar mount; and GET /accounts/:did/jobs returns no DID on a row (src/api/app.ts:1629-1637), so a row avatar could only come from deriving an identity out of a name",
   },
   job: {
     // The wireframe draws the closed-without-shipping state as a second
@@ -347,19 +343,18 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // (spec/wireframe/incoming.html:66, the <details class="avatarmenu">
     // whose drop holds Dashboard, Settings and Sign out), never a row: its
     // three .orow rows (spec/wireframe/incoming.html:87-145) carry .who,
-    // .repo, .brief and .foot and draw no face at all. The menu is not
-    // built because all three of its destinations are already flat
-    // controls in the shared bar (nav.js:91-126 appends Dashboard and
-    // Settings; #nav-signout is the page's own button, shown by
-    // nav.js:149-150), so a second copy inside a menu would put two
-    // Dashboard links and two Settings links in one bar.
+    // .repo, .brief and .foot and draw no face at all. NAV1 built the menu
+    // on every page, and its face is the person's profile icon
+    // (FAApi.personMark), never a bot, by the ruling in MAP.md "The account
+    // menu and a person's own icon" (2026-09-30), so it is no data-avatar
+    // mount; this wireframe's menu face predates the ruling.
     //
     // NOT the myjobs reason. GET /accounts/:did/incoming DOES return
     // agentDid on every offer (src/api/app.ts:1720-1727) and incoming.js
     // reads it, so a row face here is available and is still not drawn:
     // the wireframe's own rows draw none, and adding one would be an
     // addition to the design rather than conformance to it.
-    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/incoming.html:66), never a row: its three .orow rows (spec/wireframe/incoming.html:87-145) carry .who, .repo, .brief and .foot and draw no face at all. The menu is not built because all three of its destinations are already flat controls in the shared bar (nav.js:91-126 appends Dashboard and Settings; #nav-signout is the page's own button, shown by nav.js:149-150). This route does carry a row identity (agentDid on every offer, src/api/app.ts:1720-1727), so the absence is the design's call and not the data's: drawing a face the wireframe's own rows do not draw would be an addition to the design rather than conformance to it",
+    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/incoming.html:66), never a row: its three .orow rows (spec/wireframe/incoming.html:87-145) carry .who, .repo, .brief and .foot and draw no face at all. The menu is built (NAV1, every page's #nav-signed-in row), and its face is the person's profile icon, never a bot (MAP.md, \"The account menu and a person's own icon\"), so it is no data-avatar mount. This route does carry a row identity (agentDid on every offer, src/api/app.ts:1720-1727), so the absence is the design's call and not the data's: drawing a face the wireframe's own rows do not draw would be an addition to the design rather than conformance to it",
   },
   myagents: {
     // Two of the wireframe's four example agent names (myagents.html:109,
@@ -441,7 +436,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Stop listing axiom-ui': 'wireframe sample data (axiom-ui is the wireframe\u2019s one example agent); drawListing (agentsettings.js) renders the real agent\u2019s live name into this button, pinned by tests/web/agentsettings.test.ts, "listing (a) a listed agent"',
     // The wireframe's nav button points at dashboard.html under the local
     // label "Account", the same entry settings carries below.
-    'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
+    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
   },
   review: {
     // FIX-SW12m's departures, each named in the PR. The wireframe's sample
@@ -457,7 +452,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'If you have not hired this agent': 'the section describes the agent page\u2019s empty state for a visitor with no completed hire; /review does not build a second copy of it, and its own version is the not-the-buyer state (#not-buyer), pinned by tests/web/review.test.ts (d)',
     // The wireframe's nav button points at dashboard.html under the local
     // label "Account", the same entry agentsettings and settings carry.
-    'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
+    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
   },
   signin: {
     // All four excuses below share one root, already on the record: PLAN
@@ -504,12 +499,12 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
   },
   settings: {
     // The wireframe's nav button (settings.html:45) points at
-    // dashboard.html under the local label "Account". nav.js renders that
-    // same destination on every page under the label "Dashboard"
-    // (nav.js:100-105), which is in this instrument's own SHARED_NAV set;
-    // this entry reaches the shared-nav mechanism under this one
-    // wireframe's local label instead of "Dashboard".
-    'Account': 'the shared-nav mechanism (nav.js:100-105) renders this destination on every page under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
+    // dashboard.html under the local label "Account". The shared account
+    // menu (every page's #nav-signed-in row, NAV1) holds that same
+    // destination under the label "Dashboard", which is in this
+    // instrument's own SHARED_NAV set; this entry reaches the shared nav
+    // under this one wireframe's local label instead of "Dashboard".
+    'Account': 'the shared account menu (every page\u2019s #nav-signed-in row, NAV1) holds this destination under the label "Dashboard", already excused by SHARED_NAV; this wireframe names the same button "Account" locally',
     // href="#" in the wireframe itself (settings.html:74), on the sign-in
     // method row. The auth surface is exactly /auth/github/start,
     // /auth/github/callback, /auth/passkey/register, /auth/passkey/verify
@@ -630,11 +625,13 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
 // a value or a demo affordance, not a control the product ships.
 const SAMPLE = /^(axiom-ui|gridwright|stylewright|a11y-sweep|northsound(\.dev)?|northline(\.dev)?|@northsound|pixelforge|driftcheck|tessellate|brightloop\/api|vercel\/commerce#\d+|acme\/[\w-]+#?\d*|northline\/design-tokens ?#?\d*|tailwindlabs\/headlessui|did:abt:[\w…]+|fa-[\w]+|job [0-9a-f]{6}|\d+ (Aug|Jul|Jan)|[A-Z][a-z]{2} \d{4}|Jan to Jul|Simulate:|.*\$\d)/;
 
-// The signed-in navigation (My jobs, My agents, Dashboard, Settings, Sign
-// out) is rendered by src/web/public/js/pages/nav.js into #nav-signed-in on
-// every page, so the wireframe's static nav links are satisfied by the shared
-// script rather than by each page's HTML. Asserted once, below, against nav.js.
-const SHARED_NAV = new Set(['My jobs', 'My agents', 'Dashboard', 'Settings', 'Sign out', 'Sign in', 'Browse', 'List an agent', 'FreeAgents']);
+// The signed-in navigation is shared chrome, so the wireframe's static nav
+// links are satisfied by it rather than by each page's own content. My jobs,
+// My agents and Messages are injected into the bar by
+// src/web/public/js/pages/nav.js; Dashboard, Settings and Sign out are the
+// account menu in every page's #nav-signed-in row (NAV1). Asserted once,
+// below, against both.
+const SHARED_NAV = new Set(['My jobs', 'My agents', 'Messages', 'Dashboard', 'Settings', 'Sign out', 'Sign in', 'Browse', 'List an agent', 'FreeAgents']);
 
 function controls(htmlText: string): string[] {
   return [...strip(htmlText).matchAll(/<(?:button|a)\b[^>]*>([\s\S]*?)<\/(?:button|a)>/g)]
@@ -652,10 +649,22 @@ const builtPages = readdirSync(builtDir)
   .filter((name) => WIREFRAME_FOR[name] !== null);
 
 describe('the shared navigation carries the wireframe nav', () => {
-  it('nav.js renders every signed-in link the wireframes draw', () => {
+  it('nav.js injects My jobs, My agents and Messages into the bar, and every page\u2019s signed-in row holds Dashboard, Settings and Sign out in its account menu', () => {
     const nav = readFileSync(join(here, '../../src/web/public/js/pages/nav.js'), 'utf8');
-    const missing = ['My jobs', 'My agents', 'Dashboard', 'Settings', 'Sign out'].filter((l) => !nav.includes(l));
-    expect(missing, 'signed-in nav links absent from nav.js').toEqual([]);
+    // The label as an assignment, not a word anywhere: a comment naming
+    // the link must not satisfy this.
+    const injected = ['My jobs', 'My agents', 'Messages'].filter((l) => !nav.includes(`a.textContent = "${l}";`));
+    expect(injected, 'signed-in bar links nav.js does not inject').toEqual([]);
+    const pages = readdirSync(builtDir).filter((f) => f.endsWith('.html'));
+    const rows = pages
+      .map((f) => ({ f, html: readFileSync(join(builtDir, f), 'utf8') }))
+      .filter((p) => p.html.includes('id="nav-signed-in"'));
+    expect(rows.length, 'pages carrying the signed-in row').toBe(29);
+    for (const { f, html } of rows) {
+      const drop = /<div class="avatardrop" id="nav-account-drop">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? '';
+      const labels = [...drop.matchAll(/<(?:a|button)\b[^>]*>([^<]*)<\/(?:a|button)>/g)].map((m) => m[1]);
+      expect(labels, `${f}: the account menu's items`).toEqual(['Dashboard', 'Settings', 'Sign out']);
+    }
   });
 });
 

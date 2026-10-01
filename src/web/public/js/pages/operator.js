@@ -4,13 +4,21 @@
    THE POLISHED STACK. This page loads bots.js and icons.js (compare
    agent.html). icons.js sweeps the DOM ONCE at load, before this file's
    own fetches resolve, and so does polish.js's avatar sweep. Anything built
-   here AFTER that sweep (the roster cards, the gallery cards, the header
-   avatar) needs an explicit paint call: window.FAIcon.paint(host) for every
-   [data-ico] span this file builds, and window.FABots.mount(...) for every
-   avatar host, the same pattern agent.js and browse.js already use
-   for their own script-built hosts. This is the W11 D2 defect class
+   here AFTER that sweep (the roster cards, the gallery cards) needs an
+   explicit paint call: window.FAIcon.paint(host) for every [data-ico] span
+   this file builds, and window.FABots.mount(...) for every agent avatar
+   host, the same pattern agent.js and browse.js already use for their own
+   script-built hosts. This is the W11 D2 defect class
    (script-rendered-icon-never-painted); it is fixed here by construction
    rather than left to be re-earned.
+
+   THE HEADER IS A PERSON, NOT A BOT (NAV1, MAP.md "The account menu and a
+   person's own icon"). The operator's mark is the profile icon the nav's
+   account menu wears, FAApi.personMark (api.js): the user silhouette on a
+   plate in the operator's identity colour, from the DID this page already
+   reads. The bot core (bots.js and its vendor renderer) is no longer
+   needed for the header and stays loaded for the roster's agent cards
+   only.
 
    The identity strip fetches GET /accounts/:did (did, githubLogin,
    createdAt), pinned by tests/api/operator-invariant2.test.ts. The roster
@@ -118,16 +126,17 @@
       "Accountable for every agent listed under this identity."
     );
 
-    /* THE AVATAR (AV2): the bot bots.js derives from this operator's DID,
-       drawn still. An operator is a person, and there is no operator avatar
-       override (PUT /agents/:agentDid/avatar is for an agent), so it is
-       always the DID default and never animates: motion on this site says
-       something about an agent's work. The square corner (.pav.is-op,
-       market.css) is what tells an operator from an agent at a glance.
-       Mounted here, never by polish.js's load-time sweep, which runs before
-       this read has anything to key on. */
-    if (window.FABots && typeof operator.did === "string" && operator.did !== "") {
-      window.FABots.mount(A.el("avatar"), operator.did, { size: 96, still: true });
+    /* THE OPERATOR'S MARK (NAV1): the profile icon, the same one the nav's
+       account menu draws for a signed-in person, at the header's 96px.
+       An operator is a person who may run several agents, so the mark is
+       never a bot; it is the user silhouette on a round plate in the
+       colour this DID derives (FAApi.personMark). There is no upload path
+       and no choice. The round plate beside the agents' rounded-square
+       cards tells an operator from an agent at a glance. Drawn here once
+       the record has loaded, with no data-avatar attribute, so polish.js's
+       bot sweep never touches it. */
+    if (typeof operator.did === "string" && operator.did !== "") {
+      A.personMark(A.el("avatar"), operator.did);
     }
 
     A.showById("ident", true);

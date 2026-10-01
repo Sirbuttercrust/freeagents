@@ -1,17 +1,20 @@
 /* P8e: the nav tells the truth about whether you are signed in. One
    implementation, shared by every page that carries the nav (SITEMAP.md
-   section 2's four-item bar), so the rule that decides signed-in vs
-   signed-out lives in exactly one place instead of seven copies that would
-   drift.
+   section 2), so the rule that decides signed-in vs signed-out lives in
+   exactly one place instead of copies that would drift.
 
-   BUILD ONLY WHAT EXISTS. SITEMAP.md's signed-in row also names My jobs,
-   My agents and an avatar menu holding Dashboard, Settings, Sign out.
-   P8m built My jobs, P8n built My agents, P8u (ruling 7) added a plain
-   Dashboard link and P8v (ruling 7) added a plain Settings link, the same
-   injected-and-removed shape as the other two (this file's own items
-   below); the avatar menu itself stays unbuilt, because collapsing four
-   existing links into a menu is a visual change to every page carrying
-   the nav and is a taste call for the polish pass, not any one card.
+   THE SIGNED-IN BAR (NAV1, SITEMAP.md section 2): Browse, My jobs, My
+   agents, Messages, then the account menu at the top right. My jobs, My
+   agents and Messages are injected into .links here when a session exists
+   and removed again when it does not; How it works, a signed-out link in
+   every page's markup, is hidden while signed in. The account menu is
+   static markup in every page's #nav-signed-in row (a <details
+   class="avatarmenu">, the same row on every page, pinned by
+   tests/web/account-menu.test.ts), and this file wires it: its summary is
+   the person's own mark (FAApi.personMark, api.js), and it opens to the
+   account's name, Dashboard, Settings and Sign out. Dashboard and Settings
+   are no longer bar links; #nav-signout is the last item in the menu and
+   keeps its id, label and behaviour.
 
    THE SESSION IT READS IS THE SAME fa_session KEY signin.js already
    writes (sessionStorage, never a cookie -- the security sweep's "zero
@@ -21,6 +24,16 @@
    write, and a second page needing the same fact is exactly the case that
    must never grow a second implementation of it. This script still owns
    clearing the key on sign-out and re-rendering; only the read moved.
+
+   ONE ACCOUNT READ PER LOAD. GET /accounts/me is read once when the nav
+   renders signed in (loadMe below). Its answer feeds the account menu (the
+   DID colours the mark, githubLogin names the account) and the Messages
+   badge (the DID keys the threads read). Any answer but a 200 naming a
+   DID (a 401, 404 or 503, or a network failure) leaves the mark neutral
+   and the menu working without a name line. A 401 changes nothing else:
+   the nav never signed anyone out on this read before this card and does
+   not now, and each page's own account read keeps its own signed-out
+   handling.
 
    IT ALSO REMEMBERS WHERE SIGN IN WAS PRESSED (SW3-01, wireReturnPath
    below): any press on a link to /signin stores the page's path and
@@ -89,58 +102,15 @@
     links.appendChild(a);
   }
 
-  // P8u ruling 7: the Dashboard entry, the same injected-and-removed
-  // shape as My jobs and My agents above, appended after My agents. No
-  // avatar menu: SITEMAP.md's signed-in row names one, but collapsing
-  // four existing links into a menu is a visual change to every page
-  // carrying the nav and is out of scope here (P8v ruling 7).
-  var DASHBOARD_LINK_ID = "nav-dashboard";
-  function renderDashboardLink(isSignedIn) {
-    var links = document.querySelector(".links");
-    if (!links) return;
-    var existing = document.getElementById(DASHBOARD_LINK_ID);
-    if (!isSignedIn) {
-      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-      return;
-    }
-    if (existing) return;
-    var a = document.createElement("a");
-    a.id = DASHBOARD_LINK_ID;
-    a.href = "/dashboard";
-    a.textContent = "Dashboard";
-    links.appendChild(a);
-  }
-
-  // P8v ruling 7: the Settings entry, the same injected-and-removed shape
-  // as the three links above, appended after Dashboard. Still no avatar
-  // menu: settings.html exists now, but collapsing the signed-in row into
-  // a menu remains a taste call for the polish pass, not this card.
-  var SETTINGS_LINK_ID = "nav-settings";
-  function renderSettingsLink(isSignedIn) {
-    var links = document.querySelector(".links");
-    if (!links) return;
-    var existing = document.getElementById(SETTINGS_LINK_ID);
-    if (!isSignedIn) {
-      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-      return;
-    }
-    if (existing) return;
-    var a = document.createElement("a");
-    a.id = SETTINGS_LINK_ID;
-    a.href = "/settings";
-    a.textContent = "Settings";
-    links.appendChild(a);
-  }
-
   // MSG1b: the Messages entry, the same injected-and-removed shape as the
-  // four links above, appended after Settings, going to /messages (the
+  // two links above, appended after My agents, going to /messages (the
   // hire conversations). It replaced HT1's Notifications link in the same
   // slot. /notifications is still served, and the nav does not link it;
   // /dashboard does, while the account has something unread (FIX-SW12k).
   // Carries the unread badge: the unreadTotal of
   // GET /accounts/:did/threads (every unread message across every thread
-  // the account is in, both seats), after resolving the signed-in DID via
-  // GET /accounts/me the same way My jobs and My agents do.
+  // the account is in, both seats), keyed on the DID the one
+  // GET /accounts/me read below resolves.
   var MESSAGES_LINK_ID = "nav-messages";
   // The review's defect 10 (on the old Notifications link): a bare number
   // appended inside the link made its accessible name read "Messages12"
@@ -176,18 +146,38 @@
       /* the page tore down before this async update landed; nothing to render */
     }
   }
+
+  /* THE ONE ACCOUNT READ (NAV1 Make 5). meRead holds the promise of this
+     load's GET /accounts/me for the token it was made with; it resolves to
+     the account object on a 200 that names a DID, and to null on anything
+     else (401, 404, 503, a network failure). It is made at most once per
+     token, so the account menu and the Messages badge share one request. */
+  var meRead = null;
+  function loadMe() {
+    var session = A.getStoredSession();
+    if (!session) return null;
+    if (meRead && meRead.token === session.token) return meRead.promise;
+    var promise = A.getAuthed("/accounts/me", session.token).then(function (result) {
+      if (result.state !== "ok" || result.value.status !== 200) return null;
+      var me = result.value.body && typeof result.value.body === "object" ? result.value.body : null;
+      if (!me || typeof me.did !== "string" || me.did === "") return null;
+      return me;
+    }, function () { return null; });
+    meRead = { token: session.token, promise: promise };
+    return promise;
+  }
+
   // Reads the count again. Called once when the link is built, and by
   // /messages itself (through window.FANav.refreshMessages) after it marks
-  // a thread read, so the badge drops without a reload.
+  // a thread read, so the badge drops without a reload. The DID comes
+  // from this load's one /accounts/me read, never a second one.
   function refreshMessagesBadge() {
     var session = A.getStoredSession();
-    if (!session) return;
-    A.getAuthed("/accounts/me", session.token).then(function (meResult) {
-      if (meResult.state !== "ok" || meResult.value.status !== 200) return;
-      var me = meResult.value.body && typeof meResult.value.body === "object" ? meResult.value.body : {};
-      var did = typeof me.did === "string" ? me.did : "";
-      if (did === "") return;
-      return A.getAuthed("/accounts/" + encodeURIComponent(did) + "/threads", session.token).then(function (result) {
+    var pending = loadMe();
+    if (!session || !pending) return;
+    pending.then(function (me) {
+      if (!me) return;
+      return A.getAuthed("/accounts/" + encodeURIComponent(me.did) + "/threads", session.token).then(function (result) {
         if (result.state !== "ok" || result.value.status !== 200) return;
         var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
         var count = typeof body.unreadTotal === "number" ? body.unreadTotal : 0;
@@ -216,16 +206,65 @@
     refreshMessagesBadge();
   }
 
+  /* NAV1 Make 3 (SITEMAP.md section 2): the signed-in bar is Browse, My
+     jobs, My agents, Messages and the account menu. How it works is a
+     signed-out link; every page's markup carries it in .links, so it is
+     hidden while a session exists and shown again when it ends. */
+  function renderHowLink(isSignedIn) {
+    var how = document.querySelector('nav.nav .links a[href="/how"]');
+    if (how) how.hidden = isSignedIn;
+  }
+
+  /* THE ACCOUNT MENU'S CONTENTS (NAV1 Make 2 and 5). The mark is drawn
+     neutral at once and takes the account's identity colour when the one
+     /accounts/me read answers with a DID. The name line is the GitHub
+     login; an account with no GitHub login reads "Signed in with a
+     passkey", and the passkey's own server-made name (passkeySubject) is
+     never shown anywhere. Until the read answers, and if it fails, the
+     name line stays hidden and the three items still work. */
+  var PASSKEY_NAME = "Signed in with a passkey";
+  function accountName(me) {
+    var login = typeof me.githubLogin === "string" ? me.githubLogin.trim() : "";
+    return login !== "" ? login : PASSKEY_NAME;
+  }
+  function renderAccount(isSignedIn) {
+    var mark = document.getElementById("nav-account-mark");
+    var name = document.getElementById("nav-account-name");
+    if (!mark) return;
+    A.personMark(mark, null);
+    if (name) {
+      name.textContent = "";
+      name.hidden = true;
+    }
+    if (!isSignedIn) return;
+    var pending = loadMe();
+    if (!pending) return;
+    pending.then(function (me) {
+      if (!me || !A.getStoredSession()) return;
+      try {
+        A.personMark(mark, me.did);
+        if (name) {
+          name.textContent = accountName(me);
+          name.hidden = false;
+        }
+      } catch (e) {
+        /* the page tore down before this async update landed */
+      }
+    });
+  }
+
   function render() {
     var session = A.getStoredSession();
     var signin = document.getElementById("nav-signin");
     var signedIn = document.getElementById("nav-signed-in");
     var isSignedIn = session !== null;
+    if (!isSignedIn) meRead = null;
     renderMyJobsLink(isSignedIn);
     renderMyAgentsLink(isSignedIn);
-    renderDashboardLink(isSignedIn);
-    renderSettingsLink(isSignedIn);
     renderMessagesLink(isSignedIn);
+    renderHowLink(isSignedIn);
+    renderAccount(isSignedIn);
+    if (!isSignedIn) closeAccountMenu(false);
 
     /* W6 round 2, D1: signin.js's "Once signed in" section is gated by
        this exact session rule (S1), so it clears here too, wherever the
@@ -271,6 +310,72 @@
     });
   }
 
+  /* THE ACCOUNT MENU'S BEHAVIOUR (NAV1 Make 4). A native <details> (the
+     wireframe's own element, spec/wireframe/dashboard.html): collapsed on
+     every load with no state to remember, and Enter, Space or a click on
+     its <summary> open and close it with no script. This file adds what
+     <details> does not do: Escape closes it and puts focus back on the
+     summary; a click outside closes it; choosing an item closes it;
+     tabbing out of it closes it; render() closes it when the session ends;
+     ArrowDown and ArrowUp move through Dashboard, Settings and Sign out
+     (Tab reaches them too); and it never stands open beside the phone
+     Menu, so opening either closes the other. The item for the page you
+     are on carries aria-current="page". */
+  var account = null;
+  function accountItems() {
+    if (!account) return [];
+    return Array.prototype.slice.call(account.drop.querySelectorAll("a[href], button"));
+  }
+  function isAccountOpen() {
+    return !!account && account.root.open;
+  }
+  function closeAccountMenu(returnFocus) {
+    if (!account) return;
+    account.root.open = false;
+    if (returnFocus) account.btn.focus();
+  }
+  function wireAccountMenu() {
+    var root = document.getElementById("nav-account");
+    var btn = document.getElementById("nav-account-btn");
+    var drop = document.getElementById("nav-account-drop");
+    if (!root || !btn || !drop) return;
+    account = { root: root, btn: btn, drop: drop };
+    closeAccountMenu(false);
+
+    accountItems().forEach(function (item) {
+      var href = item.getAttribute("href");
+      if (href && href === window.location.pathname) item.setAttribute("aria-current", "page");
+      item.addEventListener("click", function () { closeAccountMenu(false); });
+    });
+
+    root.addEventListener("toggle", function () {
+      if (root.open) closePhoneMenu();
+    });
+
+    root.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      var items = accountItems();
+      if (items.length === 0) return;
+      e.preventDefault();
+      root.open = true;
+      var at = items.indexOf(document.activeElement);
+      var next = e.key === "ArrowDown" ? (at + 1) % items.length : (at <= 0 ? items.length - 1 : at - 1);
+      items[next].focus();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && isAccountOpen()) closeAccountMenu(true);
+    });
+    document.addEventListener("click", function (e) {
+      if (isAccountOpen() && !root.contains(e.target)) closeAccountMenu(false);
+    });
+    /* Tabbing past the last item leaves the menu; it closes behind you
+       rather than staying open over the page. */
+    root.addEventListener("focusout", function (e) {
+      if (isAccountOpen() && e.relatedTarget && !root.contains(e.relatedTarget)) closeAccountMenu(false);
+    });
+  }
+
   /* SW3-01: remember where Sign in was pressed. One capture-phase listener
      for the whole page, so the nav's #nav-signin, every page's in-page
      #signin-link and any later link to /signin are covered with no page
@@ -294,6 +399,7 @@
   }
 
   function start() {
+    wireAccountMenu();
     render();
     wireSignOut();
     wireMenu();
@@ -309,11 +415,17 @@
      button; widening past the breakpoint closes it. When open, the links sit
      in the bar's own flow under it (league.css), so the page is pushed down
      rather than covered. Without this script nothing is hidden: the links
-     stay in the bar and wrap, the way they always did.
+     stay in the bar and wrap, the way they always did. The account menu's
+     button stays in the bar beside it, and the two never stand open
+     together: opening either closes the other.
 
      The current page's link carries aria-current="page", read from the
      path, so a person in the open menu can see where they are. */
   var MENU_BREAK = "(min-width: 761px)";
+  var phoneSetOpen = null;
+  function closePhoneMenu() {
+    if (phoneSetOpen) phoneSetOpen(false);
+  }
   function wireMenu() {
     var nav = document.querySelector("nav.nav");
     if (!nav || nav.querySelector(".menu")) return;
@@ -342,10 +454,12 @@
     nav.classList.add("has-menu");
 
     function setOpen(open) {
+      if (open) closeAccountMenu(false);
       nav.classList.toggle("is-open", open);
       btn.setAttribute("aria-expanded", open ? "true" : "false");
       btn.setAttribute("aria-label", open ? "Close menu" : "Menu");
     }
+    phoneSetOpen = setOpen;
     btn.addEventListener("click", function () {
       setOpen(btn.getAttribute("aria-expanded") !== "true");
     });
@@ -374,7 +488,7 @@
      passkey path on /signin, unlike the GitHub callback, sends nobody
      anywhere -- has a way to ask this same rule to run again instead of
      copying it. window.FANav.refresh() re-reads fa_session and updates
-     the same two elements render() already owns; nothing here invents a
+     the same elements render() already owns; nothing here invents a
      second copy of the rule. refreshMessages re-reads the Messages badge
      the same way, for /messages after it marks a thread read. */
   window.FANav = { refresh: render, refreshMessages: refreshMessagesBadge };
