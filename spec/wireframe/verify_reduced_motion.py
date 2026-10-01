@@ -13,12 +13,31 @@ So this asserts the END STATE, not the absence of motion:
 base.css ends with a global `* { transition: none !important }` under reduce,
 so this also confirms that blanket rule cannot strand anything hidden.
 
-Run with the wireframe served on 8821:
+Run it with the wireframe served. The default is http://127.0.0.1:3111/,
+which is what `python3 devserver.py 3111` serves; WF_BASE names any other
+server, trailing slash included:
+    python3 devserver.py 3111
     python3 verify_reduced_motion.py
+    WF_BASE=http://127.0.0.1:8080/ python3 verify_reduced_motion.py
+
+It prints RESULT: FAIL and exits 1 on any of these, and exits 0 only when
+none happened:
+  1. nothing answers at WF_BASE: one line naming WF_BASE and the error, and
+     no browser is started
+  2. a screen did not load: no answer, a status other than 200, or a final
+     URL other than the one requested (the line names the screen, the status
+     and where it landed)
+  3. an element is left stranded hidden: opacity under 0.99 or translated
+     off its resting position
+  4. the reduced-motion media query did not apply on a screen
+  5. no element was measured across the whole run (one screen with none is
+     fine, since not every screen carries these classes)
 """
 import sys, json
 
 import os
+import urllib.error
+import urllib.request
 
 # THE DRIVER, WITHOUT AN ENVIRONMENT.
 #
@@ -72,6 +91,40 @@ PROBE = """(function(){
   });
 })()"""
 
+# WHAT THE PAGE ACTUALLY LOADED AS. Browser.goto discards what Page.navigate
+# answers, so the state is read from the page itself: the navigation entry's
+# responseStatus (200 served, 404 missing, 0 on Chrome's error page) and the
+# URL it ended at (chrome-error://chromewebdata/ when nothing answered).
+LOADED = """(function(){
+  var nav = performance.getEntriesByType('navigation')[0];
+  return JSON.stringify({status: nav ? nav.responseStatus : 0,
+                         url: location.href});
+})()"""
+
+
+def base_error():
+    """None when something answers at BASE, else what went wrong.
+
+    Any HTTP status counts as an answer here. A page the server lacks is
+    reported per page, with its status, once the browser has been there.
+    """
+    try:
+        urllib.request.urlopen(BASE, timeout=10).close()
+    except urllib.error.HTTPError:
+        return None
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return getattr(e, "reason", None) or e
+    return None
+
+
+err = base_error()
+if err is not None:
+    print("WF_BASE %s did not answer: %s. Start the wireframe server "
+          "(python3 devserver.py 3111) or set WF_BASE to one that is "
+          "running." % (BASE, err))
+    print("RESULT: FAIL")
+    sys.exit(1)
+
 fails = []
 rows = []
 
@@ -81,6 +134,10 @@ try:
            features=[{"name": "prefers-reduced-motion", "value": "reduce"}])
     for s in SCREENS:
         b.goto(BASE + s, wait=1.8)
+        loaded = json.loads(b.js(LOADED) or '{"status": 0, "url": "unreadable"}')
+        if loaded["status"] != 200 or loaded["url"] != BASE + s:
+            fails.append("%s: did not load (status %s, at %s)"
+                         % (s, loaded["status"], loaded["url"]))
         d = json.loads(b.js(PROBE))
         rows.append((s, d["checked"], len(d["hiddenContent"])))
         if not d["reduced"]:
@@ -95,7 +152,12 @@ print("-" * 38)
 for s, c, h in rows:
     print("%-20s %8d %8d" % (s, c, h))
 
-print("\nscreens: %d, elements checked: %d" % (len(rows), sum(r[1] for r in rows)))
+total = sum(r[1] for r in rows)
+print("\nscreens: %d, elements checked: %d" % (len(rows), total))
+
+if total == 0:
+    fails.append("nothing was measured: 0 elements checked across %d screens"
+                 % len(rows))
 
 if fails:
     print("\nFAILURES (%d):" % len(fails))
