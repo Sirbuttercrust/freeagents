@@ -1,7 +1,7 @@
 // S7 (security sweep 2026-09-06, "rate limiting covers 2 of 57 routes"):
 // classifies every route by method and path pattern into one of four rate
 // limit buckets, plus the exemption list. Used by the class-limiter
-// middleware in src/api/app.ts, mounted once, right after the body parser
+// middleware in src/api/app.ts, mounted once, above the body parser (B80)
 // and BEFORE web.mountPages(app) and every API route -- so this module
 // does its OWN path matching rather than relying on req.route (Express has
 // not matched a route yet at the point this middleware runs).
