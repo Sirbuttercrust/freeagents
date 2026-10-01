@@ -393,10 +393,10 @@ describe('the My agents link (P8n): one implementation in nav.js, absent signed 
 // the same driver shape spec/wireframe/wirebrowse.py already uses for the
 // wireframe's own gates) so the assertion is real geometry and a real
 // dispatched click, not a jsdom stand-in for either.
-// P8v (ruling 7): the Settings entry, appended after Dashboard, one
-// implementation in nav.js (brief scope item 6). Both branches proved
-// the same discipline the earlier link blocks hold to.
-describe('the Settings link (P8v ruling 7): one implementation in nav.js, absent signed out, present signed in', () => {
+// P8v (ruling 7) added Settings as a bar link after Dashboard; NAV1 moved
+// both into the account menu. Both branches proved the same discipline the
+// earlier link blocks hold to.
+describe('the Settings entry (P8v ruling 7, moved into the account menu by NAV1): absent signed out, in the menu signed in, never in the bar', () => {
   it('is absent from the nav when signed out', async () => {
     const page = await renderNav('/browse', null);
     try {
@@ -407,10 +407,12 @@ describe('the Settings link (P8v ruling 7): one implementation in nav.js, absent
     }
   });
 
-  it('appears in the nav links, pointing at /settings, once signed in', async () => {
+  it('sits in the account menu, pointing at /settings, and not in the bar, once signed in (NAV1 Make 3)', async () => {
     const page = await renderNav('/browse', { token: 'a-live-looking-token' });
     try {
-      const settingsLink = Array.from(page.document.querySelectorAll('.links a')).find((a) => a.textContent === 'Settings') as HTMLAnchorElement | undefined;
+      const inBar = Array.from(page.document.querySelectorAll('.links a')).map((a) => a.textContent);
+      expect(inBar).not.toContain('Settings');
+      const settingsLink = Array.from(page.document.querySelectorAll('#nav-account-drop a')).find((a) => a.textContent === 'Settings') as HTMLAnchorElement | undefined;
       expect(settingsLink).not.toBeUndefined();
       expect(settingsLink?.getAttribute('href')).toBe('/settings');
     } finally {
@@ -418,7 +420,7 @@ describe('the Settings link (P8v ruling 7): one implementation in nav.js, absent
     }
   });
 
-  it('disappears again once signed out (no leftover element from an earlier signed-in render)', async () => {
+  it('disappears again once signed out, the account menu and its row hidden with it (no leftover element from an earlier signed-in render)', async () => {
     const sessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
       fetchImpl: fakeGitHubFetch({ login: 'octo-nav-settings', id: 5401 }),
@@ -466,6 +468,7 @@ describe('the Settings link (P8v ruling 7): one implementation in nav.js, absent
 
       const links = Array.from(dom.window.document.querySelectorAll('.links a')).map((a) => a.textContent);
       expect(links).not.toContain('Settings');
+      expect(dom.window.document.getElementById('nav-signed-in')!.hidden).toBe(true);
     } finally {
       dom.window.close();
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
@@ -556,18 +559,25 @@ describe('at 320px the nav bar does not overflow, and in the open menu a tap on 
       expect(menu.linksShown, 'links are folded while closed and shown once open').toBe(true);
       expect(Math.min(menu.w, menu.h), 'the menu button is a 44px tap target').toBeGreaterThanOrEqual(44);
 
-      const open = await browser.evaluate<{ scrollWidth: number; clientWidth: number; smallest: number }>(`
+      const open = await browser.evaluate<{ scrollWidth: number; clientWidth: number; smallest: number; shown: string[] }>(`
         (function () {
-          var hs = Array.prototype.map.call(document.querySelectorAll('nav.nav .links a'), function (a) {
-            return a.getBoundingClientRect().height;
+          /* NAV1: signed in, How it works is hidden (display none), so it
+             is not a control in the open menu; every link that IS shown
+             is measured, and the list of shown links is returned so the
+             count cannot shrink silently. */
+          var shown = Array.prototype.filter.call(document.querySelectorAll('nav.nav .links a'), function (a) {
+            return getComputedStyle(a).display !== 'none';
           });
+          var hs = shown.map(function (a) { return a.getBoundingClientRect().height; });
           return {
             scrollWidth: document.documentElement.scrollWidth,
             clientWidth: document.documentElement.clientWidth,
             smallest: Math.min.apply(null, hs),
+            shown: shown.map(function (a) { return a.textContent; }),
           };
         })()
       `);
+      expect(open.shown, 'the open phone menu holds exactly the signed-in bar links').toEqual(['Browse', 'My jobs', 'My agents', 'Messages']);
       expect(open.scrollWidth, 'the open 320px menu must not scroll sideways').toBe(open.clientWidth);
       expect(open.smallest, 'every link in the open menu is at least 44px tall').toBeGreaterThanOrEqual(44);
 

@@ -8,7 +8,8 @@
 //                                    change (it breathes and blinks)
 //   no-preference, off screen        the bot is off the loop; scrolling it
 //                                    into view puts it back
-//   the operator page head avatar    drawn still, never on the loop
+//   the operator page head mark      the profile icon (NAV1), no bot and
+//                                    so never on the loop
 //
 // data-avatar-live is bots.js's own flag for "subscribed to the ticker"
 // (src/web/public/js/bots.js sync()). The pixel comparison is the check
@@ -193,19 +194,20 @@ describe('bots move only when they should', { timeout: 60000 }, () => {
     });
   }
 
-  it('the operator\u2019s own mark is drawn still even with motion allowed', async () => {
+  it('the operator\u2019s own mark is the profile icon, never a bot canvas, even with motion allowed (NAV1)', async () => {
     if (!hasRealBrowser()) return console.warn('no Chrome found; skipping (see CHROME_BIN)');
     const b = await open('no-preference', `/accounts/${encodeURIComponent(operatorDid)}`);
     try {
-      const head = await b.evaluate<{ still: boolean; live: boolean; canvas: boolean }>(`
+      const head = await b.evaluate<{ mark: boolean; avatarAttr: boolean; live: boolean; canvas: boolean }>(`
         (function () {
-          var h = document.querySelector('[data-avatar="${operatorDid}"]');
-          return { still: !!h && h.getAttribute('data-avatar-still') === 'true',
+          var h = document.getElementById('avatar');
+          return { mark: !!h && h.classList.contains('pmark') && !!h.querySelector('svg'),
+                   avatarAttr: !!h && h.hasAttribute('data-avatar'),
                    live: !!h && h.hasAttribute('data-avatar-live'),
-                   canvas: !!h && !!h.querySelector('canvas.bot') };
+                   canvas: !!h && !!h.querySelector('canvas') };
         })()
       `);
-      expect(head).toEqual({ still: true, live: false, canvas: true });
+      expect(head).toEqual({ mark: true, avatarAttr: false, live: false, canvas: false });
     } finally {
       await b.close();
     }

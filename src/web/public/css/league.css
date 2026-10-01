@@ -221,6 +221,112 @@ h1 {
   }
 }
 
+/* ------------------------------------------------------- a person's mark
+   NAV1 (MAP.md, "The account menu and a person's own icon", 2026-09-30).
+   A person is the "user" silhouette on a round plate, never a bot: one
+   account runs several agents and each of those is the bot. api.js's
+   personMark draws the glyph and sets data-band, FNV-1a of the DID modulo 5
+   plus one, and each band paints the plate in that --agent-N token with the
+   silhouette in --bg. Measured from the token values (tests/web/
+   account-menu.test.ts recomputes them): the silhouette on its plate is
+   6.00 to 8.86 against --bg, and the plate against the bar's --bg to --bg-2
+   is at least 5.29, all five bands clear of 3:1. With no data-band (before
+   GET /accounts/me answers, or if it fails) the mark stays neutral:
+   --fg-2 on --bg-2, 7.39. The drawing is the same everywhere; each place
+   that holds it sets its size (the account menu's 30px below, the operator
+   header's .pav box in market.css). */
+.pmark {
+  display: flex; align-items: flex-end; justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-2);
+  color: var(--fg-2);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.pmark svg { display: block; width: 72%; height: 72%; transform: translateY(6%); }
+.pmark[data-band] { color: var(--bg); box-shadow: none; }
+.pmark[data-band="1"] { background: var(--agent-1); }
+.pmark[data-band="2"] { background: var(--agent-2); }
+.pmark[data-band="3"] { background: var(--agent-3); }
+.pmark[data-band="4"] { background: var(--agent-4); }
+.pmark[data-band="5"] { background: var(--agent-5); }
+
+/* The operator page header (/accounts/:did) is the same mark: personMark
+   draws into .pav.is-op itself, which keeps .pav's own 96px box (76px
+   under 761px, market.css) and its 4px --bg ring, so the mark is cut out
+   of the banner edge the way an agent's bot is; the corner goes round. */
+.pav.is-op { border-radius: 50%; }
+.pav.is-op.pmark { box-shadow: none; }
+
+/* ------------------------------------------------------- the account menu
+   The signed-in bar's last item (SITEMAP.md section 2, DESIGN.md 5 "avatar
+   menu"): a native <details class="avatarmenu"> whose <summary> is the
+   person's own mark in a 44px target, opening to the account's name,
+   Dashboard, Settings and Sign out. <details> is collapsed on every load
+   with no state to remember, and Enter, Space or a click opens it with no
+   script. nav.js adds the rest: Escape closes it and returns focus to the
+   button; a click outside, choosing an item, tabbing out of it, the
+   session ending and opening the phone menu each close it; ArrowDown and
+   ArrowUp move through its items; the current page's item carries
+   aria-current="page". The
+   drop hangs under the button, right edges aligned, and is never wider
+   than the screen less the page gutter, so at 320px it opens without a
+   sideways scroll. */
+.avatarmenu { position: relative; flex: none; }
+.avatarbtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  cursor: pointer; list-style: none;
+}
+.avatarbtn::-webkit-details-marker { display: none; }
+.avatarbtn::marker { content: ""; }
+.avatarbtn .pmark { width: 30px; height: 30px; }
+.avatarmenu[open] .avatarbtn .pmark { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--line-2); }
+.avatarbtn:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.avatardrop {
+  position: absolute; top: 100%; right: 0; z-index: 50;
+  margin-top: 8px;
+  width: max-content; min-width: 200px; max-width: calc(100vw - 28px);
+  padding: 6px;
+  display: flex; flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--pane-shadow);
+}
+.avatarname {
+  margin: 0 0 4px; padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px; font-weight: 560; color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.avatardrop a,
+.avatardrop button {
+  display: flex; align-items: center;
+  min-height: 44px; padding: 0 10px;
+  border: 0; border-radius: 6px;
+  background: transparent;
+  font: inherit; font-size: 14px; text-align: left;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.avatardrop a:hover,
+.avatardrop button:hover { background: var(--bg-2); color: var(--fg); }
+.avatardrop a[aria-current="page"] { color: var(--fg); }
+.avatardrop button:disabled { cursor: default; opacity: 0.6; }
+/* On a phone the drop hangs from the bar itself (.nav is sticky, so it is
+   the containing block once .avatarmenu stops being one), right-aligned to
+   the page gutter. A long name then has the whole screen less the gutters
+   to wrap in, and the drop can never start left of the screen. */
+@media (max-width: 760px) {
+  .avatarmenu { position: static; }
+  .avatardrop { top: 100%; right: 20px; margin-top: 6px; max-width: calc(100vw - 40px); }
+}
+@media (max-width: 420px) {
+  .avatardrop { right: 14px; max-width: calc(100vw - 28px); }
+}
+
 /* ------------------------------------------------------------ player card
    Anything that represents an agent as a tile (DESIGN.md 2.6). The field is
    the agent's own avatar colour (--c, set by pcard.js from the renderer's

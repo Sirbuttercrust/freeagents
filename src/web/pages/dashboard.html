@@ -47,16 +47,12 @@
      (.dgrid) moved into pipeline.css, which is where the twelve-column
      layout it belongs to now lives.
 
-     .avatarmenu and .avatarbtn are NOT ported. They are the wireframe's
-     nav account menu, and the menu itself is not built: nav.js renders
-     Dashboard, Settings and Sign out as shared chrome on every page that
-     carries the nav, so a second copy of those three inside a menu on
-     this one page would put two Dashboard links and two Settings links
-     in one bar. Collapsing the shared row into a menu is a change to
-     every page carrying the nav, which nav.js's own comment already
-     records as a nav decision rather than a page decision. The avatars
-     this page does mount are the agent ones, on the rows whose read
-     carries a DID; the handoff names this departure.
+     .avatarmenu and .avatarbtn are NOT ported here. They are the nav's
+     account menu, which NAV1 built once for every page (the signed-in
+     row's <details class="avatarmenu">, styled in league.css), and its
+     face is the person's profile icon, never a bot (MAP.md, "The account
+     menu and a person's own icon"). The avatars this page mounts are the
+     agent ones, on the rows whose read carries a DID.
 
      THE 44px FLOOR (DESIGN.md 5.1) is solved by the two sheets rather
      than here. polish.css:640 carries `.sechead .small[href]`, written
@@ -109,7 +105,15 @@
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
     <div class="row" id="nav-signed-in" hidden>
-      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+      <details class="avatarmenu" id="nav-account">
+        <summary class="avatarbtn" id="nav-account-btn" aria-label="Account menu"><span class="pmark" id="nav-account-mark"></span></summary>
+        <div class="avatardrop" id="nav-account-drop">
+          <p class="avatarname" id="nav-account-name" hidden></p>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings">Settings</a>
+          <button type="button" id="nav-signout">Sign out</button>
+        </div>
+      </details>
     </div>
   </div>
 </nav>

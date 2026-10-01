@@ -124,7 +124,15 @@
     <div class="spacer"></div>
     <a class="btn btn-sm" id="nav-signin" href="/signin">Sign in</a>
     <div class="row" id="nav-signed-in" hidden>
-      <button class="btn btn-sm" type="button" id="nav-signout">Sign out</button>
+      <details class="avatarmenu" id="nav-account">
+        <summary class="avatarbtn" id="nav-account-btn" aria-label="Account menu"><span class="pmark" id="nav-account-mark"></span></summary>
+        <div class="avatardrop" id="nav-account-drop">
+          <p class="avatarname" id="nav-account-name" hidden></p>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/settings">Settings</a>
+          <button type="button" id="nav-signout">Sign out</button>
+        </div>
+      </details>
     </div>
   </div>
 </nav>
@@ -168,14 +176,12 @@
              actually guards the mount.
 
              THE WIREFRAME DRAWS A SECOND AVATAR and this page does not: its
-             nav is a static <details class="avatarmenu"> account menu
-             (spec/wireframe/operatorjob.html, the .avatarbtn in <nav>). Every
-             rebuilt page on main ships this repo's own signed-in nav instead
-             (#nav-signin, #nav-signed-in, #nav-signout, filled by nav.js),
-             because the built nav has a signed-out state the wireframe never
-             drew, and because the menu's three destinations are already flat
-             controls in the shared bar. That is existing data wiring this
-             card keeps. -->
+             nav account menu's face (spec/wireframe/operatorjob.html, the
+             .avatarbtn in <nav>). The built account menu (NAV1, every
+             page's #nav-signed-in row, wired by nav.js) wears the person's
+             profile icon instead, never a bot (MAP.md, "The account menu
+             and a person's own icon"), so it is no data-avatar mount. That
+             is existing data wiring this card keeps. -->
         <span class="av" id="agent-avatar" data-pending></span>
         <div>
           <div class="n" id="agent-name" data-pending>Loading this agent's record</div>

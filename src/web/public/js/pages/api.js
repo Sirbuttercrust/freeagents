@@ -420,6 +420,61 @@
     return true;
   }
 
+  /* ----------------------------------------------------- a person's mark
+
+     NAV1 (MAP.md, "The account menu and a person's own icon", 2026-09-30):
+     a person is never drawn as a bot, because one account runs several
+     agents and each of those is a bot. A person's mark is icons.js's
+     "user" head-and-shoulders glyph, filled, on a round plate in their
+     identity colour. Never an initial and never an upload (DESIGN.md 2.4).
+     This is the one implementation: the nav's account menu and the
+     operator page header both call personMark, and nothing else draws a
+     person.
+
+     THE COLOUR. identityBand is FNV-1a of the DID modulo 5, plus one, which
+     names one of the five --agent-1..--agent-5 tokens; personMark writes it
+     as data-band and league.css maps each band to its token. It is the hash
+     bots.js exports as FABots.hash (the one agent.js keys its banner on),
+     copied here because most pages never load bots.js, and pinned equal to
+     it for DIDs in all five bands by tests/web/account-menu.test.ts.
+
+     WITHOUT A DID the mark stays neutral (--fg-2 on --bg-2, league.css):
+     the nav draws it before GET /accounts/me answers and keeps it if that
+     read fails. A colour is never guessed. */
+  var PERSON_GLYPH = '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>';
+
+  function identityBand(did) {
+    var h = 0x811c9dc5;
+    var str = String(did);
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return ((h >>> 0) % 5) + 1;
+  }
+
+  function personMark(node, did) {
+    if (!node) return;
+    node.classList.add("pmark");
+    if (!node.querySelector("svg")) {
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("fill", "currentColor");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "1.6");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("focusable", "false");
+      svg.innerHTML = PERSON_GLYPH;
+      node.appendChild(svg);
+    }
+    node.removeAttribute("data-pending");
+    if (typeof did === "string" && did !== "") {
+      node.setAttribute("data-band", String(identityBand(did)));
+    } else {
+      node.removeAttribute("data-band");
+    }
+  }
+
   /* ---------------------------------------------------------- format */
 
   /* A date a person reads. Returns null rather than a guess when the input
@@ -779,6 +834,9 @@
     show: show,
     showById: showById,
     setAvatar: setAvatar,
+    identityBand: identityBand,
+    personMark: personMark,
+    PERSON_GLYPH: PERSON_GLYPH,
     readableDate: readableDate,
     shortDid: shortDid,
     agentName: agentName,

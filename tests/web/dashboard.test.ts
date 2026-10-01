@@ -1657,7 +1657,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
   });
 });
 
-describe('the Dashboard nav link (P8u ruling 7): one implementation in nav.js, absent signed out, present signed in', () => {
+describe('the Dashboard entry (P8u ruling 7, moved into the account menu by NAV1): absent signed out, in the menu signed in, never in the bar', () => {
   let server: Server;
   let baseUrl: string;
 
@@ -1712,12 +1712,15 @@ describe('the Dashboard nav link (P8u ruling 7): one implementation in nav.js, a
     }
   });
 
-  it('appears in the nav links, pointing at /dashboard, once signed in (done-means 13, mutation proof 9)', async () => {
+  it('sits in the account menu, pointing at /dashboard, and not in the bar, once signed in (done-means 13, mutation proof 9; NAV1 Make 3)', async () => {
     const page = await renderNav('/browse', { token: 'a-live-looking-token' });
     try {
-      const link = Array.from(page.document.querySelectorAll('.links a')).find((a) => a.textContent === 'Dashboard') as HTMLAnchorElement | undefined;
+      const inBar = Array.from(page.document.querySelectorAll('.links a')).map((a) => a.textContent);
+      expect(inBar).not.toContain('Dashboard');
+      const link = Array.from(page.document.querySelectorAll('#nav-account-drop a')).find((a) => a.textContent === 'Dashboard') as HTMLAnchorElement | undefined;
       expect(link).not.toBeUndefined();
       expect(link?.getAttribute('href')).toBe('/dashboard');
+      expect(page.document.getElementById('nav-signed-in')!.hidden).toBe(false);
     } finally {
       page.close();
     }
@@ -1730,7 +1733,7 @@ describe('the Dashboard nav link (P8u ruling 7): one implementation in nav.js, a
     expect(body).toContain('src="/js/pages/nav.js"');
   });
 
-  it('disappears again once signed out (no leftover element from an earlier signed-in render)', async () => {
+  it('disappears again once signed out, the account menu and its row hidden with it (no leftover element from an earlier signed-in render)', async () => {
     const sessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
       fetchImpl: fakeGitHubFetch({ login: 'octo-nav-dashboard', id: 5301 }),
@@ -1778,6 +1781,10 @@ describe('the Dashboard nav link (P8u ruling 7): one implementation in nav.js, a
 
       const links = Array.from(dom.window.document.querySelectorAll('.links a')).map((a) => a.textContent);
       expect(links).not.toContain('Dashboard');
+      // NAV1: the Dashboard item lives in the account menu, inside
+      // #nav-signed-in; signed out, that whole row is hidden again.
+      expect(dom.window.document.getElementById('nav-signed-in')!.hidden).toBe(true);
+      expect((dom.window.document.getElementById('nav-account') as HTMLDetailsElement).open).toBe(false);
     } finally {
       dom.window.close();
       await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
