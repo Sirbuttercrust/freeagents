@@ -22,7 +22,7 @@ import type {
 
 const TOKEN = '0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986';
 const OTHER_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
-const RECIPIENT = '0x1111111111111111111111111111111111111111';
+const RECIPIENT = '0x1111111111111111111111111111111111aBcDeF';
 const STRANGER = '0x3333333333333333333333333333333333333333';
 const FEE_ADDRESS = '0x2222222222222222222222222222222222222222';
 const CHAIN_ID = 1;
@@ -116,7 +116,9 @@ describe('legStatus binds a leg to the transfer it expects', () => {
   });
 
   it('compares the recipient without case', async () => {
-    const client = clientByHash({ [PRICE_HASH]: { status: 1, transfer: transfer({ to: RECIPIENT.toUpperCase().replace('0X', '0x') }) } });
+    const observedTo = RECIPIENT.toLowerCase();
+    expect(observedTo).not.toBe(RECIPIENT);
+    const client = clientByHash({ [PRICE_HASH]: { status: 1, transfer: transfer({ to: observedTo }) } });
     expect(await legStatus(client, memorySpent(), PRICE_HASH, expected)).toEqual({ status: 'confirmed', hash: PRICE_HASH });
   });
 
