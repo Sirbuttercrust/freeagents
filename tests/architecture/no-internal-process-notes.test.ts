@@ -118,9 +118,10 @@ function pointsAtPrivateProcess(line: string): boolean {
   return matchesClassPattern(line) || hasSeatName(line, SEAT_HASHES);
 }
 
-// Files other open work is editing, or that the second half of this cleanup
-// has yet to reach. Each path leaves this set when its own cleanup lands.
-// Adding a path here is never how a red line is fixed: fix the line.
+// Files that another open change is editing right now. The list is empty: a
+// path goes in only while such a change holds that file, and comes out when
+// that change lands. Adding a path here is never how a red line is fixed: fix
+// the line.
 const PENDING: readonly string[] = [];
 
 function gitList(): string[] {
@@ -221,7 +222,7 @@ describe('no internal process notes in the public source', () => {
       expect(listing.length).toBeGreaterThan(400);
     });
 
-    it('PENDING takes some files out of the listing and leaves the rest scanned', () => {
+    it('the scanned set is the listing minus PENDING, and holds more than 300 files', () => {
       expect(scanned.length).toBe(listing.length - PENDING.filter((p) => listing.includes(p)).length);
       expect(scanned.length).toBeGreaterThan(300);
     });

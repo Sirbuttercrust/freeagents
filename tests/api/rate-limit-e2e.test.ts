@@ -175,7 +175,7 @@ describe('class rate limits, end to end over real HTTP (S7)', () => {
 // page shell paint on one of the four negotiated paths (/agents/:agentDid,
 // /accounts/:did, /v1/credentials/:credentialId, /jobs/:jobId) never
 // touches the class bucket that path's OWN json reads consume. Reproduces
-// the exact repro: exhaust the bucket GET /agents/:agentDid
+// the case: exhaust the bucket GET /agents/:agentDid
 // now belongs to (`read`, since FIX-S7) with real JSON reads,
 // then confirm the page shell for the SAME did still answers 200 html
 // rather than a JSON 429 body.
@@ -249,9 +249,9 @@ describe('class rate limits: negotiated page shells never share a bucket with th
   });
 });
 
-// FIX-S7: "the verify
-// budget must also hold up across an honest multi-page session". The
-// repro: the page-shell-only e2e test above passes whether or not a real
+// FIX-S7: the verify
+// budget must also hold up across an honest multi-page session. The
+// page-shell-only e2e test above passes whether or not a real
 // session works, because Node fetch runs no page script and so never fires
 // the per-card avatar reads browse.js's own script makes. This test
 // replays those JSON reads directly (the same counts

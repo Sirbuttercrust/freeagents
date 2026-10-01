@@ -675,7 +675,7 @@ describe('the operator page roster (R-19)', () => {
   // A roster row must carry every field browse's card
   // does for the same agent, not just the three tier counts already
   // checked above. Comparing the rendered DOM field by field (rather than
-  // only the tier counts) is what the round-2 parity test missed: it never
+  // only the tier counts) is what the earlier parity test missed: it never
   // looked at .when.
   //
   // W12 UPDATE: this card rebuilt the roster row a second time, from the

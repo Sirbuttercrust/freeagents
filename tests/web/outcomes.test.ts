@@ -463,8 +463,8 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
   //
   // A
   // hardcoded six-property list is refuted by the seventh property. The
-  // round-1 mutation set backgroundColor; the round-1 fix added
-  // backgroundColor to the list; a round-2 mutation set filter and opacity
+  // first mutation set backgroundColor; the first fix added
+  // backgroundColor to the list; a later mutation set filter and opacity
   // instead and passed straight through. The defect class is "one card
   // styled unlike the others", not "one card with a different named
   // property", so this enumerates the WHOLE computed style instead of
