@@ -860,7 +860,9 @@ describe('MemoryAccountRepository.setOperatorAddressAbtEth', () => {
     await repo.register({ did: 'did:abt:mem-abt-eth-2', githubLogin: 'operator-mem-abt-eth-2' });
     await repo.setOperatorAddressEvm('did:abt:mem-abt-eth-2', EVM);
     await repo.setOperatorAddressAbt('did:abt:mem-abt-eth-2', ABT);
-    const before = await repo.findByDid('did:abt:mem-abt-eth-2');
+    // The memory driver hands back its stored row, so a copy taken before the
+    // call is the only baseline a setter that writes in place cannot also change.
+    const before = structuredClone(await repo.findByDid('did:abt:mem-abt-eth-2'));
     expect(before?.operatorAddressEvm).toBe(EVM);
     expect(before?.operatorAddressAbt).toBe(ABT);
 
@@ -872,7 +874,7 @@ describe('MemoryAccountRepository.setOperatorAddressAbtEth', () => {
   it('changes nothing but operatorAddressAbtEth when the other network columns are empty', async () => {
     const repo = new MemoryAccountRepository();
     await repo.register({ did: 'did:abt:mem-abt-eth-3', githubLogin: 'operator-mem-abt-eth-3' });
-    const before = await repo.findByDid('did:abt:mem-abt-eth-3');
+    const before = structuredClone(await repo.findByDid('did:abt:mem-abt-eth-3'));
     expect(before?.operatorAddressEvm).toBeNull();
     expect(before?.operatorAddressAbt).toBeNull();
 

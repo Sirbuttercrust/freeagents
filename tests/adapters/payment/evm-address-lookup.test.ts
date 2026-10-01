@@ -40,6 +40,11 @@ describe('lookupEvmAddress', () => {
     expect(await lookupEvmAddress(RPC, ADDRESS, { call })).toEqual({ holdsContractCode: null });
   });
 
+  it('answers null when the node returns a 0x-prefixed string with non-hex characters', async () => {
+    const call: JsonRpcCaller = async () => '0xnothex';
+    expect(await lookupEvmAddress(RPC, ADDRESS, { call })).toEqual({ holdsContractCode: null });
+  });
+
   it('answers null when the node is slower than the timeout, even if it ignores the abort signal', async () => {
     const call: JsonRpcCaller = () => new Promise(() => undefined);
     const started = Date.now();
