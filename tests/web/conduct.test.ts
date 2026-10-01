@@ -361,8 +361,8 @@ describe('the conduct record page, driven end to end against the real app', () =
         ids.forEach((id) => {
           expect(page.document.getElementById(id)?.textContent, `${id} did not coerce to "0"`).toBe('0');
         });
-        expect(page.document.querySelectorAll('#buyer-counts .ct').length).toBe(6);
-        expect(page.document.querySelectorAll('#operator-counts .ct').length).toBe(2);
+        expect(page.document.querySelectorAll('#buyer-counts .dg-leaf').length).toBe(6);
+        expect(page.document.querySelectorAll('#operator-counts .dg-leaf').length).toBe(2);
         const bodyText = page.document.body.textContent ?? '';
         expect(bodyText.toLowerCase()).not.toContain('new account');
         expect(bodyText.toLowerCase()).not.toContain('encourag');
@@ -383,11 +383,16 @@ describe('the conduct record page, driven end to end against the real app', () =
         ids.forEach((id) => {
           expect(page.document.getElementById(id)?.textContent).toBe('0');
         });
-        expect(page.document.querySelectorAll('.ct').length).toBe(8);
+        expect(page.document.querySelectorAll('.dg-leaf').length).toBe(8);
         // Mutation proof 3: the zero case renders through the exact same
         // selectors as the populated case, never a second branch with its
         // own marker.
         expect(page.document.getElementById('buyer-counts')?.hasAttribute('data-cold-start')).toBe(false);
+        // DIAG1c: a zero leaf is drawn, in the quieter .is-zero style, and
+        // never hidden (ruling 4).
+        const leaves = Array.from(page.document.querySelectorAll('.dg-leaf'));
+        expect(leaves.filter((l) => l.classList.contains('is-zero')).length, 'every leaf of the cold start takes the zero style').toBe(8);
+        expect(leaves.filter((l) => (l as HTMLElement).hidden || l.closest('[hidden]') !== null).length, 'no leaf is hidden').toBe(0);
       } finally {
         page.close();
       }
@@ -408,6 +413,13 @@ describe('the conduct record page, driven end to end against the real app', () =
         // walked away: stagedDeclined (1) + closedUnpaid (1) = 2, NOT the
         // withdrawn-after-confirm count (which is 1, walkedAfterConfirm).
         expect(page.document.getElementById('ct-walked-away')?.textContent).toBe('2');
+        // DIAG1c: the diagram counts up to data-n, so it carries the same
+        // number, field by field, and a non-zero leaf is not in the zero
+        // style.
+        for (const [id, n] of [['ct-confirmed', '8'], ['ct-merged', '1'], ['ct-deemed', '1'], ['ct-cited-closes', '1'], ['ct-redos-requested', '1'], ['ct-walked-away', '2']]) {
+          expect(page.document.getElementById(id!)?.getAttribute('data-n'), `${id} counts up to its field`).toBe(n);
+          expect(page.document.getElementById(id!)?.closest('.dg-leaf')?.classList.contains('is-zero'), `${id} is not styled as a zero`).toBe(false);
+        }
       } finally {
         page.close();
       }
@@ -418,9 +430,13 @@ describe('the conduct record page, driven end to end against the real app', () =
       try {
         expect(page.document.getElementById('ct-delivered-never-paid')?.textContent).toBe('2');
         expect(page.document.getElementById('ct-redos-refused')?.textContent).toBe('1');
-        const headings = Array.from(page.document.querySelectorAll('h2')).map((h) => h.textContent ?? '');
-        expect(headings.some((h) => h.toLowerCase().includes('when they hire'))).toBe(true);
-        expect(headings.some((h) => h.toLowerCase().includes('when their agents are hired'))).toBe(true);
+        expect(page.document.getElementById('ct-delivered-never-paid')?.getAttribute('data-n')).toBe('2');
+        expect(page.document.getElementById('ct-redos-refused')?.getAttribute('data-n')).toBe('1');
+        // DIAG1c: the two headings are the diagram's branch heads now, and
+        // each count hangs under its own.
+        const heads = Array.from(page.document.querySelectorAll('.dg-group-head h3')).map((h) => h.textContent ?? '');
+        expect(heads).toEqual(['When they hire', 'When their agents are hired']);
+        expect(page.document.getElementById('ct-redos-refused')?.closest('.dg-tree')?.querySelector('.dg-group-head h3')?.textContent).toBe('When their agents are hired');
       } finally {
         page.close();
       }
@@ -429,9 +445,10 @@ describe('the conduct record page, driven end to end against the real app', () =
     it('renders exactly eight count rows: six buyer, two operator, no seventh or ninth', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        expect(page.document.querySelectorAll('.ct').length).toBe(8);
-        expect(page.document.querySelectorAll('#buyer-counts .ct').length).toBe(6);
-        expect(page.document.querySelectorAll('#operator-counts .ct').length).toBe(2);
+        expect(page.document.querySelectorAll('.dg-leaf').length).toBe(8);
+        expect(page.document.querySelectorAll('.dg-leaf .n').length).toBe(8);
+        expect(page.document.querySelectorAll('#buyer-counts .dg-leaf').length).toBe(6);
+        expect(page.document.querySelectorAll('#operator-counts .dg-leaf').length).toBe(2);
       } finally {
         page.close();
       }
@@ -439,10 +456,11 @@ describe('the conduct record page, driven end to end against the real app', () =
   });
 
   describe('the "How to read this" list (ruling 5)', () => {
-    it('renders five items', async () => {
+    it('renders five items, behind "Show how to read this"', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
         expect(page.document.querySelectorAll('.fixed li').length).toBe(5);
+        expect(page.document.querySelector('.fixed')?.closest('#how-to-read'), 'the list sits inside its disclosure').not.toBeNull();
         const text = page.document.querySelector('.fixed')?.textContent ?? '';
         expect(text).toContain('These are counts, never a score');
         expect(text).toContain('Tied to a confirmed GitHub account');
@@ -468,7 +486,8 @@ describe('the conduct record page, driven end to end against the real app', () =
         const buyerConfirmed = Number(page.document.getElementById('ct-confirmed')?.textContent ?? '0');
         const operatorDeliveredNeverPaid = Number(page.document.getElementById('ct-delivered-never-paid')?.textContent ?? '0');
         const bogusSum = buyerConfirmed + operatorDeliveredNeverPaid;
-        const renderedNumbers = Array.from(page.document.querySelectorAll('.ct .n')).map((n) => n.textContent);
+        const renderedNumbers = Array.from(page.document.querySelectorAll('.dg-leaf .n')).map((n) => n.textContent);
+        expect(renderedNumbers, 'the eight numbers are read').toHaveLength(8);
         expect(renderedNumbers).not.toContain(String(bogusSum));
       } finally {
         page.close();
@@ -519,12 +538,13 @@ describe('the conduct record page, driven end to end against the real app', () =
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
         const css = await pageCss(page, baseUrl);
-        // The five components the wireframe's class vocabulary names.
-        // Each must be declared somewhere in the corpus: not in a named
-        // file, because where a rule lives is this card's business and
-        // the next card's to change, but it must exist where the page
-        // can reach it.
-        for (const selector of ['.who', '.who .av', '.counts', '.ct', '.fixed', '.sidenote']) {
+        // The components this page draws. Each must be declared somewhere
+        // in the corpus: not in a named file, because where a rule lives
+        // is this card's business and the next card's to change, but it
+        // must exist where the page can reach it. DIAG1c: the counts are
+        // the diagram's leaves now (.dg-leaf in diagrams.css), and the
+        // wireframe's .counts grid and .ct rows no longer ship here.
+        for (const selector of ['.who', '.who .av', '.fixed', '.sidenote', '.dg-root', '.dg-cols', '.dg-tree', '.dg-group-head', '.dg-counts', '.dg-leaf', '.dg-leaf.is-zero .n', '.dg-def']) {
           expect(
             declarationsOf(css, selector).length,
             `${selector} is declared by no stylesheet this page loads and no inline block`,
@@ -547,7 +567,7 @@ describe('the conduct record page, driven end to end against the real app', () =
         // weight that drifts: assert the duplicates are gone rather than
         // trusting a reading of the file.
         expect(declarationsOf(inline, '.sidenote').length, '.sidenote should stay page-local').toBeGreaterThan(0);
-        for (const selector of ['.counts', '.ct', '.fixed', '.who']) {
+        for (const selector of ['.counts', '.ct', '.fixed', '.who', '.dg-leaf']) {
           expect(
             declarationsOf(inline, selector),
             `${selector} is declared page-locally AND by a loaded sheet; the local copy will drift`,
@@ -567,7 +587,12 @@ describe('the conduct record page, driven end to end against the real app', () =
         const page = await renderConduct(baseUrl, account);
         try {
           expect(page.document.querySelectorAll('[data-avatar]').length, `${account}: a mount with no DID behind it`).toBe(0);
-          expect(page.document.querySelectorAll('[data-ico]').length, `${account}: an icon host on a page that loads no icon set`).toBe(0);
+          // DIAG1c: the diagram draws four icons (the root's GitHub mark
+          // and the three struck plates) and its Replay one more, so the
+          // page loads icons.js; an icon host outside the diagram would be
+          // one it does not account for.
+          expect(page.document.querySelectorAll('[data-ico]').length, `${account}: the diagram's five icon hosts`).toBe(5);
+          expect(page.document.querySelectorAll('main [data-ico]:not(#conduct-diagram [data-ico])').length, `${account}: an icon host outside the diagram`).toBe(0);
           // No reserved box either: an empty disc on a single strip reads
           // as a failed image rather than as alignment, and the real
           // browser assertion below pins the geometry that says so.
@@ -616,25 +641,40 @@ describe('the conduct record page, driven end to end against the real app', () =
       }
     }, 60000);
 
-    it('loads no avatar engine, because it mounts nothing for one to paint', async () => {
+    it('loads no avatar engine and no avatar core, because it mounts nothing for one to paint', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        const scripts = Array.from(page.document.querySelectorAll('script[src]')).map(
-          (s) => s.getAttribute('src') ?? '',
-        );
+        // The scripts the page SHIPS, read from the served markup. The
+        // rendered document is the wrong source for this: office.js adds
+        // the avatar core and bots.js to <head> for the footer by itself,
+        // at run time, on every page, so they appear there whatever this
+        // page loads.
+        const served = await (await fetch(`${baseUrl}/conduct?account=conduct-page-buyer`, { headers: { Accept: HTML } })).text();
+        const scripts = [...served.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1] ?? '');
+        expect(Array.from(page.document.querySelectorAll('body > script[src]')).map((s) => s.getAttribute('src')), 'the rendered page runs the same list').toEqual(scripts);
         // The card's rule: swarm.js ships here if and only if a mount
         // ships here. The assertion above pins the mount count at 0, so
         // this one pins the engine out, and the two can never disagree
-        // without one of them going red.
+        // without one of them going red. DIAG1c: the same holds for the
+        // avatar core and bots.js, which draw agents; this page draws
+        // none, and office.js fetches them for the footer by itself.
         expect(scripts, 'swarm.js on a page with no [data-avatar] is an engine with nothing to paint').not.toContain('/js/swarm.js');
-        expect(scripts, 'icons.js on a page with no [data-ico] is 8.8KB that paints nothing').not.toContain('/js/icons.js');
-        expect(scripts, 'the polished behaviour must load').toContain('/js/polish.js');
-        expect(scripts, 'the reveal observer must load').toContain('/js/pages/ui.js');
-        // ui.js observes .reveal blocks, so it must parse after them, and
-        // polish.js must parse before this page's own script the same way
-        // every other rebuilt page loads it.
-        expect(scripts.indexOf('/js/polish.js')).toBeLessThan(scripts.indexOf('/js/pages/conduct.js'));
-        expect(scripts.indexOf('/js/pages/ui.js')).toBe(scripts.length - 1);
+        expect(scripts, 'bots.js on a page that draws no agent').not.toContain('/js/bots.js');
+        expect(scripts.filter((s) => s.includes('bot-avatars')), 'the avatar core on a page that draws no agent').toEqual([]);
+        // The whole list, in order: icons.js before polish.js and
+        // diagrams.js (both paint icons), diagrams.js before conduct.js
+        // (so FADiagram exists when the read lands), ui.js last (it
+        // observes the .reveal block and wires the two disclosures).
+        expect(scripts).toEqual([
+          '/js/pages/api.js',
+          '/js/pages/nav.js',
+          '/js/office.js',
+          '/js/icons.js',
+          '/js/polish.js',
+          '/js/diagrams.js',
+          '/js/pages/conduct.js',
+          '/js/pages/ui.js',
+        ]);
       } finally {
         page.close();
       }
@@ -656,7 +696,7 @@ describe('the conduct record page, driven end to end against the real app', () =
         const seen = await browser.evaluate<{ text: string; counts: number; overflow: boolean; brand: string; logo: boolean }>(`
           ({
             text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim(),
-            counts: Array.from(document.querySelectorAll('.ct .n')).filter(n => n.textContent.trim() !== '').length,
+            counts: Array.from(document.querySelectorAll('.dg-leaf .n')).filter(n => n.textContent.trim() !== '').length,
             overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
             brand: (document.querySelector('a.brand') || { getAttribute: () => '' }).getAttribute('aria-label') || '',
             logo: Array.from(document.querySelectorAll('a.brand img')).some(i => i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 0)
@@ -702,12 +742,17 @@ describe('the conduct record page, driven end to end against the real app', () =
 
         // Reduced motion: the hidden state sits inside a no-preference
         // query, so nothing is ever transparent, at any scroll position.
+        // DIAG1c: one reveal block is left, the five items, and it sits
+        // behind "Show how to read this"; both motion runs open it first,
+        // as a reader would, so the block is measured where it can show.
+        const open = "document.querySelector('[data-disclose=\"how-to-read\"]').click()";
         await browser.send('Emulation.setEmulatedMedia', {
           features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
         });
         await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
+        await browser.evaluate(open);
         const reduced = await read();
-        expect(reduced.total, 'this page should carry three reveal blocks').toBe(3);
+        expect(reduced.total, 'this page should carry one reveal block, the five items').toBe(1);
         expect(reduced.jsReveal, 'ui.js must not arm the hidden state under reduced motion').toBe(false);
         expect(reduced.hidden, 'a reduced-motion reader must see every block at full opacity').toBe(0);
 
@@ -720,6 +765,7 @@ describe('the conduct record page, driven end to end against the real app', () =
         await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
         const armed = await read();
         expect(armed.jsReveal, 'ui.js should arm the hidden state when motion is allowed').toBe(true);
+        await browser.evaluate(open);
         await browser.evaluate('window.scrollTo(0, document.body.scrollHeight)');
 
         // POLLED, NOT SLEPT. The reveal transition is 500ms (base.css's
@@ -765,25 +811,34 @@ describe('the conduct record page, driven end to end against the real app', () =
     }, 60000);
   });
 
-  describe('layout: three columns, two under 700px, one under 380px (layout-broken-at-desktop)', () => {
-    it('the .counts grid rules match the wireframe breakpoints, in whichever sheet the page really gets them from', async () => {
+  // DIAG1c: THE BREAKPOINTS MOVED WITH THE LAYOUT. The counts used to be one
+  // .counts grid (three columns, two under 700px, one under 380px). They
+  // are the diagram's leaves now: each branch is one column of leaves, and
+  // the two branches (.dg-cols) sit side by side above 900px and stack at
+  // 900px and under, the width at which every diagram in diagrams.css
+  // folds onto one rail. So the pins read .dg-cols at the component's own
+  // breakpoint, in the same two ways they read .counts: the declared rule
+  // text, and the used value in a real browser on both sides of it.
+  describe('layout: the two branches side by side above 900px, stacked at 900px and under (layout-broken-at-desktop)', () => {
+    it('the .dg-cols rules declare two columns, and one at the diagrams\u2019 900px breakpoint, in whichever sheet the page really gets them from', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        const css = await pageCss(page, baseUrl);
-        expect(css).toMatch(/\.counts\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*1fr\)/);
-        expect(css).toMatch(/@media \(max-width:\s*700px\)\s*\{\s*\.counts\s*\{\s*grid-template-columns:\s*repeat\(2,\s*1fr\)/);
-        expect(css).toMatch(/@media \(max-width:\s*380px\)\s*\{\s*\.counts\s*\{\s*grid-template-columns:\s*1fr/);
+        const css = (await pageCss(page, baseUrl)).replace(/\/\*[\s\S]*?\*\//g, '');
+        expect(css).toMatch(/\.dg-cols\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/);
+        const narrow = /@media \(max-width:\s*900px\)\s*\{([\s\S]*?)\n\}/g;
+        const blocks = [...css.matchAll(narrow)].map((m) => m[1] ?? '');
+        expect(blocks.some((b) => /\.dg-cols\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/.test(b)), 'one column at 900px and under').toBe(true);
       } finally {
         page.close();
       }
     });
 
-    // W-conduct. The assertion above reads DECLARED rule text, which says
-    // a rule is written somewhere in the corpus and not that it decides
-    // anything. This one reads the used value back off the real grid in a
-    // real browser at all three widths, so a rule that is present but
-    // loses the cascade fails here even while the text match passes.
-    it('at real viewports the buyer grid really resolves to three, two and one column', async () => {
+    // The assertion above reads DECLARED rule text, which says a rule is
+    // written somewhere in the corpus and not that it decides anything.
+    // This one reads the used value back off the real grid in a real
+    // browser at three widths, so a rule that is present but loses the
+    // cascade fails here even while the text match passes.
+    it('at real viewports the branches really resolve to two columns at 1280 and one at 900, 600 and 320', async () => {
       if (!hasRealBrowser()) {
         console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');
         return;
@@ -794,12 +849,13 @@ describe('the conduct record page, driven end to end against the real app', () =
           await browser.setViewport(width, height);
           await browser.goto(`${baseUrl}/conduct?account=conduct-page-buyer`);
           return browser.evaluate<number>(`
-            getComputedStyle(document.getElementById('buyer-counts')).gridTemplateColumns.split(' ').length
+            getComputedStyle(document.querySelector('#conduct-diagram .dg-cols')).gridTemplateColumns.split(' ').length
           `);
         };
-        expect(await read(1280, 900), 'three columns above 700px').toBe(3);
-        expect(await read(600, 900), 'two columns under 700px').toBe(2);
-        expect(await read(320, 900), 'one column under 380px').toBe(1);
+        expect(await read(1280, 900), 'two branches side by side above 900px').toBe(2);
+        expect(await read(900, 900), 'stacked at 900px').toBe(1);
+        expect(await read(600, 900), 'stacked at 600px').toBe(1);
+        expect(await read(320, 900), 'stacked at 320px').toBe(1);
       } finally {
         await browser.close();
       }

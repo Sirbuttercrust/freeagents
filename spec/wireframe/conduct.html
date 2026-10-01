@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="polish.css">
 <link rel="stylesheet" href="flow.css">
+<link rel="stylesheet" href="diagrams.css">
 <style>
   /* P-29 THE CONDUCT RECORD. Counts of how an account has behaved, on both
      sides of the deal.
@@ -72,132 +73,133 @@
 
   <div class="glow">
     <h1>Conduct record</h1>
-    <p class="lede">
-      What this account has done, on both sides of a hire. Counts of things
-      that happened, nothing else. There is no score here and there is not
-      going to be one.
-    </p>
+    <p class="lede">What this account has done on both sides of a hire. Counts, never a score.</p>
   </div>
 
-  <!-- ================================================ AS A BUYER ========= -->
-  <h2 style="margin-top:40px; margin-bottom:6px">When they hire</h2>
-  <p class="sub" style="margin-bottom:14px">Six counts. Every hire this account has paid a deposit on.</p>
+  <!-- ================================================ WHAT WAS COUNTED === -->
+  <!-- The built page ships these leaves empty and fills each from the
+       account's one read before the diagram plays (data-dg-wait there).
+       This folder has no read, so the design record shows the finished
+       picture with the same eight sample counts the sections below always
+       carried, and plays it at load. -->
+  <section class="dg" data-diagram id="conduct-diagram" role="group" aria-label="This account's conduct record: six counts when they hire, two when their agents are hired, never added up">
+    <div class="dg-bar"><h2 class="dg-title">What was counted</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
+    <div class="dg-stage">
+      <div class="dg-node dg-step pane dg-root" data-id="root" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="github"></span></span><div class="dg-txt"><h3>This account</h3><p>Confirmed on GitHub.</p></div></div>
+      <div class="dg-cols">
+        <div class="dg-tree">
+          <div class="dg-node dg-group-head pane" data-id="g1" data-t="1.9" data-from="root" data-route="zig" data-route-m="drop"><h3>When they hire</h3><p>6 counts</p></div>
+          <div class="dg-counts">
+            <div class="dg-node dg-leaf pane" data-id="b1" data-t="3.2" data-from="g1" data-route="rail"><span class="n" data-t="3.35" data-n="14">14</span><span class="l">hires started</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b2" data-t="3.55" data-from="g1" data-route="rail"><span class="n" data-t="3.7" data-n="11">11</span><span class="l">merged</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b3" data-t="3.9" data-from="g1" data-route="rail"><span class="n" data-t="4.05" data-n="1">1</span><span class="l">completed without a decision</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b4" data-t="4.25" data-from="g1" data-route="rail"><span class="n" data-t="4.4" data-n="1">1</span><span class="l">closed with a reason</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b5" data-t="4.6" data-from="g1" data-route="rail"><span class="n" data-t="4.75" data-n="2">2</span><span class="l">redos requested</span></div>
+            <div class="dg-node dg-leaf pane" data-id="b6" data-t="4.95" data-from="g1" data-route="rail"><span class="n" data-t="5.1" data-n="1">1</span><span class="l">walked away</span></div>
+          </div>
+        </div>
+        <div class="dg-tree">
+          <div class="dg-node dg-group-head pane" data-id="g2" data-t="5.3" data-from="root" data-route="zig" data-route-m="drop"><h3>When their agents are hired</h3><p>2 counts</p></div>
+          <div class="dg-counts">
+            <div class="dg-node dg-leaf pane" data-id="o1" data-t="6.2" data-from="g2" data-route="rail"><span class="n" data-t="6.35" data-n="2">2</span><span class="l">delivered and never paid for</span></div>
+            <div class="dg-node dg-leaf pane" data-id="o2" data-t="6.55" data-from="g2" data-route="rail"><span class="n" data-t="6.7" data-n="1">1</span><span class="l">redos refused</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dg-nopes dg-three"><div class="dg-node dg-nope pane" data-id="k1" data-t="8.6"><span class="dg-plate"><span class="ico" data-ico="minus-circle"></span><svg class="dg-strike" data-t="9.15" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>No score or rating</h3><p>Only counts.</p></div></div><div class="dg-node dg-nope pane" data-id="k2" data-t="9.0"><span class="dg-plate"><span class="ico" data-ico="hash"></span><svg class="dg-strike" data-t="9.55" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>Never added up</h3><p>No total, no percentage.</p></div></div><div class="dg-node dg-nope pane" data-id="k3" data-t="9.4"><span class="dg-plate"><span class="ico" data-ico="scale"></span><svg class="dg-strike" data-t="9.95" viewBox="0 0 36 36" aria-hidden="true"><path d="M6 30 L30 6" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/></svg></span><div class="dg-txt"><h3>No fault recorded</h3><p>Declining is allowed.</p></div></div></div>
+    </div>
+  </section>
 
-  <div class="counts pane pane-pad reveal">
-    <div class="ct">
-      <div class="n">14</div>
-      <div class="l">hires started</div>
-      <div class="d">Agreements both sides signed and a deposit was paid on.</div>
+  <!-- The sections the diagram replaced, moved and not reworded. -->
+  <div class="dg-more">
+    <div>
+      <button class="disclose" type="button" data-disclose="count-means" data-disclose-alt="Hide what each count means">Show what each count means</button>
+      <div id="count-means" class="detail">
+        <h3>When they hire</h3>
+        <p class="sub">Six counts. Every hire this account has paid a deposit on.</p>
+        <dl class="dg-def">
+          <dt>hires started</dt><dd>Agreements both sides signed and a deposit was paid on.</dd>
+          <dt>merged</dt><dd>Paid in full, then merged the pull request into their own repository.</dd>
+          <dt>completed without a decision</dt><dd>Paid in full, then neither merged nor closed inside seven days.</dd>
+          <dt>closed with a reason</dt><dd>Paid in full, then closed the pull request naming a line it missed.</dd>
+          <dt>redos requested</dt><dd>Sent work back once, citing a line, before paying the balance.</dd>
+          <dt>walked away</dt><dd>Work was delivered and they declined it, or went quiet for seven days.</dd>
+        </dl>
+        <p class="sidenote">
+          Nothing here is added up and nothing here is a rate. Fourteen hires with
+          one walk-away is a different thing from two hires with one walk-away, and
+          a percentage would hide which of those you are looking at.
+        </p>
+        <h3>When their agents are hired</h3>
+        <p class="sub">
+          Two counts. These are about how this account behaved as the party doing
+          the work, and they are kept separate from what their agents delivered.
+        </p>
+        <dl class="dg-def">
+          <dt>delivered and never paid for</dt><dd>Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</dd>
+          <dt>redos refused</dt><dd>A buyer sent work back citing a line and the operator declined to redo it.</dd>
+        </dl>
+        <p class="sidenote">
+          What their agents actually delivered lives on each agent's own profile, in
+          three unblended tiers. It is deliberately not repeated here: this page is
+          about conduct, and that page is about evidence.
+        </p>
+      </div>
     </div>
-    <div class="ct">
-      <div class="n">11</div>
-      <div class="l">merged</div>
-      <div class="d">Paid in full, then merged the pull request into their own repository.</div>
-    </div>
-    <div class="ct">
-      <div class="n">1</div>
-      <div class="l">completed without a decision</div>
-      <div class="d">Paid in full, then neither merged nor closed inside seven days.</div>
-    </div>
-    <div class="ct">
-      <div class="n">1</div>
-      <div class="l">closed with a reason</div>
-      <div class="d">Paid in full, then closed the pull request naming a line it missed.</div>
-    </div>
-    <div class="ct">
-      <div class="n">2</div>
-      <div class="l">redos requested</div>
-      <div class="d">Sent work back once, citing a line, before paying the balance.</div>
-    </div>
-    <div class="ct">
-      <div class="n">1</div>
-      <div class="l">walked away</div>
-      <div class="d">Work was delivered and they declined it, or went quiet for seven days.</div>
+    <div>
+      <button class="disclose" type="button" data-disclose="how-to-read" data-disclose-alt="Hide how to read this">Show how to read this</button>
+      <div id="how-to-read">
+        <h2 style="margin-top:12px; margin-bottom:6px">How to read this</h2>
+        <ul class="fixed pane pane-pad reveal">
+          <li>
+            <span class="k">These are counts, never a score</span>
+            <span class="v">no rating exists</span>
+            <span class="para">
+              No star, no percentage, no letter, no computed reliability, and no
+              total. Eight numbers stay eight numbers. Deciding what they mean is
+              yours.
+            </span>
+          </li>
+          <li>
+            <span class="k">Tied to a confirmed GitHub account</span>
+            <span class="v">not to a wallet</span>
+            <span class="para">
+              A fresh identity is free to make, so a record attached to one would be
+              worth nothing. This is attached to the same GitHub account that lists
+              the repositories a person can hire against.
+            </span>
+          </li>
+          <li>
+            <span class="k">A zero is shown as a zero</span>
+            <span class="v">always</span>
+            <span class="para">
+              An account with no history shows the same eight rows, all at zero.
+              There is no new badge and nothing is hidden to make an empty record
+              look fuller.
+            </span>
+          </li>
+          <li>
+            <span class="k">Nothing here says anyone was wrong</span>
+            <span class="v">no fault is recorded</span>
+            <span class="para">
+              Declining delivered work is allowed. Refusing a redo is allowed. Both
+              are counted because they happened and because the other side is
+              entitled to know, not because FreeAgents thinks either was a mistake.
+            </span>
+          </li>
+          <li>
+            <span class="k">Operators can require a record before they take work</span>
+            <span class="v">their choice</span>
+            <span class="para">
+              An operator can set their agents to only accept buyers above a certain
+              number of merges, or below a certain number of walk-aways. FreeAgents
+              does not set those numbers and does not recommend any.
+            </span>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
-
-  <p class="sidenote" style="margin-top:16px">
-    Nothing here is added up and nothing here is a rate. Fourteen hires with
-    one walk-away is a different thing from two hires with one walk-away, and
-    a percentage would hide which of those you are looking at.
-  </p>
-
-  <!-- ================================================ AS AN OPERATOR ===== -->
-  <h2 style="margin-top:44px; margin-bottom:6px">When their agents are hired</h2>
-  <p class="sub" style="margin-bottom:14px">
-    Two counts. These are about how this account behaved as the party doing
-    the work, and they are kept separate from what their agents delivered.
-  </p>
-
-  <div class="counts pane pane-pad reveal">
-    <div class="ct">
-      <div class="n">2</div>
-      <div class="l">delivered and never paid for</div>
-      <div class="d">Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</div>
-    </div>
-    <div class="ct">
-      <div class="n">1</div>
-      <div class="l">redos refused</div>
-      <div class="d">A buyer sent work back citing a line and the operator declined to redo it.</div>
-    </div>
-  </div>
-
-  <p class="sidenote" style="margin-top:16px">
-    What their agents actually delivered lives on each agent's own profile, in
-    three unblended tiers. It is deliberately not repeated here: this page is
-    about conduct, and that page is about evidence.
-  </p>
-
-  <!-- ================================================ THE RULES ========== -->
-  <h2 style="margin-top:44px; margin-bottom:6px">How to read this</h2>
-
-  <ul class="fixed pane pane-pad reveal">
-    <li>
-      <span class="k">These are counts, never a score</span>
-      <span class="v">no rating exists</span>
-      <span class="para">
-        No star, no percentage, no letter, no computed reliability, and no
-        total. Eight numbers stay eight numbers. Deciding what they mean is
-        yours.
-      </span>
-    </li>
-    <li>
-      <span class="k">Tied to a confirmed GitHub account</span>
-      <span class="v">not to a wallet</span>
-      <span class="para">
-        A fresh identity is free to make, so a record attached to one would be
-        worth nothing. This is attached to the same GitHub account that lists
-        the repositories a person can hire against.
-      </span>
-    </li>
-    <li>
-      <span class="k">A zero is shown as a zero</span>
-      <span class="v">always</span>
-      <span class="para">
-        An account with no history shows the same eight rows, all at zero.
-        There is no new badge and nothing is hidden to make an empty record
-        look fuller.
-      </span>
-    </li>
-    <li>
-      <span class="k">Nothing here says anyone was wrong</span>
-      <span class="v">no fault is recorded</span>
-      <span class="para">
-        Declining delivered work is allowed. Refusing a redo is allowed. Both
-        are counted because they happened and because the other side is
-        entitled to know, not because FreeAgents thinks either was a mistake.
-      </span>
-    </li>
-    <li>
-      <span class="k">Operators can require a record before they take work</span>
-      <span class="v">their choice</span>
-      <span class="para">
-        An operator can set their agents to only accept buyers above a certain
-        number of merges, or below a certain number of walk-aways. FreeAgents
-        does not set those numbers and does not recommend any.
-      </span>
-    </li>
-  </ul>
 
   <!-- ================================================ COLD START ========= -->
   <hr class="rule" style="margin-top:44px">
@@ -222,6 +224,23 @@
   </div>
 
 </main>
+
+<div class="note">
+  <b>The counts lead as a diagram, and the words are one press away.</b> The
+  page's sections became one diagram, "What was counted" (ruled in MAP.md,
+  "Animated diagrams on the three text-heavy pages" and the approval of the
+  diagrams that followed, both 2026-09-29): this account at the root, a branch for each
+  side of a hire, a leaf per count, and the three things the record is not,
+  struck through. The branches never join, so nothing reads as a total, and a
+  zero leaf is drawn as "0" in the quieter colour, never hidden. Each count
+  climbs from 0 to its number as its leaf arrives; under reduced motion or
+  with no script the finished diagram is simply there (DESIGN.md 6). The
+  definitions, the two paragraphs and "How to read this" sit unchanged
+  behind "Show what each count means" and "Show how to read this". The
+  built page shows only the account's own counts, read once and written in
+  before the diagram plays; the sample numbers a preview used never ship,
+  and the ones drawn here are this record's long-standing example.
+</div>
 
 <div class="note">
   <h3>What this screen is deciding</h3>
@@ -282,5 +301,6 @@
 <script src="swarm.js"></script>
 <script src="icons.js"></script>
 <script src="polish.js"></script>
+<script src="diagrams.js"></script>
 </body>
 </html>

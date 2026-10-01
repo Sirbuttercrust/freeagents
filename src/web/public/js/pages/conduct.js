@@ -21,33 +21,41 @@
 
    DEPARTURES FROM THE WIREFRAME, NAMED HERE PER THE CARD:
    - No avatar renders, and the mount point is absent rather than empty.
-     The wireframe draws a real generated face here
-     (spec/wireframe/conduct.html:62, a .av carrying data-avatar), and
-     polish.js's sweep paints one by reading the DID off that attribute
-     (polish.js:472-478). This route serves no DID: both response shapes
-     of GET /buyers/:githubLogin/conduct (src/api/app.ts:2576-2590) carry
-     githubLogin, keyed, counts and operatorCounts and nothing else, so
-     there is no value to put on the attribute and no second read allowed
-     to go and fetch one. An attribute with nothing behind it paints an
-     empty box, and one carrying a guessed value paints a face for an
-     identity nobody supplied, so neither ships, and the box is not
-     reserved either: conduct.html carries the measurement for that half.
+     The wireframe draws a real generated face here (a .av carrying
+     data-avatar in spec/wireframe/conduct.html's account strip), and
+     polish.js's avatars() sweep paints one by reading the DID off that
+     attribute. This route serves no DID: both response shapes of
+     GET /buyers/:githubLogin/conduct (its handler in src/api/app.ts)
+     carry githubLogin and keyed, and the keyed one counts and
+     operatorCounts, and nothing else, so there is no value to put on the
+     attribute and no second read allowed to go and fetch one. An
+     attribute with nothing behind it paints an empty box, and one
+     carrying a guessed value paints a face for an identity nobody
+     supplied, so neither ships, and the box is not reserved either:
+     conduct.html carries the measurement for that half.
 
      THE DID IS NOT UNAVAILABLE TO THAT ROUTE, IT IS UNSERIALISED.
-     buyerConductForLogin (src/api/app.ts:655-663) calls
+     buyerConductForLogin (src/api/app.ts) calls
      accountRepo.findByGithubLogin and holds account.did in hand on the
      line before it returns; the handler simply never puts it on the wire.
      Serialising it is a change to src/api/, which this card does not
      touch. Recorded here so the next reader knows this is one field away
      rather than architecturally impossible.
-   - No "joined <date>" renders. accountProjection (src/api/app.ts:189-198)
-     serves createdAt only from GET /accounts/:did, a route this page
-     never calls (ruling 6); "GitHub account confirmed" ships alone, with
+   - No "joined <date>" renders. createdAt is served only by the account
+     routes (accountProjection in src/api/app.ts), none of which this
+     page calls (ruling 6); "GitHub account confirmed" ships alone, with
      no date, exactly as the ruling requires.
    - No "Their agents" button. It points at operator.html
      (/accounts/:did on the live product) and this page holds no DID to
      build that address from (ruling 6): a control this page cannot back
      with a real address is the inert-declared-control defect.
+   - DIAG1c: the counts are drawn as a diagram, "What was counted", and
+     the definitions, both paragraphs and "How to read this" sit behind
+     two disclosures (ruled in MAP.md, 2026-09-29). This file still owns
+     every number on it: it writes each count, as text and as the data-n
+     the diagram counts up to, and then starts the diagram, once, at the
+     end of the render state (renderKeyed). Nothing else on the page
+     knows a number, and no sample number exists anywhere.
 
    EVERYTHING THROUGH textContent: githubLogin is user-supplied and every
    count is a number rendered with String(n), never a template into
@@ -125,15 +133,31 @@
     setCount("ct-redos-refused", operatorCounts.redosRefused);
 
     A.showById("conduct-body", true);
+
+    /* DIAG1c: the diagram starts here and nowhere else, once, after all
+       eight numbers are written and the body is shown, so it measures the
+       layout a reader sees and counts up to the numbers this read gave.
+       The other three states never reach this line, and they leave the
+       body, and the diagram in it, hidden. */
+    if (window.FADiagram) window.FADiagram.start(document.getElementById("conduct-diagram"));
   }
 
   /* Every number through String(n), never a template into markup -- the
      same rule every string on this page follows. A missing or malformed
      field renders 0 rather than throwing or leaving stale text, the same
-     totality stance the domain layer this reads from already takes. */
+     totality stance the domain layer this reads from already takes.
+
+     DIAG1c: the same number also goes on data-n, the value the diagram
+     counts up to (js/diagrams.js, THE MARKUP CONTRACT), and a 0 marks its
+     leaf .is-zero, the quieter style. A zero leaf is never hidden. */
   function setCount(id, value) {
     var n = typeof value === "number" && !isNaN(value) ? value : 0;
     A.setTextById(id, String(n));
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute("data-n", String(n));
+    var leaf = el.closest(".dg-leaf");
+    if (leaf) leaf.classList.toggle("is-zero", n === 0);
   }
 
   if (document.readyState === "loading") {

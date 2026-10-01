@@ -31,15 +31,41 @@
    data-via       a label that sits on the wire ("Say nothing for 7 days")
    data-via-ico   the icon name beside it
    A .dg-coin with data-t fills in at that second. A .dg-strike with data-t
-   draws its line across its plate.
+   draws its line across its plate. An element with data-t and data-n
+   shows no number until data-t, then counts from 0 up to data-n over
+   data-d seconds (default 0.7), written with textContent only. data-n
+   holds the final number, and so does the
+   element's own text, which is the finished picture: the count rewrites
+   the text only while a play runs, and every way out of a play (the end,
+   reduced motion, any fallback) writes data-n back exactly.
 
-   Two forms are layout only (css/diagrams.css) and ride the same contract:
+   A DIAGRAM WHOSE NUMBERS ARRIVE LATE carries data-dg-wait on its section:
+     <section class="dg" data-diagram data-dg-wait id="x">...</section>
+   This file leaves it alone at load: nothing measured, dimmed or played,
+   so it is only its markup (which the page keeps hidden until its data is
+   in). Once the page has written every number (text and data-n) and shown
+   the diagram, it calls, once:
+     window.FADiagram.start(document.getElementById("x"))
+   That measures the diagram where it now sits and schedules it like any
+   other: finished at once under reduced motion or with no
+   IntersectionObserver, frozen under ?t, otherwise armed and played as it
+   scrolls into view. If it cannot be set up (no SVG geometry) it is left
+   on its markup, and a throw is handled as in HOW IT FAILS below; either
+   way the page's own numbers stand.
+
+   Three forms are layout only (css/diagrams.css) and ride the same contract:
      .dg-lanes on the section, .dg-lane-l and .dg-lane-r on its steps: two
        lanes, you on the left and the agent on the right, joined by zig
        wires; on a phone one column, joined by drop wires on the rail.
      .dg-tiers holding .dg-tier-row nodes, each a .dg-tier-head, a
        .dg-graph of .dg-mini nodes joined by across wires, and a .dg-forge;
        .is-claim on the weakest row and its one mini.
+     A record drawn as a tree: a .dg-root step, then .dg-cols holding one
+       .dg-tree per branch, each a .dg-group-head (zig from the root; drop
+       on a phone) over .dg-counts of .dg-leaf nodes (rail from the head),
+       each leaf a number (.n, data-n) and its label (.l); .is-zero on a
+       leaf whose number is 0. Side by side on a computer, stacked on a
+       phone. .dg-three on a .dg-nopes gives three refusal plates a row.
 
    A GUIDE AGENT sits in a step's plate:
      <span class="dg-plate is-bot"><span class="dg-bot" data-shape="droid"
@@ -76,11 +102,12 @@
    loop stops when nothing is playing.
 
    TEST HOOKS. ?still shows every diagram's finished picture. ?t=<seconds>
-   freezes every diagram at that many seconds into its own play. Neither is a
+   freezes every diagram at that many seconds into its own play (a
+   data-dg-wait diagram from the moment it is started). Neither is a
    reader-facing feature.
 
-   Only transform and opacity move, plus colour on arrival and a stroke
-   offset on the wires. */
+   Only transform and opacity move, plus colour on arrival, a stroke
+   offset on the wires and the digits of a count. */
 
 (function () {
   "use strict";
@@ -115,6 +142,7 @@
   function kindOf(e) {
     if (e.classList.contains("dg-coin")) return "dot";
     if (e.classList.contains("dg-strike")) return "strike";
+    if (e.hasAttribute("data-n")) return "num";
     return "node";
   }
 
@@ -136,6 +164,11 @@
     each(stage.querySelectorAll("[data-t]"), function (e) {
       var it = { el: e, t: attrNum(e, "data-t", 0), kind: kindOf(e), key: null };
       if (it.kind === "strike") it.path = e.querySelector("path");
+      if (it.kind === "num") {
+        it.final = e.getAttribute("data-n");
+        it.to = parseFloat(it.final);
+        it.dur = attrNum(e, "data-d", 0.7);
+      }
       m.items.push(it);
 
       var from = e.getAttribute("data-from");
@@ -171,7 +204,7 @@
 
     var last = 0;
     m.items.forEach(function (it) {
-      var d = it.kind === "dot" ? 0.35 : 0.9;
+      var d = it.kind === "num" ? it.dur : it.kind === "dot" ? 0.35 : 0.9;
       if (it.t + d > last) last = it.t + d;
     });
     m.end = last + 0.8;
@@ -179,7 +212,8 @@
   }
 
   /* Puts one diagram back on its finished picture: no wires, no labels on
-     them, nothing dimmed, no Replay. The markup's own default. */
+     them, nothing dimmed, every count on its final number, no Replay. The
+     markup's own default. */
   function unbuild(m) {
     m.playing = false;
     if (m.svg && m.svg.parentNode) m.svg.parentNode.removeChild(m.svg);
@@ -189,6 +223,7 @@
       ["transform", "--flash", "--g", "--c"].forEach(function (p) { s.removeProperty(p); });
       it.el.classList.remove("is-wait");
       if (it.path) it.path.style.removeProperty("stroke-dashoffset");
+      if (it.kind === "num") it.el.textContent = it.final;
     });
     if (m.replay) m.replay.hidden = true;
   }
@@ -351,6 +386,20 @@
     it.path.style.strokeDashoffset = (1 - p).toFixed(3);
   }
 
+  /* A count climbs from 0 in whole steps, eased so it settles rather than
+     stops, and ends on data-n exactly as the page wrote it. Until its
+     count begins it shows no number at all: a leaf still waiting would
+     otherwise read "0" to anyone who scrolls ahead of the play, which is
+     a number the record does not hold. Only the text changes, so the
+     number sits in the same box the whole way. */
+  function drawNum(it, T) {
+    var p = easeOut(win(it.t, it.t + it.dur, T));
+    var txt = T < it.t ? "" : p >= 1 ? it.final : String(Math.round(it.to * p));
+    if (it.key === txt) return;
+    it.key = txt;
+    it.el.textContent = txt;
+  }
+
   /* A label waits on the wire's grey track at --fg-3 with its rim dimmed,
      and comes up with its wire. Like a node, it never fades its text. */
   function drawWire(w, T) {
@@ -389,6 +438,7 @@
     m.items.forEach(function (it) {
       if (it.kind === "node") drawNode(it, T);
       else if (it.kind === "dot") drawDot(it, T);
+      else if (it.kind === "num") drawNum(it, T);
       else drawStrike(it, T);
     });
     m.wires.forEach(function (w) { drawWire(w, T); });
@@ -523,16 +573,16 @@
 
   /* --------------------------------------------------------------- start */
 
-  function schedule() {
+  function schedule(list) {
     if (freezeAt !== null && !isNaN(freezeAt)) {
-      models.forEach(function (m) { m.armed = true; draw(m, clamp(freezeAt, 0, m.end + 10)); if (m.replay) m.replay.hidden = true; });
+      list.forEach(function (m) { m.armed = true; draw(m, clamp(freezeAt, 0, m.end + 10)); if (m.replay) m.replay.hidden = true; });
     } else if (reduced() || !window.IntersectionObserver) {
-      models.forEach(finish);
+      list.forEach(finish);
     } else {
       /* Arm every diagram now, so one that is not on screen yet waits
          dimmed instead of sitting fully lit until it scrolls into view and
          then snapping dim to play. */
-      models.forEach(arm);
+      list.forEach(arm);
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (en) {
           if (!en.isIntersecting) return;
@@ -540,9 +590,60 @@
           models.forEach(function (m) { if (m.root === en.target) play(m); });
         });
       }, { rootMargin: "0px 0px 120px 0px", threshold: 0 });
-      models.forEach(function (m) { io.observe(m.root); });
+      list.forEach(function (m) { io.observe(m.root); });
     }
   }
+
+  var rt = 0;
+  function again() {
+    clearTimeout(rt);
+    rt = setTimeout(function () {
+      try {
+        models.forEach(function (m) {
+          measure(m);
+          m.wires.forEach(function (w) { w.key = null; });
+          draw(m, m.done || !m.armed ? m.end + 10 : m.T);
+        });
+      } catch (e) { abandon(e); }
+    }, 120);
+  }
+
+  /* What every set-up diagram gets: a re-measure when its stage changes
+     size, and its Replay. */
+  function watch(m) {
+    if (window.ResizeObserver) new ResizeObserver(again).observe(m.stage);
+    if (m.replay) m.replay.addEventListener("click", function () { if (models.indexOf(m) >= 0) play(m); });
+  }
+
+  /* Sets up the diagrams in list, all or none: on a browser with no SVG
+     geometry they are left on their markup, and a throw puts every diagram
+     back on its finished picture. */
+  function setUp(list) {
+    try {
+      list.forEach(function (root) { build(root); });
+      var fresh = models.filter(function (m) { return list.indexOf(m.root) >= 0; });
+      if (!fresh.length) return;
+      if (!fresh.every(measure)) { abandon(null); return; }
+      if (window.FAIcon) window.FAIcon.paint();
+      document.documentElement.classList.add("dg-js");
+      fresh.forEach(watch);
+      schedule(fresh);
+    } catch (e) {
+      abandon(e);
+    }
+  }
+
+  var ready = false, queued = [];
+
+  /* The one public call (see THE MARKUP CONTRACT): starts a data-dg-wait
+     diagram once its page has written its numbers. */
+  function start(root) {
+    if (!root || typeof root.hasAttribute !== "function" || !root.hasAttribute("data-dg-wait")) return;
+    if (!ready) { if (queued.indexOf(root) < 0) queued.push(root); return; }
+    for (var i = 0; i < models.length; i++) { if (models[i].root === root) return; }
+    setUp([root]);
+  }
+  window.FADiagram = { start: start };
 
   function init() {
     /* The agents first, on their own: the finished picture shows them too,
@@ -550,41 +651,15 @@
        agent's plate keeps the box an icon plate has, so nothing measured
        below moves. */
     try { whenBots(); } catch (e) { setTimeout(function () { throw e; }, 0); }
-    try {
-      each(document.querySelectorAll("[data-diagram]"), build);
-      if (!models.length) return;
-      if (!models.every(measure)) { abandon(null); return; }
-      if (window.FAIcon) window.FAIcon.paint();
-      document.documentElement.classList.add("dg-js");
-      schedule();
-    } catch (e) {
-      abandon(e);
-      return;
-    }
+    setUp(Array.prototype.filter.call(document.querySelectorAll("[data-diagram]"), function (r) { return !r.hasAttribute("data-dg-wait"); }));
 
-    var rt = 0;
-    var again = function () {
-      clearTimeout(rt);
-      rt = setTimeout(function () {
-        try {
-          models.forEach(function (m) {
-            measure(m);
-            m.wires.forEach(function (w) { w.key = null; });
-            draw(m, m.done || !m.armed ? m.end + 10 : m.T);
-          });
-        } catch (e) { abandon(e); }
-      }, 120);
-    };
     window.addEventListener("resize", again);
-    if (window.ResizeObserver) models.forEach(function (m) { new ResizeObserver(again).observe(m.stage); });
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(again);
-
-    models.forEach(function (m) {
-      if (m.replay) m.replay.addEventListener("click", function () { if (models.indexOf(m) >= 0) play(m); });
-    });
     if (reduceQ && reduceQ.addEventListener) {
       reduceQ.addEventListener("change", function () { if (reduced()) models.forEach(finish); });
     }
+    ready = true;
+    queued.splice(0).forEach(start);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
