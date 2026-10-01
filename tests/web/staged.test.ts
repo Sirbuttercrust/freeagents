@@ -19,7 +19,9 @@ import {
   MemoryJobRepository,
   MemoryAttestationRepository,
   MemoryCredentialRepository,
+  MemorySettlementRepository,
 } from '../../src/adapters/storage/memory.js';
+import type { ObservedSettlementRecord } from '../../src/adapters/storage/types.js';
 import { createJob, type Job, LAPSE_AT_STAGED_AFTER_DAYS, REDO_LAPSE_EXTENSION_DAYS } from '../../src/domain/job.js';
 import { buildAttestation, type StagingObservation, type Attestation } from '../../src/domain/attestation.js';
 import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
@@ -45,6 +47,35 @@ const OPERATOR_DID = 'did:abt:staged-page-operator';
 // LAPSE_AT_STAGED_AFTER_DAYS old would flip the fixture's own status
 // before this file ever gets to assert on it.
 const RECENT = new Date(Date.now() - 60 * 60 * 1000);
+
+// Settlement records for the paid states, as the payment routes write them
+// once a leg confirms. Amounts follow the 900.00 price at 25 percent: a
+// 225.00 deposit and a 675.00 balance. The balance's observedAt is a fixed
+// instant so its readable date can be written out in the expected sentence.
+const OWNER_EVM_ADDRESS = '0x9aB3c4D5e6F7081920a1B2c3D4e5F60718293a4B';
+const BALANCE_OBSERVED_AT = new Date('2026-09-30T15:00:00.000Z');
+const SETTLED_DEPOSIT: ObservedSettlementRecord = {
+  jobId: 'set-per-job',
+  leg: 'deposit',
+  rail: 'usdc',
+  hash: '0xstaged-deposit-transfer',
+  secondaryHash: '0xstaged-deposit-fee',
+  operatorAddress: OWNER_EVM_ADDRESS,
+  feeAddress: '0xFee0000000000000000000000000000000000009',
+  amountUsd: '225.00',
+  observedAt: new Date(RECENT.getTime() - 1000),
+};
+const SETTLED_BALANCE: ObservedSettlementRecord = {
+  ...SETTLED_DEPOSIT,
+  leg: 'remainder',
+  hash: '0xstaged-balance-transfer',
+  secondaryHash: '0xstaged-balance-fee',
+  amountUsd: '675.00',
+  observedAt: BALANCE_OBSERVED_AT,
+};
+// The date the page prints, computed the way api.js readableDate computes
+// it, so the expectation holds in whatever locale and zone the suite runs.
+const readable = (d: Date): string => d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 
 function delegationFixture(did: string, operatorDid: string): Delegation {
   return {
@@ -233,6 +264,10 @@ describe('the staged screen, driven end to end against the real app', () => {
   let jobRepo: MemoryJobRepository;
   let accountRepo: MemoryAccountRepository;
   let attestationRepo: MemoryAttestationRepository;
+  // What GET /jobs/:jobId/payments reads. Settled legs are written for the
+  // paid fixtures below; every other job has none, so its read answers
+  // { deposit: null, remainder: null }.
+  let settlementRepo: MemorySettlementRepository;
   let server: Server;
   let baseUrl: string;
   let buyerToken: string;
@@ -440,9 +475,42 @@ describe('the staged screen, driven end to end against the real app', () => {
       await storeAttestation(fixture, observationFixture({ diffHash: `sha256:${id}` }), credentials);
     }
 
+    // The paid states. Each job is staged with the same 900.00 terms; what
+    // differs is its currency and which legs GET /jobs/:jobId/payments
+    // reports as settled. Each settled leg names the currency the job is
+    // priced in, as the payment routes record it.
+    settlementRepo = new MemorySettlementRepository();
+    const OWNER_ABT_ADDRESS = 'zNKstagedPageOwnerAbtAddress0001';
+    const paidFixtures: ReadonlyArray<readonly [id: string, jobRail: 'usdc' | 'abt', balanceRail: string | null, address: string]> = [
+      ['job-balance-paid', 'usdc', 'usdc', OWNER_EVM_ADDRESS],
+      ['job-balance-paid-abt', 'abt', 'abt', OWNER_ABT_ADDRESS],
+      // abt_eth is the rail value the ABT-on-Ethereum work adds; the stored
+      // record's type does not name it yet, and the route passes rail
+      // through as stored, so the page must already have a name for it.
+      ['job-balance-paid-abt-eth', 'abt', 'abt_eth', OWNER_EVM_ADDRESS],
+      ['job-deposit-only', 'usdc', null, OWNER_EVM_ADDRESS],
+      // A balance settled here too: the test that reads this job answers
+      // its payments read with a 503, so a page that treated a failed read
+      // as paid, or read past it, would drop the pay button.
+      ['job-payments-503', 'usdc', 'usdc', OWNER_EVM_ADDRESS],
+    ];
+    for (const [id, jobRail, balanceRail, address] of paidFixtures) {
+      const fixture = { ...freshStagedJob(id, '900.00'), rail: jobRail };
+      await jobRepo.create(fixture);
+      await storeAttestation(fixture, observationFixture({ diffHash: `sha256:${id}` }), credentials);
+      const rail = (balanceRail ?? jobRail) as ObservedSettlementRecord['rail'];
+      await settlementRepo.record({ ...SETTLED_DEPOSIT, jobId: id, rail, operatorAddress: address });
+      if (balanceRail !== null) await settlementRepo.record({ ...SETTLED_BALANCE, jobId: id, rail, operatorAddress: address });
+    }
+
     const sessionAdapterRef = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'staged-page-buyer', id: 9401 }) });
 
-    const app = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, credentials, undefined, credentialRepo, undefined, undefined, undefined, sessionAdapterRef, undefined, unsettledGate(), undefined, attestationRepo);
+    // Rate limits: every page this file renders now makes one more read
+    // (GET /jobs/:jobId/payments), and some fifty renders against this one
+    // app inside a minute pass the default read budget, which answers 429
+    // to whichever read lands last. A generous override for this file,
+    // never a raised default (tests/web/mobile-layout.test.ts does the same).
+    const app = createApp(accountRepo, agentRepo, undefined, undefined, jobRepo, credentials, undefined, credentialRepo, { verify: 10_000, read: 10_000, write: 10_000, upstream: 10_000 }, undefined, undefined, sessionAdapterRef, undefined, unsettledGate(), undefined, attestationRepo, undefined, undefined, settlementRepo);
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -930,7 +998,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   });
 
   describe('the full set of requests the page makes, recorded from before the first script runs (scope items 3/5, done-means: "assert by recording every request the page makes")', () => {
-    it('on load the page reads exactly the job, the attestation, the agent and its hires, and pressing pay adds exactly one remainder-leg POST, never a usdc, deposit, redo, staged-decline or pull-request path', async () => {
+    it('on load the page reads exactly the job, the attestation, the payments, the agent and its hires, and pressing pay adds exactly one remainder-leg POST, never a usdc, deposit, redo, staged-decline or pull-request path', async () => {
       const rawRequests: string[] = [];
       const page = await renderStaged(baseUrl, 'job-fully-staged', buyerSession, (input, init) => {
         rawRequests.push(`${(init?.method ?? 'GET').toUpperCase()} ${new URL(String(input), baseUrl).pathname}`);
@@ -959,24 +1027,24 @@ describe('the staged screen, driven end to end against the real app', () => {
         // The party read fires from a separate promise chain than the
         // agent/hires calls renderWho makes, so its position in the load
         // burst is not fixed relative to those two; asserted as a set, not
-        // an order, for that one reason. The job and attestation reads
-        // keep their fixed first-two position since they gate everything
-        // else on the page. The buyer's public account is never read.
-        expect(requests.slice(0, 2)).toEqual(['GET /jobs/job-fully-staged', 'GET /jobs/job-fully-staged/attestation']);
-        expect(new Set(requests.slice(2))).toEqual(new Set([
+        // an order, for that one reason. The job, attestation and payments
+        // reads keep their fixed first-three position since they gate
+        // everything else on the page. The buyer's public account is never read.
+        expect(requests.slice(0, 3)).toEqual(['GET /jobs/job-fully-staged', 'GET /jobs/job-fully-staged/attestation', 'GET /jobs/job-fully-staged/payments']);
+        expect(new Set(requests.slice(3))).toEqual(new Set([
           'GET /agents/did%3Aabt%3Astaged-page-agent',
           'GET /agents/did%3Aabt%3Astaged-page-agent/hires',
           'GET /accounts/me',
         ]));
-        expect(requests.length).toBe(5);
+        expect(requests.length).toBe(6);
 
         const payBtn = page.document.getElementById('pay-btn') as HTMLButtonElement;
         payBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
 
         requests = ownRequests();
-        expect(requests.length).toBe(6);
-        expect(requests[5]).toBe('POST /jobs/job-fully-staged/payments/remainder/abt/start');
+        expect(requests.length).toBe(7);
+        expect(requests[6]).toBe('POST /jobs/job-fully-staged/payments/remainder/abt/start');
 
         // Named negatives, verbatim from done-means: none of these five
         // paths is ever requested, on load or after the press.
@@ -1774,6 +1842,119 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(page.document.documentElement.outerHTML).not.toContain(buyerToken);
       } finally {
         page.close();
+      }
+    });
+  });
+
+  describe('once the balance has settled, the page says it is paid and offers nothing to press (GET /jobs/:jobId/payments)', () => {
+    // The page has settled once either the choices list or the paid line has
+    // drawn: both come after the party read, the last thing the page waits on.
+    const settledOrChoices = (doc: Document): boolean =>
+      (doc.getElementById('choices')?.children.length ?? 0) > 0 || doc.getElementById('balance-paid')?.hidden === false;
+    const stagedLine = `Staged on ${readable(RECENT)}. `;
+
+    it('(a) the balance paid in USDC: the paid sentence and the fact line, whole, and no pay, redo or decline control anywhere in the document', async () => {
+      const page = await renderStaged(baseUrl, 'job-balance-paid', buyerSession, undefined, undefined, settledOrChoices);
+      try {
+        const doc = page.document;
+        expect(doc.getElementById('staged-body')?.hidden).toBe(false);
+        expect(doc.getElementById('lede')?.textContent).toBe(`${stagedLine}You paid the balance. The agent opens the pull request next.`);
+        expect(doc.getElementById('balance-paid')?.hidden).toBe(false);
+        expect(doc.getElementById('balance-paid-line')?.textContent).toBe(`Balance paid: $675.00 in USDC on ${readable(BALANCE_OBSERVED_AT)}.`);
+        // Removed, not hidden or disabled.
+        for (const id of ['pay-btn', 'redo-btn', 'decline-btn', 'choices-section', 'choices', 'acts', 'usdc-gas-note']) {
+          expect(doc.getElementById(id), `#${id} is still in the document`).toBeNull();
+        }
+        // A paid hire is not waiting on the buyer: no window to decide in,
+        // no consequence of not deciding, no link explaining declining.
+        expect(doc.getElementById('clock')).toBeNull();
+        expect(doc.getElementById('outcomes-more')).toBeNull();
+        const body = doc.getElementById('staged-body')?.textContent ?? '';
+        expect(body).not.toContain('to decide');
+        expect(body).not.toContain('If you have not decided');
+        expect(body).not.toContain('Pay the balance');
+        expect(doc.getElementById('tech-hidden-note')?.textContent).toBe('The work reaches your repository when the pull request opens.');
+        // The account of the work still reads in full.
+        expect(doc.querySelectorAll('#facts > li').length).toBe(6);
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each([
+      ['only the deposit has settled', 'job-deposit-only', null],
+      ['the payments read answers 503', 'job-payments-503', 503],
+      ['the payments read never reaches the server', 'job-payments-503', 0],
+    ] as const)('(b) %s: the choices, the clock and the pay button read exactly as before the payments read existed', async (_label, jobId, failWith) => {
+      const page = await renderStaged(baseUrl, jobId, buyerSession, undefined, undefined, settledOrChoices, (input) => {
+        if (failWith === null || input !== `/jobs/${jobId}/payments`) return null;
+        // A rejected fetch is what a request that never left the browser
+        // looks like; renderPage passes a returned promise straight through.
+        if (failWith === 0) return Promise.reject(new TypeError('network down')) as unknown as Response;
+        return jsonResponse(failWith, { error: 'storage unavailable' });
+      });
+      try {
+        const doc = page.document;
+        expect(doc.getElementById('lede')?.textContent).toBe(`${stagedLine}Pay the balance and the pull request opens on your repository.`);
+        // 675.00 plus the 6 percent USDC fee, 40.50.
+        expect(doc.getElementById('pay-btn')?.textContent).toBe('Pay the balance, $715.50');
+        expect((doc.getElementById('pay-btn') as HTMLButtonElement).disabled).toBe(false);
+        expect(doc.getElementById('redo-btn')?.hidden).toBe(false);
+        expect(doc.getElementById('decline-btn')?.hidden).toBe(false);
+        expect(Array.from(doc.querySelectorAll('#choices > li .k')).map((k) => k.textContent)).toEqual(['Pay the balance', 'Send it back once', 'Decline']);
+        expect(doc.getElementById('clock-days')?.textContent).toContain('days to decide');
+        expect(doc.querySelector('a.sf-more[href="/outcomes"]')).not.toBeNull();
+        // No paid line: absent (the page before the payments read) or
+        // hidden and empty (this page) both say nothing about payment.
+        expect(doc.getElementById('balance-paid')?.hidden ?? true).toBe(true);
+        expect(doc.getElementById('balance-paid-line')?.textContent ?? '').toBe('');
+        expect(doc.getElementById('load-error')?.hidden).toBe(true);
+      } finally {
+        page.close();
+      }
+    });
+
+    it.each([
+      ['usdc', 'job-balance-paid', 'USDC'],
+      ['abt', 'job-balance-paid-abt', 'ABT on ArcBlock'],
+      ['abt_eth', 'job-balance-paid-abt-eth', 'ABT on Ethereum'],
+    ] as const)('(g) a balance settled on the %s rail (%s) is named %s', async (_rail, jobId, currency) => {
+      const page = await renderStaged(baseUrl, jobId, buyerSession, undefined, undefined, settledOrChoices);
+      try {
+        expect(page.document.getElementById('balance-paid-line')?.textContent).toBe(`Balance paid: $675.00 in ${currency} on ${readable(BALANCE_OBSERVED_AT)}.`);
+      } finally {
+        page.close();
+      }
+    });
+
+    it('(f) a stranger to a paid hire gets the existing party refusal and nothing else: no paid line, no second error', async () => {
+      const strangerAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'staged-page-stranger', id: 9402 }) });
+      const strangerAccountRepo = new MemoryAccountRepository();
+      await strangerAccountRepo.register({ did: STRANGER_ACCOUNT_DID, githubLogin: 'staged-page-stranger' });
+      const strangerServer = createApp(strangerAccountRepo, agentRepo, undefined, undefined, jobRepo, undefined, undefined, undefined, undefined, undefined, undefined, strangerAdapter, undefined, unsettledGate(), undefined, attestationRepo, undefined, undefined, settlementRepo).listen(0, '127.0.0.1');
+      await new Promise<void>((resolve) => strangerServer.once('listening', resolve));
+      const strangerBaseUrl = `http://127.0.0.1:${(strangerServer.address() as AddressInfo).port}`;
+      const payments: number[] = [];
+      try {
+        const token = await mintSessionToken(strangerAdapter);
+        const page = await renderStaged(strangerBaseUrl, 'job-balance-paid', { token }, undefined, undefined, (doc) => doc.getElementById('party-error')?.hidden === false);
+        try {
+          // The same session on the payments route meets a 403 as well, so
+          // the page above was handed two refusals and shows one.
+          const probe = await fetch(`${strangerBaseUrl}/jobs/job-balance-paid/payments`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+          payments.push(probe.status);
+          expect(payments).toEqual([403]);
+          expect(page.document.getElementById('party-error')?.hidden).toBe(false);
+          expect(page.document.getElementById('party-error-detail')?.textContent).toBe('the authenticated party is not a party to this job');
+          expect(page.document.getElementById('staged-body')?.hidden).toBe(true);
+          expect(page.document.getElementById('load-error')?.hidden).toBe(true);
+          expect(page.document.getElementById('balance-paid')?.hidden ?? true).toBe(true);
+          expect(page.document.getElementById('balance-paid-line')?.textContent ?? '').toBe('');
+        } finally {
+          page.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => strangerServer.close(() => resolve()));
       }
     });
   });

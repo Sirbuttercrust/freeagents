@@ -225,7 +225,7 @@
            changes what happens if the buyer does nothing. A date and a
            consequence, never a draining bar: staged.js renders both halves
            from LAPSE_AT_STAGED_AFTER_DAYS and the job's own stagedAt. -->
-      <div class="clock pane pane-pad reveal" style="margin-top:28px">
+      <div class="clock pane pane-pad reveal" id="clock" style="margin-top:28px">
         <span class="days" id="clock-days"></span>
         <span class="then" id="clock-then"></span>
       </div>
@@ -284,12 +284,19 @@
         <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
         <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>
       </div>
+      <!-- ONCE THE BALANCE HAS SETTLED, this one line stands where the
+           choices were: what was paid, in which currency, on which day,
+           read from GET /jobs/:jobId/payments (staged.js renderPaid). The
+           choices section and its three controls are removed from the
+           document then, since the hire is no longer waiting on the buyer.
+           The wireframe draws only the unpaid state. -->
+      <div class="pane pane-pad" id="balance-paid" hidden style="margin-top:40px"><p id="balance-paid-line" style="margin:0"></p></div>
       <p class="sub" id="redo-pending-note" hidden style="margin-top:22px"></p>
-      <p class="sf-mores"><a class="sf-more" href="/outcomes">What happens if you decline, or do nothing</a></p>
+      <p class="sf-mores" id="outcomes-more"><a class="sf-more" href="/outcomes">What happens if you decline, or do nothing</a></p>
       <div>
         <button class="disclose" type="button" data-disclose="atttech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="atttech" class="detail">
-          <p style="color:var(--fg-2); font-size:13px; margin:0">The work stays hidden until you pay.</p>
+          <p id="tech-hidden-note" style="color:var(--fg-2); font-size:13px; margin:0">The work stays hidden until you pay.</p>
           <div class="kv">
             <div><dt>stagedCommit</dt><dd id="tech-staged-commit"></dd></div>
             <button class="btn btn-sm" type="button" id="copy-staged-commit" data-copy="">Copy</button>

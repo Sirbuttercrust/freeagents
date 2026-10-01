@@ -39,10 +39,15 @@ import { createSessionAdapter } from '../../src/adapters/identity/session-github
 import {
   MemoryAccountRepository,
   MemoryAgentRepository,
+  MemoryAttestationRepository,
   MemoryCredentialRepository,
   MemoryJobRepository,
+  MemorySettlementRepository,
 } from '../../src/adapters/storage/memory.js';
+import type { ObservedSettlementRecord } from '../../src/adapters/storage/types.js';
 import { createJob, type Job } from '../../src/domain/job.js';
+import { buildAttestation } from '../../src/domain/attestation.js';
+import { createCredentialsAdapter } from '../../src/adapters/credentials/credentials.js';
 import type { Delegation } from '../../src/domain/agent.js';
 import type { VerifiableCredential } from '../../src/adapters/credentials/types.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSession } from '../helpers/session-fixtures.js';
@@ -100,6 +105,8 @@ const BUYER_DID = 'did:example:m1-buyer';
 const OWN_LISTED_DID = 'did:abt:zM1OwnListed';
 const OWN_UNLISTED_DID = 'did:abt:zM1OwnUnlisted';
 const JOB_ID = 'm1-job-completed';
+const PAID_STAGED_JOB = 'm1-job-staged-paid';
+const PAID_OWNER_JOB = 'm1-job-owner-paid';
 
 // Ten pages of results at browse.js's PAGE_SIZE of 10, which is what puts
 // twelve controls (Previous, ten numbers, Next) in the pager. Fewer agents
@@ -353,6 +360,27 @@ beforeAll(async () => {
     repositoryPublic: true,
   });
 
+  // The two paid states, each with both legs settled. /staged reads the
+  // buyer's hire (the signed-in session is its buyer) and needs a signed
+  // attestation to draw its body. /operatorjob reads a hire whose agent the
+  // signed-in account owns (OWN_LISTED_DID), bought by another account, so
+  // the same session is that page's owner.
+  const attestationRepo = new MemoryAttestationRepository();
+  const settlementRepo = new MemorySettlementRepository();
+  const paid = { criteria, priceUsd: '900.00', rail: 'usdc' as const, priceAcceptedByBuyer: true, priceAcceptedByAgent: true, confirmedAt: recent, confirmedSpecHash: 'sha256:m1-confirmed-spec', stagedAt: new Date(Date.now() - 3_600_000), stagedCommit: 'm1stagedcommit' };
+  const stagedPaid = jobFixture({ id: PAID_STAGED_JOB, status: 'staged', ...paid });
+  const ownerPaid = jobFixture({ id: PAID_OWNER_JOB, status: 'staged', buyerDid: OPERATOR_DID, agentDid: OWN_LISTED_DID, ...paid });
+  await jobRepo.create(stagedPaid);
+  await jobRepo.create(ownerPaid);
+  const observation = { diffHash: 'sha256:m1-paid', filesChanged: 2, linesAdded: 40, linesRemoved: 4, changedPaths: ['src/cart.ts', 'test/cart.test.ts'], lineShareByCategory: { source: 70, test: 30, lockfile: 0, generated: 0, vendored: 0 }, testsDeleted: [], testsSkipAdded: [], commitSigners: [{ matchesAgentDid: true }] };
+  const attestation = buildAttestation(stagedPaid, observation, new Date());
+  await attestationRepo.save({ jobId: stagedPaid.id, attestation, signed: await createCredentialsAdapter(undefined, credentialRepo).signAttestation(attestation) });
+  for (const jobId of [PAID_STAGED_JOB, PAID_OWNER_JOB]) {
+    const leg: ObservedSettlementRecord = { jobId, leg: 'deposit', rail: 'usdc', hash: '0xm1-deposit', secondaryHash: '0xm1-deposit-fee', operatorAddress: '0x4Fa1b2C3d4E5f60718293A4b5C6d7E8f90123456', feeAddress: '0xFee000000000000000000000000000000000000a', amountUsd: '225.00', observedAt: new Date('2026-09-28T10:00:00.000Z') };
+    await settlementRepo.record(leg);
+    await settlementRepo.record({ ...leg, leg: 'remainder', hash: '0xm1-balance', secondaryHash: '0xm1-balance-fee', amountUsd: '675.00', observedAt: new Date('2026-09-30T15:00:00.000Z') });
+  }
+
   const sessionAdapter = createSessionAdapter({
     github: fakeGitHubConfig(),
     fetchImpl: fakeGitHubFetch({ login: 'm1-buyer-login', id: 4242 }),
@@ -376,6 +404,13 @@ beforeAll(async () => {
     undefined,
     undefined,
     sessionAdapter,
+    undefined,
+    undefined,
+    undefined,
+    attestationRepo,
+    undefined,
+    undefined,
+    settlementRepo,
   ).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -1088,6 +1123,66 @@ describe('agentsettings: the owner\u2019s listing section in each state (FIX-B43
         expect(btn.text).toBe(label);
         expect(btn.height, `${viewport.label}: button height`).toBeGreaterThanOrEqual(44);
         expect(btn.width, `${viewport.label}: button width`).toBeGreaterThanOrEqual(44);
+        expect(measured.scrollWidth, `${viewport.label}: sideways scroll ${JSON.stringify(measured.overflowing)}`).toBe(viewport.width);
+        expect(measured.overflowing).toEqual([]);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 90_000);
+});
+
+// The two paid states (GET /jobs/:jobId/payments reports both legs settled),
+// measured at 320, 390 and 1280: the buyer's /staged with nothing left to
+// press, and the owner's /operatorjob with two received rows, whose full
+// payout address is the longest unbroken string either page prints. Each
+// case first reads that the paid state really drew, so a page that fell
+// back to its unpaid or refused panel cannot pass as fitting. The 44px
+// floor is asserted at the two touch widths.
+describe('the paid states of /staged and /operatorjob fit at 320, 390 and 1280', () => {
+  const PAID_WIDTHS: ReadonlyArray<Viewport> = [
+    PHONE,
+    { label: 'phone 390', width: 390, height: 844, mobile: true, touch: true },
+    { label: 'desktop 1280', width: 1280, height: 900, mobile: false, touch: false },
+  ];
+  it.each([
+    ['/staged, the balance paid', `/staged?job=${PAID_STAGED_JOB}`, 'staged-body', 'balance-paid-line', /^Balance paid: \$675\.00 in USDC on /],
+    ['/operatorjob, both legs received', `/operatorjob?job=${PAID_OWNER_JOB}`, 'operatorjob-body', 'money-facts', /Deposit received, .*\$225\.00 in USDC, to 0x4Fa1b2C3d4E5f60718293A4b5C6d7E8f90123456.*Balance received, .*\$675\.00 in USDC, to 0x4Fa1b2C3d4E5f60718293A4b5C6d7E8f90123456/],
+  ] as const)('%s: the paid state draws, nothing scrolls sideways, and on a touch profile every control on the page body is at least 44px', async (_label, path, bodyId, factId, fact) => {
+    if (!hasRealBrowser()) {
+      console.warn('no Chrome found for the mobile layout measurement; skipping (see CHROME_BIN)');
+      return;
+    }
+    const browser = await RealBrowser.launch({ width: NARROW, height: 780 });
+    try {
+      await signIn(browser);
+      for (const viewport of PAID_WIDTHS) {
+        const measured = await measure(browser, path, viewport);
+        const page = await browser.evaluate<{ shown: boolean; fact: string; payBtn: boolean; small: Array<{ name: string; width: number; height: number }> }>(`(function () {
+          var body = document.getElementById(${JSON.stringify(bodyId)});
+          var controls = Array.prototype.slice.call(body.querySelectorAll('a[href], button, input, select, textarea, summary'));
+          var small = controls.filter(function (el) {
+            var r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' && (r.height < 44 || r.width < 44);
+          }).map(function (el) {
+            var r = el.getBoundingClientRect();
+            return { name: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + ' ' + (el.textContent || '').trim().slice(0, 40), width: Math.round(r.width), height: Math.round(r.height) };
+          });
+          var factEl = document.getElementById(${JSON.stringify(factId)});
+          return { shown: !body.hidden, fact: factEl ? factEl.innerText.replace(/\\s+/g, ' ') : '', payBtn: !!document.getElementById('pay-btn'), small: small };
+        })()`);
+        expect(page.shown, `${viewport.label}: the page body`).toBe(true);
+        expect(page.fact, `${viewport.label}: the paid facts`).toMatch(fact);
+        expect(page.payBtn, `${viewport.label}: the pay button`).toBe(false);
+        // The floor is a touch-profile law (DESIGN.md 5.3, base.css's
+        // `(max-width: 760px), (pointer: coarse)` block): desktop keeps the
+        // 40px and 32px sizes DESIGN.md 5 specifies, so 1280 is held to the
+        // width law only. The touch cases assert the emulation really is
+        // coarse first, or the measurement would read the desktop branch.
+        if (viewport.touch) {
+          expect(measured.pointerCoarse, `${viewport.label}: coarse pointer`).toBe(true);
+          expect(page.small, `${viewport.label}: controls under 44px`).toEqual([]);
+        }
         expect(measured.scrollWidth, `${viewport.label}: sideways scroll ${JSON.stringify(measured.overflowing)}`).toBe(viewport.width);
         expect(measured.overflowing).toEqual([]);
       }
