@@ -190,7 +190,7 @@ describe('deemed-completion credential issuance (P6, design record row 3)', () =
     expect((secondBody.credential as DeemedCompletionCredential).id).toBe(stored.id);
   });
 
-  // P6 review round 3, D5 (t_604e3f2a): issuance used to be attempted
+  // P6: issuance used to be attempted
   // exactly once, on the instant applyLiveLapses observes the transition
   // (`if (lapsed.status === job.status) return job;` skipped every later
   // read before issuance was ever reconsidered). A transient signing fault

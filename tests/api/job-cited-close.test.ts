@@ -171,7 +171,7 @@ describe('job cited close after paying (P6, design record row 4)', () => {
   });
 });
 
-// P6 review round 1 (D1): the cited close is the buyer's move AFTER
+// P6: the cited close is the buyer's move AFTER
 // paying the remainder (design record row 4: "available only after the
 // buyer has paid the remainder"). The settlement fact the route asks is
 // live, not a memory of what was true when the pull request opened -- the
@@ -199,7 +199,7 @@ class ToggleableSettlementGate implements SettlementGate {
   }
 }
 
-describe('cited close is gated on the live settlement fact (P6 review round 1, D1)', () => {
+describe('cited close is gated on the live settlement fact', () => {
   let server: Server;
   let baseUrl: string;
   let gate: ToggleableSettlementGate;

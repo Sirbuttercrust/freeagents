@@ -344,7 +344,7 @@ describe.each(doors)('$name: refuses a repository the platform cannot see, 409, 
     }
   });
 
-  // Proof r3: the not-visible 409 is copy a buyer acts on before paying,
+  // The not-visible 409 is copy a buyer acts on before paying,
   // and it must never name a grant no buyer can make. Before this test,
   // agentGithubLogin fell back to the agent's raw DID when no login was
   // on record, and named an unverified login when one was present but
@@ -493,7 +493,7 @@ describe.each(doors)('$name: a ready repository passes the check', (door) => {
 // proven at confirm. This drives a job all the way to 'staged' (so the
 // remainder leg is ACTUALLY eligible, not refused first by the status
 // gate for an unrelated reason), then breaks the repository read after
-// confirm has already happened. Proof r1: the previous version of this
+// confirm has already happened. The previous version of this
 // test called remainder/usdc/start on a job still 'proposed', so the
 // status gate (legStatusEligible) answered 409 before checkRepositoryReady
 // was ever reached, and the assertion passed whether or not the guard
@@ -534,7 +534,7 @@ describe('the remainder leg is not checked by the repository-readiness guard', (
     }
   });
 
-  // Proof r2, gap 2: the exemption above pinned usdc/start only. Changing
+  // The exemption above pinned usdc/start only. Changing
   // abt/start's `leg === 'deposit'` guard (app.ts:6239) or the token-mint
   // door's (app.ts:6130) to check every leg left 102/102 green, because
   // nothing drove a staged, abt-rail job through either of those two

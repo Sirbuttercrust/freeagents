@@ -316,8 +316,8 @@ describe('attestation signing failure fails the whole stage (P5 anchor: staged m
   });
 });
 
-// This card (t_767701e6, follow-up from the P6 audit at t_604e3f2a review
-// round 4): storage already keeps every attestation row after a redo
+// This card (a follow-up from the P6 audit):
+// storage already keeps every attestation row after a redo
 // restages, but the only HTTP surface (GET /jobs/:jobId/attestation)
 // served just the latest, so the pre-redo document was durable but
 // buyer-unreachable through the platform. GET /jobs/:jobId/attestations
@@ -409,7 +409,7 @@ describe('GET /jobs/:jobId/attestations: the full history, party-gated, reachabl
   });
 });
 
-// review round 1, D2 (t_20bf8e3f): the route's own mapping from
+// The route's own mapping from
 // StagingComparisonTruncatedError to 422 was unpinned at the route level
 // -- only the adapter layer (github-compare.test.ts) proved the error
 // gets thrown at all. Disabling the mapping in src/api/app.ts left the
@@ -417,7 +417,7 @@ describe('GET /jobs/:jobId/attestations: the full history, party-gated, reachabl
 // GitHub-backed observer throws when compareCommits reports its 300-file
 // cap, exercised through the route exactly the way a truncated real
 // comparison would reach it.
-describe('POST /jobs/:jobId/stage: a truncated comparison is 422 with the split-the-work sentence (review round 1, D2)', () => {
+describe('POST /jobs/:jobId/stage: a truncated comparison is 422 with the split-the-work sentence', () => {
   function truncatingObserver(): StagingObserver {
     return {
       observe(): Promise<never> {
@@ -443,13 +443,13 @@ describe('POST /jobs/:jobId/stage: a truncated comparison is 422 with the split-
   });
 });
 
-// review round 1, D3 (t_20bf8e3f): the stage route's verified-GitHub-login
+// The stage route's verified-GitHub-login
 // gate (src/api/app.ts, added this card) is the only thing preventing an
 // attestation whose commitSigners were matched against an unverified or
 // missing login. Disabling that guard left the full suite green, because
 // every existing stage test in this file verifies its agent's binding
 // before staging. This describe exercises the unverified leg directly.
-describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot stage (review round 1, D3)', () => {
+describe('POST /jobs/:jobId/stage: an agent with no verified GitHub login cannot stage', () => {
   it('503s the stage, leaves the job confirmed, and stores no attestation when verification was revoked after confirm', async () => {
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-unverified-${Math.random()}` });

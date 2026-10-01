@@ -168,7 +168,7 @@ describe('POST /jobs/:jobId/confirm: a repository the platform cannot see (ORG1)
     }
   });
 
-  // ORG1 r2 fix (QA defect 1): confirm's own read of the buyer's
+  // ORG1: confirm's own read of the buyer's
   // repository runs on the platform's token, not the agent's, so the
   // message a buyer acts on has to name the platform's own GitHub login
   // as well as the agent's -- naming only the agent sends the buyer to

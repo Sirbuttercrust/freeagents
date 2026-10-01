@@ -101,7 +101,7 @@ describe('job data names the GitHub read access needed and the account (ORG1)', 
     }
   });
 
-  // ORG1 r2 fix, defect 1: confirm's own read of the buyer's repository
+  // ORG1: confirm's own read of the buyer's repository
   // (readRepository) and the pull-request route's read of the PR
   // (getPullRequest) both run on the PLATFORM's single token -- never the
   // agent's. A buyer who grants read ONLY to the agent's account still
@@ -195,7 +195,7 @@ describe('job data names the GitHub read access needed and the account (ORG1)', 
     }
   });
 
-  // QA r1 defect 3 (guard-without-a-test): the earlier suite only ever
+  // The earlier suite only ever
   // exercised githubLogin === null for "nothing to name yet". A login
   // that IS present but whose binding was never verified (created, no
   // updateGithubBinding call -- MemoryAgentRepository.create always
