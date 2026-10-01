@@ -856,7 +856,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     try {
       expect(page.document.querySelectorAll('#rows > .orow').length).toBeGreaterThan(0);
       expect(page.document.querySelectorAll('#rows [data-avatar]').length, 'the wireframe\u2019s rows draw no face; neither do these').toBe(0);
-      expect(page.document.querySelectorAll('[data-avatar]').length, 'the nav account menu wears the person\u2019s profile icon, not a bot (NAV1), so no avatar mounts anywhere').toBe(0);
+      expect(page.document.querySelectorAll('[data-avatar]').length, 'the nav account menu is not built (nav.js:91-126), so no avatar mounts anywhere').toBe(0);
       expect(page.document.querySelectorAll('#rows img, #rows svg.av, #rows .av, #rows .rav').length).toBe(0);
     } finally {
       page.close();
