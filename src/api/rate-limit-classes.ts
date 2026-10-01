@@ -31,7 +31,7 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/sign-in-methods', classification: 'read' },
   { method: 'GET', pattern: '/.well-known/freeagents-issuer.json', classification: 'read' },
   { method: 'GET', pattern: '/auth/github/start', classification: 'read' },
-  // FIX-S7 round 3: the `verify` bucket keeps exactly
+  // FIX-S7: the `verify` bucket keeps exactly
   // the routes a stranger or a script uses to PROVE something (a
   // sign-in callback, a passkey ceremony's answer, a passkey sign-in
   // assertion, an issued credential lookup), never the site's own
@@ -84,8 +84,8 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'GET', pattern: '/accounts/:did/threads', classification: 'read' },
   { method: 'POST', pattern: '/agents', classification: 'write' },
   { method: 'GET', pattern: '/agents', classification: 'read' },
-  // FIX-S7 round 3 (the round-3 ruling on the verify-vs-honest-user
-  // conflict qa's proof r2 raised): this is the site's own ordinary
+  // FIX-S7 (the verify-vs-honest-user
+  // conflict): this is the site's own ordinary
   // agent-record read, not a stranger's or a script's verification.
   // Twelve page scripts read it for the agent strip (browse.js once per
   // card, plus job, agreement, operator, operatorjob, deposit,
@@ -232,7 +232,7 @@ export const EXEMPT_WEB_PAGE_PATHS: readonly string[] = [
   '/review',
 ];
 
-// FIX-S7 round 2 (qa proof r1, defect 1): the four GET routes src/web/
+// FIX-S7: the four GET routes src/web/
 // static.ts negotiates by Accept (its own `negotiated()`): a page shell
 // paint (Accept: text/html) never touches a bucket, but the identical path
 // asked for as JSON is a real, already-classified API read (verify/read
@@ -276,9 +276,9 @@ function matchesPattern(pattern: string, path: string): boolean {
 // table forgot degrades a caller's experience on that one route rather
 // than opening a hole.
 //
-// FIX-S7 round 2 (qa proof r1, defect 1): four GET routes are NEGOTIATED
+// FIX-S7: four GET routes are NEGOTIATED
 // page shells (src/web/static.ts's own `negotiated()`) -- /agents/:did,
-// /accounts/:did, /v1/credentials/:id, /jobs/:jobId. Before round 2 this
+// /accounts/:did, /v1/credentials/:id, /jobs/:jobId. Before FIX-S7 this
 // function classified them by path alone, so a browser painting the page
 // (Accept: text/html) shared the SAME bucket as that page's own later JSON
 // reads to the identical path, which is a regression from main: there, the
@@ -309,7 +309,7 @@ export interface Classified {
   readonly reason: ClassificationReason;
 }
 
-// FIX-S7 round 2 (qa proof r1, defect 5a): named by REASON as well as by
+// FIX-S7: named by REASON as well as by
 // class, so a mutation that deletes the explicit /api/did/pay/ prefix
 // check is observable even where it lands on the same class the generic
 // fallback would have picked anyway (both are 'upstream'; only the reason
