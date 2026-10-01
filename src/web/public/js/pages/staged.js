@@ -2,7 +2,9 @@
    account of the work, then pays, sends it back once, or declines.
    No route in src/api/app.ts changes. Reads GET /jobs/:jobId and
    GET /jobs/:jobId/attestation (the party probe, agreement.js/deposit.js's
-   own pattern, no side effect). P8j shipped pay alone (ruling 1 of that
+   own pattern, no side effect), and GET /jobs/:jobId/payments with the
+   same session: once the balance leg has settled the page says so and
+   offers no choice at all (renderPaid). P8j shipped pay alone (ruling 1 of that
    card); this card adds POST /jobs/:jobId/redo and
    POST /jobs/:jobId/staged-decline, both buyer-only.
 
@@ -32,8 +34,10 @@
    USDC through usdc-pay.js (USDC-WEBb). The ABT sheet shows the ABT/USD
    rate that press locked, when the lock ends and when CoinGecko last
    updated the price (FIX-B70b, FAApi.drawAbtQuote); a start answer with
-   no usable lock opens no sheet. Never claims settlement; every
-   re-read fires only on a press (ruling 6). Both redo_requested and
+   no usable lock opens no sheet. The pay path never claims settlement
+   itself; the only paid sentence comes from a settled leg the payments
+   read reports. Every re-read fires on load or on a press, never on a
+   timer (ruling 6). Both redo_requested and
    staged_declined render on this page now (ruling 5): the former keeps
    the clock and the account of the work with no control, the latter is
    a terminal panel with no control. Every refusal gets its own sentence
@@ -61,7 +65,14 @@
     reload();
   }
   function reload() {
-    Promise.all([A.get("/jobs/" + encodeURIComponent(jobId)), A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token)]).then(onLoaded);
+    // The payments read rides beside the other two so a paid balance is
+    // known before anything renders. Its answer only ever removes the
+    // choices once the balance has settled; a failed read changes nothing.
+    Promise.all([
+      A.get("/jobs/" + encodeURIComponent(jobId)),
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token),
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments", token)
+    ]).then(onLoaded);
   }
   // FIX-B61b: the buyer is whoever GET /accounts/me says this session is,
   // compared by did with job.buyerDid. A public account's passkeySubject
@@ -123,23 +134,56 @@
     var subject = body.credentialSubject && typeof body.credentialSubject === "object" ? body.credentialSubject : {};
     var attestation = subject.attestation && typeof subject.attestation === "object" ? subject.attestation : null;
     if (attestation === null) { A.showById("fault-error", true); return; }
+    // The balance leg once it has settled, else null. Null too when the
+    // payments read failed or answered anything but a 200, so a buyer who
+    // could still pay always sees how.
+    var legs = A.settledLegs(results[2]);
+    var paidBalance = job.status === "staged" && legs !== null ? legs.remainder : null;
     A.showById("staged-body", true);
     renderWhere(job);
-    renderLede(job);
-    renderClock(job);
+    renderLede(job, paidBalance);
+    if (paidBalance === null) renderClock(job);
+    else removeById("clock");
     renderFacts(attestation);
     renderTechnical(attestation);
     renderWho(job);
-    // Round 1 fix (qa D1), corrected round 4 (qa D6): redo and decline
-    // both ship hidden in the markup and are revealed only after the
-    // party resolution settles, so a non-buyer's browser never paints
-    // either control, not even for one frame. Pay is unrelated to this
-    // gate (out of this card's scope, P8j's own control) and is visible
-    // to both parties, guarded server-side only.
+    // Redo and decline both ship hidden in the markup and are revealed
+    // only after the party resolution settles, so a non-buyer's browser
+    // never paints either control, not even for one frame. Pay is
+    // unrelated to this gate and is visible to both parties, guarded
+    // server-side only.
     resolveIsBuyerParty(job).then(function (result) {
       isBuyerParty = result;
-      renderChoicesSection(job);
+      if (paidBalance === null) renderChoicesSection(job);
+      else renderPaid(paidBalance);
     });
+  }
+
+  function removeById(id) {
+    var node = A.el(id);
+    if (node && node.parentNode) node.parentNode.removeChild(node);
+  }
+
+  // The balance has settled: the hire waits on the agent's pull request,
+  // not on the buyer, so there is nothing left to press. The choices
+  // section goes from the document with pay, redo and decline inside it
+  // (removed, not disabled, the same rule renderActs keeps), and one line
+  // says what was paid. The amount is the settled leg's own, which is the
+  // balance; the fee was a separate transfer the payments read does not
+  // report, so no figure here includes it.
+  function renderPaid(leg) {
+    removeById("choices-section");
+    // Declining or doing nothing is no longer open to a buyer who paid, so
+    // the link that explains both goes too, and the technical note stops
+    // saying the work waits on a payment that has already landed.
+    removeById("outcomes-more");
+    A.setTextById("tech-hidden-note", "The work reaches your repository when the pull request opens.");
+    A.showById("redo-pending-note", false);
+    var currency = A.railName(leg.rail);
+    var date = A.readableDate(leg.observedAt);
+    A.setTextById("balance-paid-line", "Balance paid: " + money(parseFloat(leg.amountUsd)) +
+      (currency ? " in " + currency : "") + (date ? " on " + date : "") + ".");
+    A.showById("balance-paid", true);
   }
 
   function showDeclined() {
@@ -169,10 +213,10 @@
     window.FAStepflow.where(host, job_.status === "redo_requested" ? 3 : 4);
   }
 
-  function renderLede(job_) {
+  function renderLede(job_, paidBalance) {
     var stagedDate = A.readableDate(job_.stagedAt);
     A.setTextById("lede", (stagedDate ? "Staged on " + stagedDate + ". " : "") +
-      "Pay the balance and the pull request opens on your repository.");
+      (paidBalance ? "You paid the balance. The agent opens the pull request next." : "Pay the balance and the pull request opens on your repository."));
   }
 
   // Ruling 4 (P8j): a date and a consequence, never a countdown.

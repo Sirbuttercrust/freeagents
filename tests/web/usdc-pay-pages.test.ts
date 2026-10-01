@@ -450,9 +450,13 @@ describe('Make 5 (B54): an already-paid leg on the ABT door reads as already pai
   });
   it('on the balance page', async () => {
     const id = await stagedJob('abt');
-    await h.settle(id, 'remainder', 'abt');
+    // Settled after the page has drawn: a balance already settled when
+    // /staged loads removes the pay button (the payments read sees it), so
+    // the sheet's already-paid state is for a balance that lands while the
+    // page sits open, paid from another tab or device.
     const page = await openStaged(id);
     try {
+      await h.settle(id, 'remainder', 'abt');
       press(page, 'pay-btn');
       await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');
       expect(status(page)).toBe('The remainder leg has already been paid; reload this page to see the confirmed payment');
@@ -513,9 +517,11 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
   });
   it('already_paid on the USDC balance: the server sentence and Reload', async () => {
     const id = await stagedJob('usdc');
-    await h.settle(id, 'remainder', 'usdc');
+    // Settled after the page has drawn, for the reason given in the ABT
+    // balance case above.
     const page = await openStaged(id);
     try {
+      await h.settle(id, 'remainder', 'usdc');
       announceWallets(page.window, [{ uuid: 'w-sp', name: 'Paid', wallet: buildPageWallet(h.chain) }]);
       press(page, 'pay-btn');
       await waitFor(() => status(page) !== '' || shown(page.document, 'pay-error'), 'no sentence');

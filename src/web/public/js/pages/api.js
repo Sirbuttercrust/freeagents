@@ -561,6 +561,36 @@
     return String(n) + " " + (n === 1 ? one : many);
   }
 
+  /* The currency a settled payment moved in, as a person reads it, from the
+     rail GET /jobs/:jobId/payments names on each leg. A rail this list does
+     not know gets no name rather than a guess, so a caller drops the words
+     "in <currency>" instead of printing a machine value. */
+  var RAIL_NAMES = { usdc: "USDC", abt: "ABT on ArcBlock", abt_eth: "ABT on Ethereum" };
+  function railName(rail) {
+    return typeof rail === "string" && Object.prototype.hasOwnProperty.call(RAIL_NAMES, rail) ? RAIL_NAMES[rail] : "";
+  }
+
+  /* The answer to GET /jobs/:jobId/payments as { deposit, remainder }, each
+     leg null (not settled) or { rail, amountUsd, operatorAddress, observedAt }.
+     Anything but a 200 carrying that shape returns null: the read failed, and
+     a page that got null says nothing about payment at all, so a failed read
+     can never claim a leg is paid or that it is not. */
+  function settledLegs(result) {
+    if (!result || result.state !== "ok" || result.value.status !== 200) return null;
+    var body = result.value.body;
+    if (!body || typeof body !== "object") return null;
+    function leg(value) {
+      if (value === null) return null;
+      if (!value || typeof value !== "object") return undefined;
+      if (typeof value.amountUsd !== "string" || isNaN(parseFloat(value.amountUsd))) return undefined;
+      if (typeof value.operatorAddress !== "string" || typeof value.observedAt !== "string") return undefined;
+      return { rail: value.rail, amountUsd: value.amountUsd, operatorAddress: value.operatorAddress, observedAt: value.observedAt };
+    }
+    var deposit = leg(body.deposit), remainder = leg(body.remainder);
+    if (deposit === undefined || remainder === undefined) return null;
+    return { deposit: deposit, remainder: remainder };
+  }
+
   /* The path a credential id resolves to on THIS origin. A credential id is
      an absolute URL whose origin is the deployment that issued it, and a
      page fetching it must use the path so it works behind any proxy or
@@ -845,6 +875,8 @@
     techIdentity: techIdentity,
     didSuffix: didSuffix,
     plural: plural,
+    railName: railName,
+    settledLegs: settledLegs,
     credentialPath: credentialPath,
     credentialKey: credentialKey,
     idFromPath: idFromPath,
