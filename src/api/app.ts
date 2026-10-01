@@ -876,17 +876,26 @@ async function resolveActingParty(
 // same stance findCompletedByAgent already takes); a driver that omits it
 // throws here, and the two call sites below map that the same way an
 // actual storage outage is mapped (503), never a silent pass.
+//
+// SW1-09: `live` is the route's list clock (liveLapsesForList in createApp).
+// When given, the stored rows pass through it before they are counted, so
+// a lapse nobody has opened yet counts the way a single-job read would
+// count it. Without it the stored rows are counted as they are.
+type JobListClock = (jobs: readonly Job[]) => Promise<Job[]>;
+
 async function buyerConductForDid(
   buyerDid: string,
   accountRepo: AccountRepository,
   jobRepo: JobRepository,
+  live?: JobListClock,
 ): Promise<BuyerConduct | null> {
   const account = await accountRepo.findByDid(buyerDid);
   if (account === null) return null;
   if (typeof jobRepo.findByBuyerDid !== 'function') {
     throw new Error('storage does not support findByBuyerDid');
   }
-  const jobs = await jobRepo.findByBuyerDid(buyerDid);
+  const stored = await jobRepo.findByBuyerDid(buyerDid);
+  const jobs = live === undefined ? stored : await live(stored);
   const facts: BuyerJobFacts[] = jobs.map((job) => ({
     status: job.status,
     confirmedAt: job.confirmedAt,
@@ -905,10 +914,11 @@ async function buyerConductForLogin(
   githubLogin: string,
   accountRepo: AccountRepository,
   jobRepo: JobRepository,
+  live?: JobListClock,
 ): Promise<BuyerConduct | null> {
   const account = await accountRepo.findByGithubLogin(githubLogin);
   if (account === null) return null;
-  return buyerConductForDid(account.did, accountRepo, jobRepo);
+  return buyerConductForDid(account.did, accountRepo, jobRepo, live);
 }
 
 // P8r scope item 2/3: the operator half of the same account, over the
@@ -927,6 +937,7 @@ async function operatorConductForDid(
   accountRepo: AccountRepository,
   agentRepo: AgentRepository,
   jobRepo: JobRepository,
+  live?: JobListClock,
 ): Promise<OperatorConduct | null> {
   const account = await accountRepo.findByDid(operatorDid);
   if (account === null) return null;
@@ -940,7 +951,8 @@ async function operatorConductForDid(
   const agentRows = await agentRepo.listAll();
   const ownAgents = agentRows.filter((row) => row.operatorDid === account.did);
   const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
-  const allJobs = perAgentJobs.flat();
+  const storedJobs = perAgentJobs.flat();
+  const allJobs = live === undefined ? storedJobs : await live(storedJobs);
   const facts: OperatorJobFacts[] = allJobs.map((job) => ({
     status: job.status,
     redoRefusedAt: job.redoRefusedAt,
@@ -955,10 +967,11 @@ async function operatorConductForLogin(
   accountRepo: AccountRepository,
   agentRepo: AgentRepository,
   jobRepo: JobRepository,
+  live?: JobListClock,
 ): Promise<OperatorConduct | null> {
   const account = await accountRepo.findByGithubLogin(githubLogin);
   if (account === null) return null;
-  return operatorConductForDid(account.did, accountRepo, agentRepo, jobRepo);
+  return operatorConductForDid(account.did, accountRepo, agentRepo, jobRepo, live);
 }
 
 // P7: the buyer is entitled to know why they were refused, because the
@@ -3494,9 +3507,16 @@ export function createApp(
       // excluded here, mirroring partyForDid's own buyer-first order.
       const agentSeatJobs = perAgentJobs.flat().filter((job) => !buyerJobIds.has(job.id));
 
+      // SW1-09: the clocks run on both seats, after the self-hire
+      // exclusion above, so a self-hired job is clocked once, as the
+      // buyer's.
+      const clock = liveLapsesForList('GET /accounts/:did/threads');
+      const clockedBuyerJobs = await clock(buyerJobs);
+      const clockedAgentSeatJobs = await clock(agentSeatJobs);
+
       const rows: Array<{ readonly job: Job; readonly seat: Party }> = [
-        ...buyerJobs.map((job) => ({ job, seat: 'buyer' as const })),
-        ...agentSeatJobs.map((job) => ({ job, seat: 'agent' as const })),
+        ...clockedBuyerJobs.map((job) => ({ job, seat: 'buyer' as const })),
+        ...clockedAgentSeatJobs.map((job) => ({ job, seat: 'agent' as const })),
       ];
 
       // One agent/message/read-state lookup per DISTINCT job, not
@@ -3706,13 +3726,18 @@ export function createApp(
     }
 
     try {
-      const rows = await jobRepo.findByBuyerDid(did);
+      const stored = await jobRepo.findByBuyerDid(did);
       // ENT-4.1 (scope item 3): a job does not exist until the buyer
       // confirms. draft and proposed are excluded HERE, by the route,
       // never merely hidden by the page -- job-list.ts's own fifth
-      // bucket value ('notReal') is what this filter reads.
-      const real = rows.filter((job) => jobListBucketOf(job.status) !== 'notReal');
-      const sorted = [...real].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      // bucket value ('notReal') is what this filter reads. No clock
+      // moves a draft or proposed job, so the filter runs first and the
+      // clocks only see jobs that exist.
+      const real = stored.filter((job) => jobListBucketOf(job.status) !== 'notReal');
+      // SW1-09: the clocks run on every row this list reports, so a hire
+      // whose deadline passed reads as ended without anyone opening it.
+      const clocked = await liveLapsesForList('GET /accounts/:did/jobs')(real);
+      const sorted = [...clocked].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       // One agent lookup per DISTINCT agent, not per row (the same
       // per-distinct-key caching withBuyerGithubLogins already uses
       // above): a buyer with several hires from the same agent pays for
@@ -5261,12 +5286,18 @@ export function createApp(
   app.get('/buyers/:githubLogin/conduct', async (req: Request, res: Response) => {
     const githubLogin = String(req.params.githubLogin);
     try {
-      const counts = await buyerConductForLogin(githubLogin, repo, jobRepo);
+      // SW1-09: one list clock for both counts, so a job read as buyer and
+      // as operator (a self-hire) is clocked once per request. The record
+      // is public and anonymous, so the clocks ask GitHub for no more
+      // than the public GET /jobs/:jobId already does, once per lapsed
+      // submitted job.
+      const clock = liveLapsesForList('GET /buyers/:githubLogin/conduct');
+      const counts = await buyerConductForLogin(githubLogin, repo, jobRepo, clock);
       if (counts === null) {
         res.status(200).json({ githubLogin, keyed: false });
         return;
       }
-      const operatorCounts = await operatorConductForLogin(githubLogin, repo, agentRepo, jobRepo);
+      const operatorCounts = await operatorConductForLogin(githubLogin, repo, agentRepo, jobRepo, clock);
       res.status(200).json({ githubLogin, keyed: true, counts, operatorCounts });
     } catch (err) {
       console.error('GET /buyers/:githubLogin/conduct: storage failed', err);
@@ -5535,7 +5566,11 @@ export function createApp(
       if (agentRow.minBuyerMerges === null && agentRow.maxWalkedAfterConfirm === null) continue;
       if (buyerCounts === undefined) {
         try {
-          buyerCounts = await buyerConductForDid(buyerDid, repo, jobRepo);
+          // SW1-09: the threshold reads the same record the public
+          // conduct page shows, so it runs the same clocks: a pull
+          // request merged inside the window counts as a merge even
+          // when nobody opened the job after it.
+          buyerCounts = await buyerConductForDid(buyerDid, repo, jobRepo, liveLapsesForList('POST /jobs'));
         } catch (err) {
           console.error('POST /jobs: storage failed', err);
           res.status(503).json({ error: 'storage unavailable' });
@@ -5782,6 +5817,11 @@ export function createApp(
   // its single choke point instead of one route at a time, and removes
   // the order dependency GET introduced: the outcome no longer depends on
   // whether some unrelated caller issued a read first.
+  //
+  // SW1-09: this is the choke point for job MUTATIONS and exchange routes.
+  // The reads that report a job run the same clocks too: GET /jobs/:jobId
+  // directly, and the list reads (job list, thread list, public conduct
+  // record, the POST /jobs conduct threshold) through liveLapsesForList.
   async function loadForExchange(label: string, jobId: string, res: Response): Promise<Job | null> {
     let current: Job | null;
     try {
@@ -6156,6 +6196,16 @@ export function createApp(
     }
   }
 
+  // The one place the job clocks run live: the settlement gate for staged
+  // and redo_requested jobs, GitHub once before deeming a submitted job
+  // past its window, then applyLapses, the deemed-completion credential and
+  // the persisted row. Every read that reports a job runs it: GET
+  // /jobs/:jobId and loadForExchange (the load every job mutation and
+  // exchange route shares) call it directly and answer 503 when it answers
+  // null; the list reads (the buyer's job list, both seats of the thread
+  // list, the public conduct record, the POST /jobs conduct threshold) go
+  // through liveLapsesForList below, which never lets a null answer fail
+  // the whole list.
   async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
     let remainderIsSettled = false;
     if (LAPSE_AT_STAGED_STATUSES.has(job.status)) {
@@ -6205,6 +6255,62 @@ export function createApp(
       console.error(`${label}: failed to persist a lapsed status`, err);
       return lapsed;
     }
+  }
+
+  // SW1-09: the clocks for a list read. One clock per request, built by
+  // the route (label names the route in the log): it runs applyLiveLapses
+  // for each job it is handed and answers the rows a single-job read would
+  // answer, in the same order. Nothing reaches the real response from in
+  // here: applyLiveLapses writes its 503 to a sink that only records that
+  // it was written.
+  //
+  // A job whose live check cannot be answered (the settlement gate or
+  // GitHub failed, so applyLiveLapses answered null) keeps its stored row,
+  // and the list still answers 200. The single-job read answers 503 because
+  // it has one job to refuse; a list has others in it, and one unreachable
+  // pull request must not take a buyer's whole job list, or a public
+  // record, down. The stored row is the answer this read gave before the
+  // clocks ran on lists, and the next read asks again. The kept row is
+  // logged, never silent.
+  //
+  // A job the clock has already answered in this request (the same buyer
+  // read as operator, a self-hire) is answered from memory, so the clocks
+  // run once per job per request, GitHub included.
+  function liveLapsesForList(label: string): JobListClock {
+    const answered = new Map<string, Job>();
+    return async (jobs) => {
+      const rows: Job[] = [];
+      // One job at a time: only a job past a deadline asks GitHub, and a
+      // long list must not open a burst of upstream calls at once.
+      for (const stored of jobs) {
+        const earlier = answered.get(stored.id);
+        if (earlier !== undefined) {
+          rows.push(earlier);
+          continue;
+        }
+        let refused = false;
+        const sink = {
+          status: () => sink,
+          json: () => {
+            refused = true;
+            return sink;
+          },
+        } as unknown as Response;
+        let row: Job | null = null;
+        try {
+          row = await applyLiveLapses(label, stored, sink);
+        } catch (err) {
+          console.error(`${label}: live check threw for job ${stored.id}`, err);
+        }
+        if (row === null || refused) {
+          console.error(`${label}: kept the stored row of job ${stored.id}, its live check could not be answered`);
+          row = stored;
+        }
+        answered.set(stored.id, row);
+        rows.push(row);
+      }
+      return rows;
+    };
   }
 
   // P4: the payment gate parameter every gated route (confirm,

@@ -225,10 +225,14 @@ describe('the My jobs screen, driven end to end against the real app', () => {
 
     // Fresh ids so this test's counts are not polluted by the previous
     // test's two rows on the same shared buyerDid.
-    await jobRepo.create(jobFixture({ id: 'chip-staged', buyerDid, agentDid, status: 'staged', stagedAt: new Date('2026-08-03T00:00:00Z') }, new Date('2026-08-03T00:00:00Z')));
-    await jobRepo.create(jobFixture({ id: 'chip-confirmed', buyerDid, agentDid, status: 'confirmed', confirmedAt: new Date('2026-08-04T00:00:00Z') }, new Date('2026-08-04T00:00:00Z')));
-    await jobRepo.create(jobFixture({ id: 'chip-completed', buyerDid, agentDid, status: 'completed', mergedAt: new Date('2026-08-05T00:00:00Z') }, new Date('2026-08-05T00:00:00Z')));
-    await jobRepo.create(jobFixture({ id: 'chip-declined', buyerDid, agentDid, status: 'declined' }, new Date('2026-08-06T00:00:00Z')));
+    // Dates are offsets from one `now`, in the same order as before and
+    // each inside its clock (staged 7 days, confirmed 30).
+    const now = Date.now();
+    const daysAgo = (days: number): Date => new Date(now - days * 86_400_000);
+    await jobRepo.create(jobFixture({ id: 'chip-staged', buyerDid, agentDid, status: 'staged', stagedAt: daysAgo(5) }, daysAgo(5)));
+    await jobRepo.create(jobFixture({ id: 'chip-confirmed', buyerDid, agentDid, status: 'confirmed', confirmedAt: daysAgo(4) }, daysAgo(4)));
+    await jobRepo.create(jobFixture({ id: 'chip-completed', buyerDid, agentDid, status: 'completed', mergedAt: daysAgo(3) }, daysAgo(3)));
+    await jobRepo.create(jobFixture({ id: 'chip-declined', buyerDid, agentDid, status: 'declined' }, daysAgo(2)));
 
     const page = await renderMyJobs(baseUrl, buyerSession);
     try {
