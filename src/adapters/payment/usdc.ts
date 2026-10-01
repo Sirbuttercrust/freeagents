@@ -11,13 +11,22 @@
 // Circle test USDC.
 //
 // S1 (this card): a confirmed transaction hash used to be the entire
-// verification. `getTransactionReceipt` now carries the ERC-20 Transfer
-// log's own facts (recipient, value, emitting contract, chain id)
-// alongside the receipt's status, and `legStatus` binds a leg's confirm
-// answer to those facts matching what THIS job's price agreed to, never
-// to "some transaction succeeded on this chain".
-import { Contract, Interface, JsonRpcProvider } from 'ethers';
+// verification. The chain client now reads the ERC-20 Transfer log's own
+// facts (recipient, value, emitting contract, chain id) alongside the
+// receipt's status, and `legStatus` (erc20.ts, the token-agnostic ERC-20
+// mechanism) binds a leg's confirm answer to those facts
+// matching what THIS job's price agreed to, never to "some transaction
+// succeeded on this chain". This rail passes it USDC's contract, its chain
+// id and its own USDC spent-hash and half-paid tables.
 import { USDC_FEE_RATE_PERCENT, calculateFee, toBaseUnits, usdToTokenAmount } from '../../domain/payment.js';
+import {
+  confirmLegs,
+  createErc20ChainClient,
+  isValidChainId,
+  normalizeTxHash,
+  type Erc20ChainClient,
+  type Erc20ObservedTransfer,
+} from './erc20.js';
 import {
   PaymentConfigError,
   RateUnavailableError,
@@ -27,118 +36,32 @@ import {
   type PaymentRequest,
   type Quote,
   type RateSource,
-  type UsdcLegStatus,
   type UsdcTransferIntent,
   type WalletResponseInput,
 } from './types.js';
 import { createPrismaUsdcHalfPaidStorage } from './usdc-half-paid-storage-prisma.js';
 import type { UsdcHalfPaidStorage, UsdcTransferStatus } from './usdc-half-paid-storage-types.js';
 import { createPrismaUsdcSpentTransferStorage } from './usdc-spent-transfer-storage-prisma.js';
-import type { UsdcSpentTransferStorage, UsdcTransferRole } from './usdc-spent-transfer-storage-types.js';
+import type { UsdcSpentTransferStorage } from './usdc-spent-transfer-storage-types.js';
 
 type UsdcPaymentRequest = Extract<PaymentRequest, { rail: 'usdc' }>;
 type UsdcWalletResponseInput = Extract<WalletResponseInput, { rail: 'usdc' }>;
 type UsdcPaymentRef = Extract<PaymentRef, { rail: 'usdc' }>;
 
-// The ERC-20 Transfer event this rail reads out of a receipt's logs (S1):
-// the one fact a receipt carries that a settlement check can actually bind
-// to, since `status: 1` alone answers "did some transaction succeed on
-// this chain" and nothing about who was paid, how much, or in what.
-export interface UsdcObservedTransfer {
-  readonly to: string;
-  readonly value: string;
-  readonly tokenContract: string;
-  readonly chainId: number;
-}
-
-// S1 review round 1, D1 and D2: a transaction hash is resolved
-// case-insensitively by an Ethereum node (verified live, read-only,
-// against the same RPC this rail's config names: one transaction, two
-// spellings, one receipt). Every hash is normalized to lower case at the
-// single boundary where it first arrives from a caller -- onWalletResponse
-// for the rail, the wallet-response route for the Case D refusal -- and
-// never compared in its raw form again, so the spent-hash check and the
-// price-equals-fee refusal cannot be walked past by respelling a hash.
-export function normalizeUsdcTxHash(hash: string): string {
-  return hash.toLowerCase();
-}
-
-// The one chain call this rail needs before broadcast: reading the token's
-// own decimals (P3 brief, "read token decimals from the contract; do not
-// hardcode 6"), isolated behind an interface so tests never construct a
-// real ethers Provider (no network in the test suite; FACTORY_RULES.md and
-// this card both require that). The production default wraps a real
-// ethers JsonRpcProvider + Contract.
-//
-// S1: `transfer` is null exactly when the receipt carries no ERC-20
-// Transfer log emitted by the configured token contract -- a receipt for
-// something that is not a token transfer at all, which must never
-// confirm regardless of `status`.
-export interface UsdcChainClient {
-  decimals(): Promise<number>;
-  getTransactionReceipt(
-    hash: string,
-  ): Promise<{ readonly status: number | null; readonly transfer: UsdcObservedTransfer | null } | null>;
-}
-
-const ERC20_TRANSFER_EVENT_ABI = ['event Transfer(address indexed from, address indexed to, uint256 value)'];
-
-function realChainClient(rpcUrl: string, tokenContract: string): UsdcChainClient {
-  const provider = new JsonRpcProvider(rpcUrl);
-  const erc20Abi = ['function decimals() view returns (uint8)'];
-  const contract = new Contract(tokenContract, erc20Abi, provider);
-  const decimalsFn = contract.getFunction('decimals');
-  const transferInterface = new Interface(ERC20_TRANSFER_EVENT_ABI);
-  return {
-    decimals: async () => Number(await decimalsFn()),
-    getTransactionReceipt: async (hash) => {
-      const receipt = await provider.getTransactionReceipt(hash);
-      if (receipt === null) return null;
-      // S1: read the Transfer log the token contract itself emitted, not
-      // any log a receipt happens to carry -- a receipt is read fresh
-      // every call, and the chain id comes from the SAME provider that
-      // read it, never from config, so a fork or a misconfigured RPC
-      // cannot silently make a wrong-chain receipt look right.
-      const network = await provider.getNetwork();
-      let transfer: UsdcObservedTransfer | null = null;
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== tokenContract.toLowerCase()) continue;
-        let parsed;
-        try {
-          parsed = transferInterface.parseLog({ topics: [...log.topics], data: log.data });
-        } catch {
-          continue;
-        }
-        if (parsed === null || parsed.name !== 'Transfer') continue;
-        transfer = {
-          to: String(parsed.args.to),
-          value: (parsed.args.value as bigint).toString(),
-          tokenContract: log.address,
-          chainId: Number(network.chainId),
-        };
-        break;
-      }
-      return { status: receipt.status, transfer };
-    },
-  };
-}
+// The observed Transfer event, the chain client and the hash and chain-id
+// helpers live in erc20.ts, which takes the token contract and chain id as
+// arguments. They stay importable from this module under their USDC names,
+// so src/api/app.ts and src/adapters/config/report.ts import them from here.
+export type UsdcObservedTransfer = Erc20ObservedTransfer;
+export type UsdcChainClient = Erc20ChainClient;
+export const normalizeUsdcTxHash = normalizeTxHash;
+export const isValidUsdcChainId = isValidChainId;
 
 interface UsdcEnvConfig {
   readonly rpcUrl: string;
   readonly tokenContract: string;
   readonly chainId: number;
   readonly feeAddress: string;
-}
-
-// Shape check for FREEAGENTS_USDC_CHAIN_ID, shared with the P9 startup
-// configuration report (report.ts): "configured" must mean the same thing
-// in both places, so the report never claims the chain id is set when it
-// is a value readUsdcEnvConfig would reject. String round-trip catches
-// leading zeros, whitespace and scientific notation that Number.parseInt
-// alone would silently accept.
-export function isValidUsdcChainId(raw: string): boolean {
-  const chainId = Number.parseInt(raw, 10);
-  return Number.isInteger(chainId) && chainId > 0 && String(chainId) === raw;
 }
 
 // Fails closed BEFORE any network call, matching readAbtEnvConfig's own
@@ -235,7 +158,7 @@ async function expectedBaseUnits(
 
 export function createUsdcPaymentRail(options: CreateUsdcPaymentRailOptions = {}): UsdcPaymentRailShim {
   const config = readUsdcEnvConfig();
-  const chainClient = options.chainClient ?? realChainClient(config.rpcUrl, config.tokenContract);
+  const chainClient = options.chainClient ?? createErc20ChainClient(config.rpcUrl, config.tokenContract);
   const rateSource = options.rateSource ?? defaultRateSource;
   const halfPaidStorage = options.halfPaidStorage ?? createPrismaUsdcHalfPaidStorage();
   const spentTransferStorage = options.spentTransferStorage ?? createPrismaUsdcSpentTransferStorage();
@@ -315,74 +238,11 @@ export function createUsdcPaymentRail(options: CreateUsdcPaymentRailOptions = {}
     },
 
     async confirm(ref: UsdcPaymentRef): Promise<Confirmation> {
-      // Idempotent by construction: every call re-reads both receipts from
-      // the chain and answers from what it observes, never from a cached
-      // verdict, so two calls on the same ref cannot disagree with
-      // themselves (the interface's own idempotency requirement).
-      const price = await legStatus(chainClient, spentTransferStorage, ref.priceTxHash, {
-        recipient: ref.operatorAddress,
-        amountBaseUnits: ref.expectedPriceBaseUnits,
-        tokenContract: ref.tokenContract,
-        chainId: ref.chainId,
-        jobId: ref.jobId,
-        leg: ref.leg,
-        role: 'price',
-      });
-      // A null feeTxHash means the wallet never signed the fee transfer at
-      // all: not_signed, never a receipt lookup invented for a hash that
-      // does not exist (P3 brief, "never report a leg it did not see a
-      // receipt for").
-      const fee: UsdcLegStatus =
-        ref.feeTxHash === null
-          ? { status: 'not_signed' }
-          : await legStatus(chainClient, spentTransferStorage, ref.feeTxHash, {
-              recipient: ref.feeAddress,
-              amountBaseUnits: ref.expectedFeeBaseUnits,
-              tokenContract: ref.tokenContract,
-              chainId: ref.chainId,
-              jobId: ref.jobId,
-              leg: ref.leg,
-              role: 'fee',
-            });
-
-      const priceConfirmed = price.status === 'confirmed';
-      const feeConfirmed = fee.status === 'confirmed';
-      const confirmed = priceConfirmed && feeConfirmed;
-      // Half-paid: exactly one leg confirmed and the other did not, in
-      // either direction (P3 brief, "the inverse case matters too: fee
-      // lands, price does not. Same treatment."). A mismatched leg is
-      // not a confirmed leg (S1 brief, scope item 5), so it falls on the
-      // same side of this comparison as not_confirmed and not_signed.
-      const halfPaid = priceConfirmed !== feeConfirmed;
-
-      if (halfPaid) {
-        await halfPaidStorage.record({
-          jobId: ref.jobId,
-          leg: ref.leg,
-          priceTxHash: ref.priceTxHash,
-          priceStatus: price.status,
-          feeTxHash: ref.feeTxHash,
-          feeStatus: fee.status,
-        });
-      } else {
-        // A settlement that is no longer half-paid must not leave a stale
-        // half-paid row behind (P3 review round 1, D2): a late-landing
-        // second signature is the ordinary case on a two-transaction rail,
-        // and every confirm() call re-evaluates the current chain state
-        // regardless of what a prior call wrote, matching this rail's own
-        // idempotency stance. clear() is a no-op when there is no row to
-        // remove, so this costs nothing on the far more common path where
-        // the settlement was never half-paid to begin with.
-        await halfPaidStorage.clear(ref.jobId, ref.leg);
-      }
-
-      return {
-        rail: 'usdc',
-        hash: ref.priceTxHash,
-        confirmed,
-        legs: { price, fee },
-        halfPaid,
-      };
+      // The two-transfer confirm, the spent-hash check and the half-paid
+      // record are the shared ERC-20 mechanism (erc20.ts), run here against
+      // this rail's own chain client and its own USDC storage tables.
+      const outcome = await confirmLegs(ref, chainClient, spentTransferStorage, halfPaidStorage);
+      return { rail: 'usdc', ...outcome };
     },
 
     // Make 2 (B49 card): a narrow read of this rail's own half-paid
@@ -400,64 +260,4 @@ export function createUsdcPaymentRail(options: CreateUsdcPaymentRailOptions = {}
       };
     },
   };
-}
-
-interface ExpectedLegTransfer {
-  readonly recipient: string;
-  readonly amountBaseUnits: string;
-  readonly tokenContract: string;
-  readonly chainId: number;
-  readonly jobId: string;
-  readonly leg: 'deposit' | 'balance';
-  readonly role: UsdcTransferRole;
-}
-
-// S1: reads one leg's confirmation status by hash, binding it to what
-// THIS job's leg actually expects rather than to any confirmed hash on
-// the chain (the anchor: "the question the settlement gate exists to ask
-// is 'was THIS job's price paid to THIS recipient'"). A leg confirms only
-// when the receipt exists, status is 1, the observed transfer's
-// recipient/amount/token/chain all equal what was expected, AND the hash
-// has never backed a different (job, leg, role) before. Anything else is
-// not_confirmed (nothing has landed, or the receipt is unreadable as a
-// token transfer at all in a way indistinguishable from not-yet-landed)
-// or mismatched (something landed, on this exact hash, but it is not the
-// payment this leg was expecting).
-async function legStatus(
-  chainClient: UsdcChainClient,
-  spentTransferStorage: UsdcSpentTransferStorage,
-  hash: string,
-  expected: ExpectedLegTransfer,
-): Promise<UsdcLegStatus> {
-  // S1 review round 1, D1: normalized again here, not merely trusted from
-  // the caller, so a ref built anywhere other than onWalletResponse still
-  // cannot compare a raw hash against a normalized spent-transfer row.
-  const normalizedHash = normalizeUsdcTxHash(hash);
-  const receipt = await chainClient.getTransactionReceipt(normalizedHash);
-  if (receipt === null || receipt.status !== 1) {
-    return { status: 'not_confirmed', hash: normalizedHash };
-  }
-  const { transfer } = receipt;
-  const paysWhatWasExpected =
-    transfer !== null &&
-    transfer.to.toLowerCase() === expected.recipient.toLowerCase() &&
-    transfer.value === expected.amountBaseUnits &&
-    transfer.tokenContract.toLowerCase() === expected.tokenContract.toLowerCase() &&
-    transfer.chainId === expected.chainId;
-  if (!paysWhatWasExpected) {
-    return { status: 'mismatched', hash: normalizedHash };
-  }
-
-  // Spent-hash check (S1 scope item 4, the anchor's Case C): a receipt
-  // that DOES pay what this leg expects still does not confirm if the
-  // exact same hash already backs a different job, leg, or role. Re-
-  // confirming the SAME (job, leg, role) is the ordinary idempotent path
-  // and falls through to record() below, which upserts rather than
-  // duplicating.
-  const spent = await spentTransferStorage.findByHash(normalizedHash);
-  if (spent !== null && (spent.jobId !== expected.jobId || spent.leg !== expected.leg || spent.role !== expected.role)) {
-    return { status: 'mismatched', hash: normalizedHash };
-  }
-  await spentTransferStorage.record({ hash: normalizedHash, jobId: expected.jobId, leg: expected.leg, role: expected.role });
-  return { status: 'confirmed', hash: normalizedHash };
 }
