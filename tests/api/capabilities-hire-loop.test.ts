@@ -1,6 +1,6 @@
 // SW1-04: GET /capabilities stopped at job.hire, so an agent reading only that
 // document had no declared step after opening a hire. The document now names
-// the 18 hire-loop routes. This file holds the new entries to the router: a
+// the 19 hire-loop routes. This file holds the new entries to the router: a
 // declared path is a registered route (ROUTE_TABLE is held to the router by
 // tests/architecture/rate-limit-enforcement.test.ts), the served body names
 // each route, and an unsigned caller is answered the way each entry says.
@@ -15,10 +15,11 @@ import { createJob } from '../../src/domain/job.js';
 
 const JOB_ID = 'capabilities-hire-loop-job';
 
-// The 18 routes of a hire after it opens, as `method path`, in the order the
-// document lists them.
+// The 19 routes of a hire after it opens (17 POST, 2 GET), as `method path`,
+// in the order the document lists them.
 const HIRE_LOOP_ROUTES: readonly string[] = [
   'GET /jobs/:jobId',
+  'GET /jobs/:jobId/payments',
   'POST /jobs/:jobId/criteria',
   'POST /jobs/:jobId/request-changes',
   'POST /jobs/:jobId/criteria/:index/accept',
@@ -89,12 +90,13 @@ describe('SW1-04: GET /capabilities names every step of a hire after it opens', 
     expect(unregistered, 'a capability whose method and path no route is registered under').toEqual([]);
   });
 
-  it('the served document names the 17 POST routes and GET /jobs/:jobId, read from the body', async () => {
+  it('the served document names the 17 POST routes and the 2 GET routes, read from the body', async () => {
     const res = await fetch(`${baseUrl}/capabilities`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { capabilities: Array<{ method: string; path: string }> };
     const named = body.capabilities.map((c) => `${c.method} ${c.path}`);
     expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('POST '))).toHaveLength(17);
+    expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('GET '))).toHaveLength(2);
     expect(named.filter((route) => HIRE_LOOP_ROUTES.includes(route))).toEqual(HIRE_LOOP_ROUTES);
   });
 
@@ -118,10 +120,11 @@ describe('SW1-04: GET /capabilities names every step of a hire after it opens', 
     expect(before?.status).toBe('draft');
 
     for (const cap of perJob) {
+      // A GET carries no body; a POST is sent the one its route reads first.
       const res = await fetch(`${baseUrl}${concrete(cap.path)}`, {
         method: cap.method,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(bodyFor(cap.path)),
+        ...(cap.method === 'GET' ? {} : { body: JSON.stringify(bodyFor(cap.path)) }),
       });
       expect(res.status, `${cap.method} ${cap.path}`).toBe(401);
       expect(await res.json(), `${cap.method} ${cap.path}`).toEqual({ error: UNSIGNED_ANSWER });
