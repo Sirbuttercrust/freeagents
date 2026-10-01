@@ -21,9 +21,9 @@ two instruments, one of them weaker. The first two were fixed by unifying the
 probe. Round 5 is what was left over BECAUSE only one of the two probes got
 unified, so this module now owns both.
 
-  verify_polish.py    imports it   (25 screens, the polished set)
-  measure_taps.py     imports it   (all 33 screens, prints every offender)
-  verify_flow.py      imports it   (the 8 payment screens)
+Nothing in this repository imports it. Its consumers, the polish sweep, the
+tap census, the payment-flow check and the mobile-coverage check, are kept in
+the private operations repository.
 
 ONE FINDINGS LIST, AND THE FALLBACK DIRECTION IS THE WHOLE ARGUMENT
 
@@ -36,7 +36,8 @@ That is population.py's safety argument moved from screens to assertions. A
 partition whose fallback is "measured" cannot open a hole; one whose fallback
 is "not measured" opens one silently the day somebody adds an assertion to the
 instrument they happen to be reading. Opting out has to be WRITTEN DOWN, as a
-kind filter that verify_mobile_coverage.py can see and report.
+kind filter that the mobile-coverage check, kept in the private operations
+repository, can see and report.
 
 WHAT IT MEASURES
 
@@ -295,12 +296,13 @@ def probe_js(width=None):
 
 
 # THE ASSERTIONS THIS MODULE MAKES, declared so something can check that a
-# consumer receives all of them. verify_mobile_coverage.py reads this by
-# importing the module, and reads each gate's filter from its source, so a
-# screen swept by an instrument that drops an assertion is reported as the
-# hole it is rather than counted as covered.
+# consumer receives all of them. The mobile-coverage check, kept in the
+# private operations repository, reads this by importing the module, and reads
+# each gate's filter from its source, so a screen swept by an instrument that
+# drops an assertion is reported as the hole it is rather than counted as
+# covered.
 #
-# Adding a kind here without adding it to the probe fails that gate too: the
+# Adding a kind here without adding it to the probe fails that check too: the
 # declaration and the implementation check each other.
 KINDS = ("tap", "overflow", "chrome")
 
