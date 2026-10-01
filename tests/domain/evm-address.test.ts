@@ -37,6 +37,17 @@ describe('evmAddressChecksumOk', () => {
     expect(evmAddressChecksumOk(flipped, keccak)).toBe(false);
   });
 
+  it('refuses every single-letter case flip of a checksummed address, at every letter position', () => {
+    const original = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+    const letterPositions = [...original.slice(2)].flatMap((char, i) => (/[a-fA-F]/.test(char) ? [i + 2] : []));
+    expect(letterPositions.length).toBeGreaterThan(10);
+    for (const at of letterPositions) {
+      const char = original[at]!;
+      const flipped = `${original.slice(0, at)}${char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase()}${original.slice(at + 1)}`;
+      expect({ at, accepted: evmAddressChecksumOk(flipped, keccak) }).toEqual({ at, accepted: false });
+    }
+  });
+
   it.each([
     ['too short', '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeA'],
     ['too long', '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed00'],
