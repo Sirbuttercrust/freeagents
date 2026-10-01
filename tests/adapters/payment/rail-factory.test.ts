@@ -1,4 +1,4 @@
-// P10: lazy, non-throwing defaults for the two payment rails (brief,
+// P10: lazy, non-throwing defaults for the three payment rails (brief,
 // scope item 5, "an unconfigured rail must produce an honest refusal on
 // the route and never a crash at startup").
 import { afterEach, describe, expect, it } from 'vitest';

@@ -124,7 +124,7 @@ const ABT_ETH_RAIL_VALIDATORS = { FREEAGENTS_ABT_ETH_CHAIN_ID: isValidChainId };
 // The rail names FREEAGENTS_ENABLED_RAILS may list, each mapped to the same
 // vars/validators its own capability report already checks. Single source
 // of truth: enabledRails below re-derives from this map rather than
-// duplicating either rail's variable list a third time.
+// duplicating any rail's variable list a third time.
 const RAIL_DEFINITIONS: Readonly<
   Record<Rail, { readonly vars: readonly string[]; readonly validators: Record<string, (v: string) => boolean> }>
 > = {

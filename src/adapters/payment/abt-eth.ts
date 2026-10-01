@@ -4,9 +4,10 @@
 // share). Two things differ from USDC, and both come from ABT's price
 // moving:
 //
-//   1. The ABT/USD price is CoinGecko's, read through the same feed, cache
-//      and 5-minute staleness refusal the ArcBlock-chain rail uses
-//      (abt-usd-rate.ts), and the platform fee is 3 percent, not USDC's 6.
+//   1. The ABT/USD price is CoinGecko's, read through the same feed source,
+//      cache window and 5-minute staleness refusal the ArcBlock-chain rail
+//      uses (abt-usd-rate.ts; each rail builds its own source instance),
+//      and the platform fee is 3 percent, not USDC's 6.
 //   2. The amounts the buyer is asked to sign are the amounts confirm()
 //      checks. onWalletResponse takes the locked token amounts it is given
 //      and converts them with the contract's decimals; it reads no rate, so

@@ -2,7 +2,7 @@
 // mainnet, paid from a browser wallet as two transfers (price to the owner,
 // fee to the platform). Driven against a fake chain client, a fake price
 // feed and in-memory storage; no test in this file reaches a network.
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The generated Prisma client is stubbed for the one block at the bottom
 // that runs the rail on its default storage: it records which table each
@@ -283,7 +283,7 @@ describe('createRequest: two transfers in base units read from the contract', ()
     });
   });
 
-  it('reads decimals from the contract on every call: a token at 6 decimals gives different base units than at 18', async () => {
+  it('converts with the decimals the contract reports: a token at 6 decimals gives different base units than at 18', async () => {
     const { rail } = build({ client: chainClient({}, 6) });
     const request = await rail.createRequest({
       jobId: 'job_1',
@@ -296,6 +296,33 @@ describe('createRequest: two transfers in base units read from the contract', ()
       { recipient: OWNER, amountBaseUnits: '80000000', tokenContract: ABT_TOKEN },
       { recipient: FEE_ADDRESS, amountBaseUnits: '2400000', tokenContract: ABT_TOKEN },
     ]);
+  });
+});
+
+describe('decimals are read off the contract on every call, not once per rail', () => {
+  it('createRequest and onWalletResponse each answer with the decimals the contract reports at that moment', async () => {
+    let decimals = 18;
+    const { rail } = build({
+      client: { decimals: async () => decimals, getTransactionReceipt: async () => null },
+    });
+    const requestInput = {
+      jobId: 'job_1',
+      leg: 'deposit' as const,
+      operatorAddress: OWNER,
+      amountToken: LOCKED_AMOUNT,
+      feeToken: LOCKED_FEE,
+    };
+
+    const requestAtEighteen = await rail.createRequest(requestInput);
+    const refAtEighteen = await rail.onWalletResponse(walletInput);
+    decimals = 6;
+    const requestAtSix = await rail.createRequest(requestInput);
+    const refAtSix = await rail.onWalletResponse(walletInput);
+
+    expect(requestAtEighteen.transfers.map((t) => t.amountBaseUnits)).toEqual([PRICE_UNITS, FEE_UNITS]);
+    expect(requestAtSix.transfers.map((t) => t.amountBaseUnits)).toEqual(['80000000', '2400000']);
+    expect([refAtEighteen.expectedPriceBaseUnits, refAtEighteen.expectedFeeBaseUnits]).toEqual([PRICE_UNITS, FEE_UNITS]);
+    expect([refAtSix.expectedPriceBaseUnits, refAtSix.expectedFeeBaseUnits]).toEqual(['80000000', '2400000']);
   });
 });
 
@@ -535,14 +562,31 @@ describe('confirm: only an ABT transfer on chain 1 to the right recipient', () =
 });
 
 describe('default storage: this rail writes its own tables and never the USDC ones', () => {
+  beforeEach(() => {
+    for (const table of Object.values(db)) {
+      table.upsert.mockReset();
+      table.findUnique.mockReset();
+      table.deleteMany.mockReset();
+    }
+  });
+
+  function expectNoUsdcTableTouched(): void {
+    for (const usdcTable of [db.usdcSpentTransfer, db.usdcHalfPaidSettlement]) {
+      expect(usdcTable.upsert).not.toHaveBeenCalled();
+      expect(usdcTable.findUnique).not.toHaveBeenCalled();
+      expect(usdcTable.deleteMany).not.toHaveBeenCalled();
+    }
+  }
+
+  function defaultRail(receipts: Record<string, Receipt>) {
+    return withEnv(envConfig(), () =>
+      createAbtEthPaymentRail({ chainClient: chainClient(receipts), rateSource: async () => READING }),
+    );
+  }
+
   it('a half-paid confirm reads and writes AbtEthSpentTransfer and AbtEthHalfPaidSettlement, and touches no USDC table', async () => {
     db.abtEthSpentTransfer.findUnique.mockResolvedValue(null);
-    const rail = withEnv(envConfig(), () =>
-      createAbtEthPaymentRail({
-        chainClient: chainClient({ [PRICE_HASH]: { status: 1, transfer: priceTransfer() } }),
-        rateSource: async () => READING,
-      }),
-    );
+    const rail = defaultRail({ [PRICE_HASH]: { status: 1, transfer: priceTransfer() } });
     const ref = await rail.onWalletResponse(walletInput);
     const confirmation = await rail.confirm(ref);
     expect(confirmation.halfPaid).toBe(true);
@@ -558,10 +602,54 @@ describe('default storage: this rail writes its own tables and never the USDC on
       create: { jobId: 'job_1', leg: 'deposit', priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed' },
       update: { priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed' },
     });
-    for (const usdcTable of [db.usdcSpentTransfer, db.usdcHalfPaidSettlement]) {
-      expect(usdcTable.upsert).not.toHaveBeenCalled();
-      expect(usdcTable.findUnique).not.toHaveBeenCalled();
-      expect(usdcTable.deleteMany).not.toHaveBeenCalled();
-    }
+    expectNoUsdcTableTouched();
+  });
+
+  it('a fully confirmed leg clears its row in AbtEthHalfPaidSettlement and deletes nothing in the USDC table', async () => {
+    db.abtEthSpentTransfer.findUnique.mockResolvedValue(null);
+    const rail = defaultRail({
+      [PRICE_HASH]: { status: 1, transfer: priceTransfer() },
+      [FEE_HASH]: { status: 1, transfer: feeTransfer() },
+    });
+    const ref = await rail.onWalletResponse(walletInput);
+    const confirmation = await rail.confirm(ref);
+    expect(confirmation.confirmed).toBe(true);
+
+    expect(db.abtEthHalfPaidSettlement.deleteMany).toHaveBeenCalledTimes(1);
+    expect(db.abtEthHalfPaidSettlement.deleteMany).toHaveBeenCalledWith({ where: { jobId: 'job_1', leg: 'deposit' } });
+    expectNoUsdcTableTouched();
+  });
+
+  it('readHalfPaidRecord reads AbtEthHalfPaidSettlement by job and leg and returns the stored row', async () => {
+    db.abtEthHalfPaidSettlement.findUnique.mockResolvedValue({
+      jobId: 'job_1',
+      leg: 'deposit',
+      priceTxHash: PRICE_HASH,
+      priceStatus: 'confirmed',
+      feeTxHash: FEE_HASH,
+      feeStatus: 'not_confirmed',
+    });
+    const record = await defaultRail({}).readHalfPaidRecord('job_1', 'deposit');
+
+    expect(db.abtEthHalfPaidSettlement.findUnique).toHaveBeenCalledTimes(1);
+    expect(db.abtEthHalfPaidSettlement.findUnique).toHaveBeenCalledWith({
+      where: { jobId_leg: { jobId: 'job_1', leg: 'deposit' } },
+    });
+    expect(record).toEqual({
+      priceTxHash: PRICE_HASH,
+      priceStatus: 'confirmed',
+      feeTxHash: FEE_HASH,
+      feeStatus: 'not_confirmed',
+    });
+    expectNoUsdcTableTouched();
+  });
+
+  it('readHalfPaidRecord answers null when AbtEthHalfPaidSettlement has no row, and reads no USDC table', async () => {
+    db.abtEthHalfPaidSettlement.findUnique.mockResolvedValue(null);
+    expect(await defaultRail({}).readHalfPaidRecord('job_9', 'balance')).toBeNull();
+    expect(db.abtEthHalfPaidSettlement.findUnique).toHaveBeenCalledWith({
+      where: { jobId_leg: { jobId: 'job_9', leg: 'balance' } },
+    });
+    expectNoUsdcTableTouched();
   });
 });

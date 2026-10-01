@@ -275,7 +275,8 @@ export type PaymentRef =
       readonly expectedFeeBaseUnits: string;
     };
 
-// Per-leg outcome confirm() actually observed on chain, USDC only. Four
+// Per-leg outcome confirm() actually observed on chain, on the two ERC-20
+// rails (USDC and ABT on Ethereum). Four
 // states, not two, because "the wallet never signed this", "signed and
 // broadcast but the chain has not confirmed it", and "landed, but paid the
 // wrong recipient, amount, token or chain" are three different facts and a
@@ -320,7 +321,8 @@ export interface Confirmation {
   // `confirmed`. Present only when confirmed is true.
   readonly operatorBalance?: string;
   readonly feeBalance?: string;
-  // USDC only: each leg's own observed status, so a caller never has to
+  // The two ERC-20 rails only (USDC and ABT on Ethereum): each leg's own
+  // observed status, so a caller never has to
   // infer what happened to the fee transfer from `confirmed: false` alone
   // (P3 brief, "never report a leg it did not see a receipt for").
   readonly legs?: { readonly price: UsdcLegStatus; readonly fee: UsdcLegStatus };

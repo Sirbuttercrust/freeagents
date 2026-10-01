@@ -233,9 +233,9 @@ describe('buildConfigReport: credentials, github sign-in, github api', () => {
 describe('buildConfigReport: enabledRails (D3, review round 1)', () => {
   // FREEAGENTS_ENABLED_RAILS was declared and documented but nothing ever
   // read it (inert-declared-control). Unset or empty keeps existing
-  // behaviour (both rails offered), which this report treats as trivially
+  // behaviour (all three rails offered), which this report treats as trivially
   // configured: there is nothing for the operator to have gotten wrong.
-  it('is configured when unset (both rails offered, existing behaviour)', () => {
+  it('is configured when unset (all three rails offered, existing behaviour)', () => {
     const report = buildConfigReport({});
     const enabledRails = report.capabilities.find((c) => c.capability === 'enabledRails');
     expect(enabledRails?.configured).toBe(true);
