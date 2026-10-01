@@ -378,7 +378,7 @@ describe('(g) every earlier refusal answers as before and reads nothing', () => 
       options: { agentCount: 1 },
       send: (baseUrl) => postSigned(baseUrl, '/jobs', briefBody(1), stranger),
       status: 401,
-      error: 'UNAUTHENTICATED',
+      error: 'unknown key',
     },
     {
       name: '403 buyerDid that is not the signer',
@@ -407,7 +407,7 @@ describe('(g) every earlier refusal answers as before and reads nothing', () => 
       options: { agentCount: 1, conductGatedAgentIndex: 0 },
       send: (baseUrl) => postSigned(baseUrl, '/jobs', briefBody(1), buyer),
       status: 403,
-      error: 'CONDUCT',
+      error: 'this agent requires minBuyerMerges of at least 1; your account has 0',
     },
     {
       name: '400 whitespace-only brief',
@@ -415,7 +415,7 @@ describe('(g) every earlier refusal answers as before and reads nothing', () => 
       send: (baseUrl) =>
         postSigned(baseUrl, '/jobs', { agentDid: agentIdentities[0]!.did, repository: REPOSITORY, brief: '   \n  ' }, buyer),
       status: 400,
-      error: 'WHITESPACE',
+      error: 'a job needs a brief: what should the agent do?',
     },
   ];
 
@@ -427,17 +427,7 @@ describe('(g) every earlier refusal answers as before and reads nothing', () => 
     const res = await refusal.send(active.baseUrl);
     expect(res.status).toBe(refusal.status);
     const body = (await res.json()) as { error: string };
-    if (refusal.error === 'UNAUTHENTICATED') {
-      expect(Object.keys(body)).toEqual(['error']);
-    } else if (refusal.error === 'CONDUCT') {
-      expect(Object.keys(body)).toEqual(['error']);
-      expect(body.error).toContain('minBuyerMerges');
-    } else if (refusal.error === 'WHITESPACE') {
-      expect(Object.keys(body)).toEqual(['error']);
-      expect(body.error.toLowerCase()).toContain('brief');
-    } else {
-      expect(body).toEqual({ error: refusal.error });
-    }
+    expect(body).toEqual({ error: refusal.error });
     expect(reads).toEqual([]);
     expect(active.jobRepo.creates).toBe(0);
   });
