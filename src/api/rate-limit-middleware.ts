@@ -1,6 +1,6 @@
 // S7 (security sweep 2026-09-06, "rate limiting covers 2 of 57 routes"):
-// one class-limiter middleware, mounted ONCE in src/api/app.ts, right
-// after the body parser and before web.mountPages(app). Picks a bucket
+// one class-limiter middleware, mounted ONCE in src/api/app.ts, above the
+// body parser (B80) and before web.mountPages(app). Picks a bucket
 // per route CLASS (rate-limit-classes.ts's classifyRoute) and applies
 // that class's own limit, so exhausting one class's bucket never
 // throttles another. `verify` keeps today's exact single-bucket shape

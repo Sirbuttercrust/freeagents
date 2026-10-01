@@ -35,6 +35,7 @@ import type { IdentityAdapter, DidKeyPair, SignedPayload } from '../adapters/ide
 import { type RateLimiter } from '../adapters/identity/verify-rate-limit.js';
 import { InvalidTrustProxyError, trustProxySettingFromEnv, TRUST_PROXY_ENV_VAR } from '../adapters/config/trust-proxy.js';
 import { createClassRateLimiters, createClassRateLimitMiddleware, type ClassLimits } from './rate-limit-middleware.js';
+import { JSON_BODY_LIMIT, bodyParserErrorHandler, brokenAddressErrorHandler } from './request-errors.js';
 import { createStreamCaps, holdUntilClosed, refusalSentence, STREAM_RETRY_AFTER_SECONDS } from './stream-caps.js';
 import { createSignatureSpendStorage } from '../adapters/identity/signature-spend-storage.js';
 import type { SignatureSpendStorage } from '../adapters/identity/signature-spend-storage-types.js';
@@ -1176,6 +1177,21 @@ export function createApp(
     throw new InvalidTrustProxyError(raw);
   }
 
+  // S7 (security sweep 2026-09-06): every route class gets a bucket,
+  // mounted in ONE place, here, after trust proxy and above the body parser
+  // and web.mountPages(app) below -- so a page shell and every API route both
+  // pass through it, and nothing registered after this point can be
+  // reached without first being classified (rate-limit-classes.ts's
+  // classifyRoute, and its own router-walk enforcement test). S11 above
+  // (trust proxy) runs first, per the sweep's own rule: "whoever fixes S7
+  // must fix S11 first". B80: it sits above express.json because it reads
+  // only the method, the path, the Accept header and the caller's address,
+  // never the body, so every request spends its bucket before its body is
+  // read, a body the parser refuses included, and a caller over the limit is
+  // answered 429 without the platform reading up to 15 MB from it.
+  const classRateLimiters = createClassRateLimiters(rateLimits);
+  app.use(createClassRateLimitMiddleware(classRateLimiters));
+
   app.use(
     express.json({
       // HT1 Part B (attachments STEER): an attachment travels as a
@@ -1187,24 +1203,18 @@ export function createApp(
       // Every other route's body is orders of magnitude smaller than this,
       // so raising the one global limit (rather than a second per-route
       // parser, which cannot re-read a stream express.json() already
-      // consumed) costs nothing elsewhere.
-      limit: '15mb',
+      // consumed) costs nothing elsewhere. JSON_BODY_LIMIT is also the
+      // number the "larger than 15 MB" sentence in request-errors.ts quotes.
+      limit: JSON_BODY_LIMIT,
       verify: (req, _res, buf) => {
         (req as RawBodyRequest).rawBody = Buffer.from(buf);
       },
     }),
   );
-
-  // S7 (security sweep 2026-09-06): every route class gets a bucket,
-  // mounted in ONE place, here, right after the body parser and before
-  // web.mountPages(app) below -- so a page shell and every API route both
-  // pass through it, and nothing registered after this point can be
-  // reached without first being classified (rate-limit-classes.ts's
-  // classifyRoute, and its own router-walk enforcement test). S11 above
-  // (trust proxy) runs first, per the sweep's own rule: "whoever fixes S7
-  // must fix S11 first".
-  const classRateLimiters = createClassRateLimiters(rateLimits);
-  app.use(createClassRateLimitMiddleware(classRateLimiters));
+  // B69: what the parser refuses is the caller's mistake. Directly after the
+  // parser so that only the parser's own errors (and the limiter's) can
+  // reach it.
+  app.use(bodyParserErrorHandler);
 
   // R-3 + R-4 completion (B5, launch blocker): the record of which DIDs'
   // key material this process has itself independently checked (via the
@@ -9322,10 +9332,15 @@ export function createApp(
   // gets the 404 page; every other caller gets the same JSON body the API
   // uses for a missing record, because answering a JSON client with a web
   // page would be a worse lie than the 404 itself.
+  // B69: a broken percent-escape in the address is handled just before it,
+  // so a browser following a broken link is passed on to this same 404 page.
+  app.use(brokenAddressErrorHandler);
   web.mountFallback(app);
 
   // Terminal error layer: a fault that reached here was not mapped by a
-  // route's own catch, so it is our problem, not the caller's. Same terms as
+  // route's own catch, nor as a request the platform could not read (the
+  // parser handler and the broken-address handler above answer those as the
+  // caller's mistake), so it is our problem, not the caller's. Same terms as
   // every storage failure - cause in the log, not the body, so nothing the
   // process said internally leaks out.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
