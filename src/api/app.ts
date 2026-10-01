@@ -175,7 +175,7 @@ import {
 } from '../adapters/payment/route-support.js';
 import { RateUnavailableError, type PaymentRef, type PaymentRequest } from '../adapters/payment/types.js';
 import { createSettlementRepository } from '../adapters/storage/storage.js';
-import type { SettlementRepository } from '../adapters/storage/types.js';
+import type { ObservedSettlementRecord, SettlementRepository } from '../adapters/storage/types.js';
 import { rotationWellFormed, type KeyRotation } from '../domain/key-rotation.js';
 import { buyerDiversity, type HireFacts } from '../domain/buyer-diversity.js';
 import {
@@ -7755,6 +7755,63 @@ export function createApp(
         return;
       }
       res.status(200).json(stored.signed);
+    }),
+  );
+
+  // Which payments of a hire settled. Answers 200 with
+  //   { deposit: <leg or null>, remainder: <leg or null> }
+  //   <leg> = { rail, amountUsd, operatorAddress, observedAt (ISO 8601) }
+  // where null means no settled payment is on record for that leg. A leg
+  // carries those four facts and nothing else: no transaction hash, no fee
+  // address, no fee amount. `rail` is passed through as stored, so a rail
+  // added later needs no change here.
+  //
+  // Party-only (the buyer, the agent's owner, the agent's own key): which
+  // payments settled, when, and to which address are facts between the two
+  // sides of the hire. The public GET /jobs/:jobId stays as it is and says
+  // nothing about them.
+  //
+  // Built like GET /jobs/:jobId/attestation and for the same reason it does
+  // not call applyLiveLapses: a plain read never moves a job's status.
+  // Unknown job 404, no proof 401, not a party 403, any storage failure 503.
+  app.get(
+    '/jobs/:jobId/payments',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'GET /jobs/:jobId/payments';
+      const jobId = String(req.params.jobId);
+      let job: Job | null;
+      try {
+        job = await jobRepo.findById(jobId);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (job === null) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      const gate = await resolveJobActingParty(req, res, job);
+      if (gate === null) return;
+      const legFor = (record: ObservedSettlementRecord | null): Record<string, string> | null =>
+        record === null
+          ? null
+          : {
+              rail: record.rail,
+              amountUsd: record.amountUsd,
+              operatorAddress: record.operatorAddress,
+              observedAt: record.observedAt.toISOString(),
+            };
+      try {
+        const deposit = await settlementRepo.findByJobAndLeg(job.id, 'deposit');
+        const remainder = await settlementRepo.findByJobAndLeg(job.id, 'remainder');
+        res.status(200).json({ deposit: legFor(deposit), remainder: legFor(remainder) });
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+      }
     }),
   );
 
