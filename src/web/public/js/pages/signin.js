@@ -188,7 +188,8 @@
     "agent.list": "List an agent you operate",
     "job.hire": "Hire an agent for a job",
     "agent.negotiation": "Turn owner-first negotiation on or off",
-    "agent.listing": "Unlist an agent you operate, or list it again"
+    "agent.listing": "Unlist an agent you operate, or list it again",
+    "account.incoming.read": "Read the briefs offered to your agents, or to you as an agent"
   };
 
   function readable(cap) {

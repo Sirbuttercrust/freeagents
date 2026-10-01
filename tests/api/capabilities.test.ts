@@ -104,8 +104,9 @@ describe('GET /capabilities', () => {
     // table, so the total moved from 9 to 10. SW1-04: the 18 steps of a
     // hire after it opens joined it, so the total moved from 10 to 28.
     // job.payments.read, the party-only read of which payments settled,
-    // moved it from 28 to 29.
-    expect(body.capabilities).toHaveLength(29);
+    // moved it from 28 to 29. account.incoming.read, the read that leads an
+    // agent signing with its own key to the briefs sent to it, made it 30.
+    expect(body.capabilities).toHaveLength(30);
   });
 
   it('every declared public GET answers a caller with no identity', async () => {

@@ -3733,20 +3733,28 @@ export function createApp(
     }
   });
 
-  // P8p: GET /accounts/:did/incoming, the operator's own read of what work
-  // has been offered to the agents they run (the operator's own words:
+  // P8p: GET /accounts/:did/incoming, the read of what work has been offered
+  // to agents. Two callers, one route: an operator reads what has been
+  // offered to the agents they run (the operator's own words:
   // "I thought we were just a intermediary between the two parties",
-  // 2026-09-07). Built from the same parts in the same order as
+  // 2026-09-07), and an agent signing with its own key reads what has been
+  // offered to it (SW3-12: without this an agent holding a brief had no read
+  // that led to it). Built from the same parts in the same order as
   // GET /accounts/:did/jobs above: resolveActingParty, then a 403 that
-  // never says whether :did is a registered account or how many agents
-  // or offers it has.
+  // never says whether :did is a registered account or agent, or how many
+  // agents or offers it has. The party must be :did itself, so an owner's
+  // session or a sibling agent's key never reads an agent's list.
   //
-  // The roster comes from agentRepo.listAll() filtered by the exact
-  // `row.operatorDid === did` comparison GET /accounts/:did/agents uses
-  // above, not isAgentOperator's didSuffix match: one account's roster
-  // must mean the same thing on both routes, and a caller whose DID
-  // shares a suffix with the real operator must never inherit that
-  // operator's roster.
+  // The roster is one of two things. When :did names a registered agent
+  // (an agent's DID is never an account's), the roster is that agent alone
+  // and the answer is { agentDid, offers }. Otherwise it comes from
+  // agentRepo.listAll() filtered by the exact `row.operatorDid === did`
+  // comparison GET /accounts/:did/agents uses above, not isAgentOperator's
+  // didSuffix match: one account's roster must mean the same thing on both
+  // routes, and a caller whose DID shares a suffix with the real operator
+  // must never inherit that operator's roster. That answer is
+  // { operatorDid, offers }. Neither roster looks at
+  // negotiatesOnOwnersBehalf.
   //
   // Answers 200 with one entry per job whose jobListBucketOf(status) is
   // 'notReal' (draft or proposed, ENT-4.1): the exact complement of the
@@ -3783,11 +3791,18 @@ export function createApp(
     }
 
     try {
-      const agentRows = await agentRepo.listAll();
-      const ownAgents = agentRows.filter((row) => row.operatorDid === did);
+      // An agent's DID is never an account's (POST /accounts and both
+      // agent listing doors refuse the other's DID), so a :did that names a
+      // registered agent can only be that agent reading with its own key:
+      // its roster is itself and nothing else. Any other :did is an account
+      // and keeps the roster of agents it runs. Neither branch looks at
+      // negotiatesOnOwnersBehalf: seeing that work was offered is not
+      // negotiating it.
+      const ownAgent = await agentRepo.findByDid(did);
+      const roster = ownAgent !== null ? [ownAgent] : (await agentRepo.listAll()).filter((row) => row.operatorDid === did);
 
       const findByAgentDid = jobRepo.findByAgentDid.bind(jobRepo);
-      const perAgentJobs = await Promise.all(ownAgents.map((row) => findByAgentDid(row.did)));
+      const perAgentJobs = await Promise.all(roster.map((row) => findByAgentDid(row.did)));
       const allJobs = perAgentJobs.flat();
       const offered = allJobs.filter((job) => jobListBucketOf(job.status) === 'notReal');
       const sorted = [...offered].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -3824,7 +3839,7 @@ export function createApp(
         waitingOn: waitingOnOf(job.criteria),
         createdAt: job.createdAt.toISOString(),
       }));
-      res.status(200).json({ operatorDid: did, offers });
+      res.status(200).json(ownAgent !== null ? { agentDid: did, offers } : { operatorDid: did, offers });
     } catch (err) {
       console.error('GET /accounts/:did/incoming: storage failed', err);
       res.status(503).json({ error: 'storage unavailable' });
