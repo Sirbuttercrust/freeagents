@@ -1,5 +1,5 @@
 // SW3-07: once a staged hire is paid in full the buyer's other two moves at
-// staged are gone. The ruling (MAP.md, "Payment model ruling") is "one redo
+// staged are gone. The ruling is "one redo
 // at staged before the balance, free decline at staged", and the domain's
 // design record says the buyer has exactly three moves there: pay, redo, or
 // decline for free. Paying is one of the three. These pins run on a real

@@ -325,7 +325,7 @@ describe('B25: payment routes refuse a job priced on the other rail', () => {
   });
 });
 
-// Proof round 1, D1 (comment 561 on this card): B23 and B25 were wired
+// B23 and B25 were wired
 // only onto /jobs/:jobId/payments/:leg/abt/start. did-connect-js's own
 // /api/did/pay/token mount is the SECOND door to the exact same session
 // mint (app.ts's own comment at requireBuyerToMintAbtSession names this

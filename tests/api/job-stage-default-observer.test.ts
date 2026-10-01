@@ -1,4 +1,4 @@
-// B14b, review round 1 D1 (inert-declared-control, src/api/app.ts:680): the
+// B14b (src/api/app.ts:680): the
 // production default for createApp's stagingObserver argument must be the
 // real GitHub-backed observer, not the fail-closed unwired stub -- and
 // that must be provable by OMITTING the argument, not by reading the
@@ -7,7 +7,7 @@
 // always supplies one), which never exercises the omitted-argument path
 // at all: reverting the production default back to
 // createUnwiredStagingObserver() left the whole 146-file suite green
-// before this file existed (review round 1, t_20bf8e3f).
+// before this file existed.
 //
 // This file constructs createApp with EVERY argument through
 // stagingObserver supplied positionally and stagingObserver itself
@@ -85,7 +85,7 @@ afterEach(async () => {
   }
 });
 
-describe('createApp defaults stagingObserver to the real GitHub-backed observer (review round 1, D1)', () => {
+describe('createApp defaults stagingObserver to the real GitHub-backed observer', () => {
   it('stage reaches compareCommits through the omitted-argument default, not the unwired refusal', async () => {
     const operatorRepo = new MemoryAccountRepository();
     await operatorRepo.register({ did: buyer.did, githubLogin: `buyer-default-obs-${Math.random()}` });

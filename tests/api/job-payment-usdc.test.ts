@@ -56,7 +56,7 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
 type ReceiptSpec = { readonly status: number | null; readonly transfer: UsdcObservedTransfer | null };
 
 // S1: receipts are keyed case-insensitively, mirroring a real node's own
-// behaviour (review round 1, D1): a fake keyed by exact string is
+// behaviour: a fake keyed by exact string is
 // stricter than the chain it fakes and would hide a defect the real
 // chain would never exhibit.
 function fakeUsdcChainClient(receipts: Record<string, ReceiptSpec | null> = {}): UsdcChainClient {
@@ -464,7 +464,7 @@ describe('S1: priceTxHash equal to feeTx.hash is refused as a malformed request,
     }
   });
 
-  it('answers 400 when the two hashes are the SAME transaction respelled in a different letter case (D2, review round 1)', async () => {
+  it('answers 400 when the two hashes are the SAME transaction respelled in a different letter case', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
         chainClient: fakeUsdcChainClient({
@@ -493,7 +493,7 @@ describe('S1: priceTxHash equal to feeTx.hash is refused as a malformed request,
   });
 });
 
-describe('review round 3, D4: the job\'s own agent is a real party to the job but not its buyer, and starting or confirming a usdc payment is refused', () => {
+describe('the job\'s own agent is a real party to the job but not its buyer, and starting or confirming a usdc payment is refused', () => {
   it('the agent cannot start a usdc payment for the job it was hired on, and no settlement is written', async () => {
     const usdcRail = withUsdcEnv(() =>
       createUsdcPaymentRail({
@@ -865,7 +865,7 @@ describe('S3, Trap 1: self-hire settles normally, paying the buyer\'s own addres
   });
 });
 
-// Proof round 1, D3 (comment 561 on this card): the brief requires "a
+// The brief requires "a
 // wallet response for a hash already recorded stays idempotent" (B23).
 // The status gate (legStatusEligible) runs before any check for an
 // already-recorded hash, so a replay of the SAME hash that already
@@ -919,7 +919,7 @@ describe('B23: a wallet response replaying an already-recorded hash stays idempo
     }
   });
 
-  // Proof round 2, D1 (comment 562 on this card): the replay bypass only
+  // The replay bypass only
   // compared priceTxHash, so a request that shares the recorded price
   // hash but carries a DIFFERENT feeTx.hash was still treated as a
   // replay. That is not a replay of what was recorded; it is a fresh
