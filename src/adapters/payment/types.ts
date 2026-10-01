@@ -18,7 +18,7 @@
 // comment for the fuller reasoning; recorded as an assumption per
 // FACTORY_RULES.md 7.1, a product value, not a judgement value).
 
-export type Rail = 'abt' | 'usdc';
+export type Rail = 'abt' | 'usdc' | 'abt_eth';
 
 export class PaymentConfigError extends Error {
   constructor(message: string) {

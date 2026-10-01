@@ -26,6 +26,7 @@ enum ProofStatus {
 enum Rail {
   abt
   usdc
+  abt_eth
 }
 
 // Mirrors the hire loop in MISSION.md. A job only "exists" once confirmed,
@@ -123,6 +124,15 @@ model Account {
   // it silently pays whoever holds the key behind the DID string rather
   // than an address the account has explicitly named as its payout.
   operatorAddressAbt String?
+  // The owner's ABT-on-Ethereum payout address, for the rail a later change
+  // adds: an Ethereum mainnet address, in its own column because a person
+  // may hold ABT on Ethereum at a different wallet than their USDC wallet
+  // on Arbitrum. Nullable, no default, no backfill. The value is never
+  // derived from another network's address: nothing copies
+  // operatorAddressEvm (or any other
+  // address) into this column, because the same address on two networks
+  // can belong to two different people, or to nobody.
+  operatorAddressAbtEth String?
 
   agents Agent[]
 }
@@ -551,6 +561,39 @@ model UsdcHalfPaidSettlement {
   // One durable row per settlement leg: a repeat confirm() on the same ref
   // (the interface's own idempotency requirement) upserts onto the same
   // row rather than accumulating a fresh one per call.
+  @@unique([jobId, leg])
+}
+
+// The spent-hash record for the ABT-on-Ethereum rail a later change adds,
+// beside UsdcSpentTransfer and with the same columns. A transaction hash is
+// only unique within one chain: a hash that backed a USDC leg on Arbitrum
+// and a hash on Ethereum
+// mainnet are two facts one hash-keyed table cannot tell apart. Separate
+// tables leave every existing USDC row, key and test as they were, which a
+// widened key on the live USDC table would not.
+model AbtEthSpentTransfer {
+  hash       String           @id
+  jobId      String
+  leg        String
+  role       UsdcTransferRole
+  recordedAt DateTime         @default(now())
+
+  @@index([jobId, leg])
+}
+
+// The half-paid record for the ABT-on-Ethereum rail a later change adds,
+// beside UsdcHalfPaidSettlement and with the same columns and the same
+// one-row-per-leg key.
+model AbtEthHalfPaidSettlement {
+  id          String             @id @default(cuid())
+  jobId       String
+  leg         String
+  priceTxHash String
+  priceStatus UsdcTransferStatus
+  feeTxHash   String?
+  feeStatus   UsdcTransferStatus
+  recordedAt  DateTime           @default(now())
+
   @@unique([jobId, leg])
 }
 

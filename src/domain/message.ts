@@ -22,7 +22,7 @@
 // therefore structural (nothing here is on the path), not merely
 // asserted; tests/domain/message-invariant3.test.ts's own digest test
 // proves it by computation, not by review.
-import { isTerminal, type JobStatus, type Party } from './job.js';
+import { isTerminal, type JobStatus, type Party, type Rail } from './job.js';
 import { agentMayNegotiate } from './agent.js';
 
 // authorKind distinguishes who actually wrote a row, distinct from
@@ -105,7 +105,7 @@ export const NO_REACTIONS: Reactions = { buyer: null, agent: null };
 export interface QuoteSentEvent {
   readonly type: 'quote_sent';
   readonly priceUsd: string;
-  readonly rail: 'abt' | 'usdc' | null;
+  readonly rail: Rail | null;
   readonly deliveryWindowDays: number | null;
   readonly criteriaCount: number;
 }
@@ -122,7 +122,7 @@ export interface DepositPaidEvent {
   readonly type: 'deposit_paid';
   readonly leg: 'deposit';
   readonly amountUsd: string;
-  readonly rail: 'abt' | 'usdc';
+  readonly rail: Rail;
 }
 
 // STEER (bugs.md B19): the remainder leg's sibling event, named
@@ -136,7 +136,7 @@ export interface RemainderPaidEvent {
   readonly type: 'remainder_paid';
   readonly leg: 'remainder';
   readonly amountUsd: string;
-  readonly rail: 'abt' | 'usdc';
+  readonly rail: Rail;
 }
 
 export interface StagedEvent {

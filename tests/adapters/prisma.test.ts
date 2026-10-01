@@ -218,6 +218,7 @@ describe('PrismaAccountRepository', () => {
       createdAt,
       operatorAddressEvm: null,
       operatorAddressAbt: null,
+      operatorAddressAbtEth: null,
     });
 
     const repo = new PrismaAccountRepository();
@@ -232,7 +233,7 @@ describe('PrismaAccountRepository', () => {
     expect(mock.create).toHaveBeenCalledWith({
       data: { did: 'did:abt:prisma-1', githubLogin: 'operator-prisma-1', unprovedGithubLogin: null, passkeySubject: null },
     });
-    // And the projection is exactly the seven stored fields.
+    // And the projection is exactly the stored fields.
     expect(row).toEqual({
       did: 'did:abt:prisma-1',
       githubLogin: 'operator-prisma-1',
@@ -241,8 +242,9 @@ describe('PrismaAccountRepository', () => {
       createdAt,
       operatorAddressEvm: null,
       operatorAddressAbt: null,
+      operatorAddressAbtEth: null,
     });
-    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm', 'passkeySubject', 'unprovedGithubLogin']);
+    expect(Object.keys(row).sort()).toEqual(['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressAbtEth', 'operatorAddressEvm', 'passkeySubject', 'unprovedGithubLogin']);
   });
 
   // FIX-B62b (d), Prisma driver: the mocked client cannot evaluate a where
@@ -260,6 +262,7 @@ describe('PrismaAccountRepository', () => {
       createdAt,
       operatorAddressEvm: null,
       operatorAddressAbt: null,
+      operatorAddressAbtEth: null,
     };
 
     function whereOfPromote(): Record<string, unknown> {
@@ -428,6 +431,7 @@ describe('PrismaAccountRepository', () => {
       createdAt,
       operatorAddressEvm: null,
       operatorAddressAbt: null,
+      operatorAddressAbtEth: null,
     });
 
     const repo = new PrismaAccountRepository();
@@ -515,6 +519,63 @@ describe('PrismaAccountRepository', () => {
     const repo = new PrismaAccountRepository();
     const err = await repo
       .setOperatorAddressAbt('did:abt:prisma-abt-2', 'z6MkExampleSuffix')
+      .catch((e: unknown) => e);
+
+    expect(err).toBe(original);
+  });
+
+  // The ABT-on-Ethereum payout address: the same three cases, against its
+  // own column. The write names only that column, so no other network's
+  // address can be touched or copied by it.
+  it('setOperatorAddressAbtEth: an updated row comes back as the operator projection with the new address, written to its own column only', async () => {
+    const createdAt = new Date('2026-10-01T05:00:00.000Z');
+    const address = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+    vi.mocked(mock.update).mockResolvedValue({
+      did: 'did:abt:prisma-abt-eth',
+      githubLogin: 'operator-prisma-abt-eth',
+      unprovedGithubLogin: null,
+      passkeySubject: null,
+      createdAt,
+      operatorAddressEvm: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+      operatorAddressAbt: null,
+      operatorAddressAbtEth: address,
+    });
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.setOperatorAddressAbtEth('did:abt:prisma-abt-eth', address);
+
+    expect(mock.update).toHaveBeenCalledWith({
+      where: { did: 'did:abt:prisma-abt-eth' },
+      data: { operatorAddressAbtEth: address },
+    });
+    expect(row).toEqual({
+      did: 'did:abt:prisma-abt-eth',
+      githubLogin: 'operator-prisma-abt-eth',
+      unprovedGithubLogin: null,
+      passkeySubject: null,
+      createdAt,
+      operatorAddressEvm: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+      operatorAddressAbt: null,
+      operatorAddressAbtEth: address,
+    });
+  });
+
+  it('setOperatorAddressAbtEth: a P2025 record-not-found failure comes back as null', async () => {
+    vi.mocked(mock.update).mockRejectedValue(p2025('did:abt:prisma-abt-eth-unknown'));
+
+    const repo = new PrismaAccountRepository();
+    const row = await repo.setOperatorAddressAbtEth('did:abt:prisma-abt-eth-unknown', '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed');
+
+    expect(row).toBeNull();
+  });
+
+  it('setOperatorAddressAbtEth: a non-P2025 Prisma error is rethrown untouched', async () => {
+    const original = p1001();
+    vi.mocked(mock.update).mockRejectedValue(original);
+
+    const repo = new PrismaAccountRepository();
+    const err = await repo
+      .setOperatorAddressAbtEth('did:abt:prisma-abt-eth-2', '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed')
       .catch((e: unknown) => e);
 
     expect(err).toBe(original);

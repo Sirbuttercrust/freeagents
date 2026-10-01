@@ -219,6 +219,10 @@ class BarrierAccountRepository implements AccountRepository {
     return this.inner.setOperatorAddressAbt(did, operatorAddressAbt);
   }
 
+  setOperatorAddressAbtEth(did: string, operatorAddressAbtEth: string): Promise<Account | null> {
+    return this.inner.setOperatorAddressAbtEth(did, operatorAddressAbtEth);
+  }
+
   promoteUnprovedGithubLogin(did: string, githubLogin: string): Promise<Account | null> {
     return this.inner.promoteUnprovedGithubLogin(did, githubLogin);
   }
