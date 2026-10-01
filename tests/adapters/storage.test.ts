@@ -855,25 +855,30 @@ describe('MemoryAccountRepository.setOperatorAddressAbtEth', () => {
     expect(await repo.findByDid('did:abt:mem-abt-eth')).toEqual(updated);
   });
 
-  it('leaves operatorAddressEvm and operatorAddressAbt exactly as they were', async () => {
+  it('changes operatorAddressAbtEth and nothing else on the account', async () => {
     const repo = new MemoryAccountRepository();
     await repo.register({ did: 'did:abt:mem-abt-eth-2', githubLogin: 'operator-mem-abt-eth-2' });
     await repo.setOperatorAddressEvm('did:abt:mem-abt-eth-2', EVM);
     await repo.setOperatorAddressAbt('did:abt:mem-abt-eth-2', ABT);
+    const before = await repo.findByDid('did:abt:mem-abt-eth-2');
+    expect(before?.operatorAddressEvm).toBe(EVM);
+    expect(before?.operatorAddressAbt).toBe(ABT);
 
     const updated = await repo.setOperatorAddressAbtEth('did:abt:mem-abt-eth-2', ABT_ETH);
 
-    expect(updated).toMatchObject({ operatorAddressEvm: EVM, operatorAddressAbt: ABT, operatorAddressAbtEth: ABT_ETH });
+    expect(updated).toEqual({ ...before, operatorAddressAbtEth: ABT_ETH });
   });
 
-  it('writes no other network column when the others are empty', async () => {
+  it('changes nothing but operatorAddressAbtEth when the other network columns are empty', async () => {
     const repo = new MemoryAccountRepository();
     await repo.register({ did: 'did:abt:mem-abt-eth-3', githubLogin: 'operator-mem-abt-eth-3' });
+    const before = await repo.findByDid('did:abt:mem-abt-eth-3');
+    expect(before?.operatorAddressEvm).toBeNull();
+    expect(before?.operatorAddressAbt).toBeNull();
 
     const updated = await repo.setOperatorAddressAbtEth('did:abt:mem-abt-eth-3', ABT_ETH);
 
-    expect(updated?.operatorAddressEvm).toBeNull();
-    expect(updated?.operatorAddressAbt).toBeNull();
+    expect(updated).toEqual({ ...before, operatorAddressAbtEth: ABT_ETH });
   });
 
   it('answers null for a DID that was never registered', async () => {
