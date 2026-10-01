@@ -273,7 +273,7 @@ describe('GET /accounts/:did/pending: only draft and proposed rows for this buye
     }
   });
 
-  // Proof r1, defect 2 (unverified-state-claim): dashboard.js's
+  // dashboard.js's
   // progressPendingRow mounts an avatar from this row's own agentDid
   // (fillJobHead -> mountAvatar, dashboard.js:558), the one dashboard
   // section that reads a DID from a response carrying no resolved spec.

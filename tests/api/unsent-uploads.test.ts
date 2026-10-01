@@ -1,4 +1,4 @@
-// FIX-SW4f (bugs.md SW4-05): one account cannot fill the server's disk with
+// FIX-SW4f (SW4-05): one account cannot fill the server's disk with
 // uploads it never sends. Drives the real createApp over a listening server
 // on memory repositories the test can read. Time moves with a faked Date
 // only (the clock the quota, the age check and the sweep read); timers,

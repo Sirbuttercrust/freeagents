@@ -164,7 +164,7 @@ describe('MemoryAgentRepository.updateGithubBinding', () => {
 // FIX-B41b: the memory driver's storage-layer half of the ignored-fields
 // guarantee. app.ts already strips did/delegation/githubLogin/proofStatus
 // from the body before building UpdateListingInput, so calling this
-// through the route can never exercise a leak here alone (review round 1's
+// through the route can never exercise a leak here alone (mutation
 // M9: spreading the whole cast input into the row stayed green against
 // every route-level test). This calls updateListing directly with an
 // input deliberately cast to carry extra keys past the type system, the
@@ -315,7 +315,7 @@ describe('MemoryJobRepository.findByAgentDid', () => {
     const other = 'did:abt:zOtherAgent';
     await repo.create({ ...jobFixture(), id: 'job_a', agentDid: agent, status: 'draft' });
     await repo.create({ ...jobFixture(), id: 'job_b', agentDid: agent, status: 'proposed' });
-    // QA D2 (review round 1): the prior test never seeded a status
+    // The prior test never seeded a status
     // outside draft/proposed for the TARGET agent, so "every job ... in
     // any status" (done-means 3) was asserted by the test's title
     // alone. job_d pins a confirmed job for the same agent: a driver
@@ -328,7 +328,7 @@ describe('MemoryJobRepository.findByAgentDid', () => {
   });
 });
 
-// FIX-SW4b (bugs.md SW4-02): a push subscription is removed only by the
+// FIX-SW4b (SW4-02): a push subscription is removed only by the
 // account that holds it, and a lookup by endpoint hands back a copy.
 describe('MemoryPushSubscriptionRepository: the owner rule', () => {
   const row = {

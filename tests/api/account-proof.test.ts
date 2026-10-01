@@ -224,14 +224,14 @@ describe('POST /agents/:agentDid/account-proof (G1 path two: the signed gist alo
     expect(readBody.proofStatus).toBe('verified');
   });
 
-  // PRF1 (bugs.md B31): the defect this card fixes, reproduced exactly. A
+  // PRF1 (B31): the defect this card fixes, reproduced exactly. A
   // brand-new agent whose key the platform has NEVER seen in a prior
   // signed HTTP request (identityAdapter here is the REAL adapter with a
   // fresh, empty knownKeys store, the same one createApp wires by default,
   // not the test's usual verify-by-public-key fake) still verifies on its
   // very first account-proof call, because the gist statement carries the
   // agent's own key and identity.verify's binding check accepts it.
-  it('200 (PRF1, bugs.md B31): a brand-new agent verifies on its first proof, no prior agent-signed request', async () => {
+  it('200 (PRF1, B31): a brand-new agent verifies on its first proof, no prior agent-signed request', async () => {
     const realIdentity = createIdentityAdapter(createKnownKeyStore());
     const realRepo = new MemoryAccountRepository();
     const realAgentRepo = new MemoryAgentRepository();
@@ -288,14 +288,14 @@ describe('POST /agents/:agentDid/account-proof (G1 path two: the signed gist alo
     }
   });
 
-  // PRF1 r1 (Proof review round 1, defect 1): a brand-new agent whose gist
+  // PRF1: a brand-new agent whose gist
   // follows today's documented v1 format -- no `key` line at all -- still
   // has no key this process has ever observed, since nothing taught the
   // platform this DID's key through a prior agent-signed request. That must
   // not read as a platform outage: the response names the exact remedy (add
   // a `key: <publicKeyMultibase>` line naming the agent's own key), so
   // closing B31 never trades one hidden step for another.
-  it('409 (PRF1 r1): a brand-new agent with no key line is told to add one, not told the platform is down', async () => {
+  it('409 (PRF1): a brand-new agent with no key line is told to add one, not told the platform is down', async () => {
     const realIdentity = createIdentityAdapter(createKnownKeyStore());
     const realRepo = new MemoryAccountRepository();
     const realAgentRepo = new MemoryAgentRepository();
@@ -354,13 +354,13 @@ describe('POST /agents/:agentDid/account-proof (G1 path two: the signed gist alo
     }
   });
 
-  // PRF1 r1 (defect 2): the statement's key line names a key that does NOT
+  // PRF1: the statement's key line names a key that does NOT
   // derive the claimed agent DID (an attacker's own key, signing over the
   // same bytes). identity.verify's binding check must reject the candidate
   // outright; with no fallback observed key either, this is an
   // operator-fixable conflict (409, naming the bad key line), never a 503
   // that reads as a platform outage the operator cannot act on.
-  it('409 (PRF1 r1): a key line naming a key that does not derive the agent DID is never trusted', async () => {
+  it('409 (PRF1): a key line naming a key that does not derive the agent DID is never trusted', async () => {
     const realIdentity = createIdentityAdapter(createKnownKeyStore());
     const realRepo = new MemoryAccountRepository();
     const realAgentRepo = new MemoryAgentRepository();

@@ -519,7 +519,7 @@ describe('agent delegation, invariant 2 (R-2): W3C verifiability', () => {
   });
 
   // FIX-B41a item 7 (ENT-2): "description" joined the wallet path's own
-  // create call too. qa review round 2: no wallet-path test posted a
+  // create call too. No wallet-path test posted a
   // description, so the wallet-path create silently writing null
   // regardless of the body survived 777/777.
   it('a description posted on the wallet path is stored and reads back', async () => {

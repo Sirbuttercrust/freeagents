@@ -115,7 +115,7 @@ describe('lapseAtStaged: staged with no balance settled, 7 days after stagedAt',
     expect(result.stagedCommit).toBe('abc123def');
   });
 
-  // D4 (review round 1, t_cb5d35cd): the brief defines this clock as "staged
+  // D4: the brief defines this clock as "staged
   // WITH NO BALANCE SETTLED, 7 days after stagedAt". A buyer who already
   // paid must never have their job closed unpaid from under them by an
   // unrelated read -- that would destroy work they paid for and invert the
@@ -134,7 +134,7 @@ describe('lapseAtStaged: staged with no balance settled, 7 days after stagedAt',
   });
 });
 
-// P6 review round 1 (D2): a redo requested and never answered used to stop
+// P6 (D2): a redo requested and never answered used to stop
 // this clock outright -- lapseAtStaged returned the job unchanged the
 // moment it left `staged` for `redo_requested`, and nothing else in
 // applyLapses covered that status, so an operator who simply never

@@ -1,4 +1,4 @@
-// FIX-SW4b (bugs.md SW4-02): a push subscription belongs to the account that
+// FIX-SW4b (SW4-02): a push subscription belongs to the account that
 // registered it. Real createApp with signed parties, a Memory push repository
 // read back after every call, and a recording PushSender, so "refused" cannot
 // mean "refused but stored" and "kept" is shown by a notification still

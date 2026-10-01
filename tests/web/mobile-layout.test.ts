@@ -18,7 +18,7 @@
 //    unnoticed. This law is NOT a width law and is not measured at one
 //    width: base.css fires it on `(max-width: 760px), (pointer: coarse)`,
 //    so the sweep runs a coarse pointer at 320, 761 and 834 plus a fine
-//    pointer at 900 as the control. Fix round 1 exists because it used to
+//    pointer at 900 as the control. An earlier version of this sweep used to
 //    run at 320 alone, where both halves of that rule are true at once, and
 //    so passed over a page-local override that mirrored only the width
 //    half.
@@ -57,7 +57,7 @@ const NARROW = 320;
 // two conditions, either one enough. At 320 with mobile metrics both halves
 // match, so a sweep that only ever measures 320 cannot tell you which half
 // carried the floor, and cannot see a page-local rule that mirrors only the
-// width half. That is exactly what browse.html shipped in round 1. Its
+// width half. That is exactly what browse.html once shipped. Its
 // mirror of the floor was written `max-width: 760px` alone, `#q` measured
 // 16px at 320 and 15px again at 761, and this sweep passed anyway.
 //
@@ -924,7 +924,7 @@ describe('every field you can type into is at least 16px wherever the floor appl
   }, 120_000);
 
   // The two fields the original sweep named, pinned by id and measured on
-  // every coarse viewport. 761 is where round 1 failed: the page-local
+  // every coarse viewport. 761 is where an earlier version failed: the page-local
   // mirror of the floor on browse was written `max-width: 760px` while the
   // base rule it overrides is `max-width: 760px, pointer: coarse`, so one
   // pixel past the breakpoint the mirror stopped applying, `.searchrow

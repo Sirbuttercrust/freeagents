@@ -1,4 +1,4 @@
-// FIX-B43a (bugs.md B43, ruling 2026-09-27): "an owner can stop listing an
+// FIX-B43a (B43, ruling 2026-09-27): "an owner can stop listing an
 // agent at any time and list it again at any time, from the agent settings
 // page. Unlisted, the agent leaves browse and refuses new hires; its
 // finished work and records stay public. Jobs already open when it is

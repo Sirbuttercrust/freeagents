@@ -1,4 +1,4 @@
-// SW4-04 (bugs.md): one caller cannot hold unlimited live streams open.
+// SW4-04: one caller cannot hold unlimited live streams open.
 // Every test drives createApp over a real listening server, opens real SSE
 // connections with fetch, and closes every stream it opened and the server it
 // started in a finally block, so no socket outlives the test.

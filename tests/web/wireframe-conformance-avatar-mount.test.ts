@@ -1,4 +1,4 @@
-// A guard for the avatar-mount instrument (t_cf2d9eab).
+// A guard for the avatar-mount instrument.
 //
 // The conformance gate's "carries the avatars its wireframe draws" check
 // used to decide whether a page mounts an avatar with /data-avatar/ over
@@ -65,7 +65,7 @@ describe('avatarMounts(): the HTML side counts elements, not strings', () => {
 
   // Dead markup is not a mount: <template> content is inert until something
   // clones it, which is the conformance-satisfied-by-dead-markup defect this
-  // suite already found and fixed once (Proof round 2 D1, the removed
+  // suite already found and fixed once (the removed
   // tmpl-verify-prior in agent.html). No page or wireframe in this tree puts
   // the attribute inside a template today, so this pins the rule rather than
   // changing a verdict.

@@ -27,7 +27,7 @@ describe('contentTypeFor: what the bytes route actually serves (MSG1a make item 
   });
 });
 
-// FIX-SW4f (bugs.md SW4-05): the counting rule behind the 429.
+// FIX-SW4f (SW4-05): the counting rule behind the 429.
 describe('unsentUploadCapReached: which unsent-upload cap binds (FIX-SW4f)', () => {
   const now = new Date('2026-09-30T12:00:00Z');
   const row = (jobId: string, ageMs: number, messageId: string | null = null): UnsentUploadRow => ({

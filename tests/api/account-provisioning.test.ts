@@ -116,7 +116,7 @@ async function forceProvisioning(baseUrl: string, auth: Record<string, string>):
   });
 }
 
-// P8d repair round 2 (Proof review round 1, D1): fetch() reuses a shared
+// P8d: fetch() reuses a shared
 // keep-alive agent for two calls to the same origin, which serializes
 // them onto one connection instead of sending both at once. A fresh
 // node:http request per call (agent: false) is a genuinely separate
@@ -162,7 +162,7 @@ async function postJsonFreshSocket(
   });
 }
 
-// P8d repair round 2 (Proof review round 1, D1): even on separate
+// P8d: even on separate
 // sockets, two nearly-simultaneous requests can still run their
 // provisioning work end to end, one after the other, if neither one's
 // own code happens to yield the event loop at the right moment; nothing
@@ -224,7 +224,7 @@ class BarrierAccountRepository implements AccountRepository {
   }
 }
 
-// P8d repair round 2 (Proof review round 1, D2): the custody-fence and
+// P8d: the custody-fence and
 // upgrade-path tests below need a hire that has actually reached an
 // agreed price on the ABT rail, whose PAYEE (the hired agent's operator)
 // is a provisioned account, i.e. an account with no address until the
@@ -276,7 +276,7 @@ async function setupAbtJobWithProvisionedOperator(
         delegation: delegationFixture(agent.did),
         name: 'scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): confirm has always refused an
+        // FIX-B37 (B37 + B42): confirm has always refused an
         // agent with no verified GitHub login, and this file's own ABT
         // custody-fence tests drive a deposit through the shared payment
         // rail (via tests/helpers/abt-fixtures.ts), which now checks the

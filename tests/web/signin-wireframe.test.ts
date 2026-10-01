@@ -107,12 +107,12 @@ describe('signed in, "Once signed in" carries the three real destinations (W6 S1
   });
 });
 
-// Proof round 1, D1 (stale-state-after-signout): #once-signed-in was set on
+// stale-state-after-signout: #once-signed-in was set on
 // load and on the passkey path, and nothing ever cleared it. Clicking
 // nav-signout cleared the session and reverted the nav, but this section
 // stayed visible, showing a signed-out visitor a menu of pages (Jobs, My
 // agents, Identity) that would bounce them back here.
-describe('signing out clears "Once signed in" (W6 round 2, D1)', () => {
+describe('signing out clears "Once signed in" (W6)', () => {
   it('hides the section again once the real sign-out click has finished', async () => {
     const sessionAdapter = createSessionAdapter({
       github: fakeGitHubConfig(),
@@ -177,7 +177,7 @@ describe('signing out clears "Once signed in" (W6 round 2, D1)', () => {
   });
 });
 
-// Proof round 1, D2 (tap-target-under-floor): the three "Once signed in"
+// tap-target-under-floor: the three "Once signed in"
 // destination links (Jobs, My agents, Identity) sat inside span > .between
 // > .rows with no covered-class treatment, so base.css's 44px floor block
 // never reached them. Measured before this fix: 33x17, 70x17, 49x17 at
@@ -185,7 +185,7 @@ describe('signing out clears "Once signed in" (W6 round 2, D1)', () => {
 // tests/web/myagents.test.ts and tests/web/dashboard.test.ts already hold
 // their own tap targets to: jsdom performs no layout, so only a real
 // browser can prove a link actually reaches the floor.
-describe('layout: 320px, the three "Once signed in" links reach the 44px floor (W6 round 2, D2)', () => {
+describe('layout: 320px, the three "Once signed in" links reach the 44px floor (W6)', () => {
   it('Jobs, My agents and Identity each measure at least 44px tall, and the page does not overflow', async () => {
     if (!hasRealBrowser()) {
       console.warn('no Chrome found for real-browser layout test; skipping (see CHROME_BIN)');

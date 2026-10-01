@@ -642,7 +642,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
     }
   });
 
-  // P8n repair round 1, D2 (layout-broken-at-desktop): the two tests that
+  // layout-broken-at-desktop: the two tests that
   // stood here regex-matched CSS rule text and read a static base.css
   // min-height, so mutating .arow's own layout (min-width:600px, proved by
   // QA's review) left both green. jsdom performs no layout at all, so
@@ -763,7 +763,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
 });
 
 // FIX-SW12g (SW3-10): an owner whose account names no payout address on
-// either rail cannot be paid (PLAN.md P8d), and this page is where the
+// either rail cannot be paid (P8d), and this page is where the
 // owner of at least one agent is told so. Every account here is its own
 // row in its own app (tests/helpers/payout-accounts.ts).
 describe('the payout notice on /myagents (SW3-10)', () => {

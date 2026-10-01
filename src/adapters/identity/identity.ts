@@ -57,7 +57,7 @@ export class DidNotResolvableError extends Error {
   }
 }
 
-// PRF1 r1 (Proof review round 1, defect 1 and 2): verify() throws this,
+// PRF1: verify() throws this,
 // distinct from DidNotResolvableError, exactly when a caller offered a
 // candidate key and the binding check rejected it (malformed, or it derives
 // some other DID) and the observed-key store had nothing to fall back on
@@ -133,7 +133,7 @@ export function createIdentityAdapter(
   knownKeys: KnownKeyStore = createKnownKeyStore(),
   observedKeys?: ObservedKeyRepository,
 ): IdentityAdapter {
-  // D2 (task t_8a82c865): the in-process KnownKeyStore first (no I/O, the
+  // The in-process KnownKeyStore first (no I/O, the
   // common case), the durable ObservedKeyRepository second, so a DID this
   // process observed before a restart still resolves without a network
   // call -- the anchor's own words, made true across process restarts and
@@ -225,7 +225,7 @@ export function createIdentityAdapter(
     // that ("cannot determine"), which the account-proof route maps to a
     // 503; null would claim "checked, no claim present" and hand back a
     // 409 whose remedy the operator can never make this adapter observe
-    // (Review finding, round 1, D1, task t_8a82c865: a permanent, unsatisfiable
+    // (a permanent, unsatisfiable
     // conflict is worse than the outage it replaced). A DID this process
     // has never seen a valid signature from is a DidNotResolvableError,
     // never a guessed document.
@@ -279,7 +279,7 @@ export function createIdentityAdapter(
     // signerDid throws, the same "no data to work from" case resolveDid
     // above throws on.
     //
-    // PRF1 (bugs.md B31): a caller may also pass candidateKeyMultibase --
+    // PRF1 (B31): a caller may also pass candidateKeyMultibase --
     // the gist statement's own optional key line -- naming a key it
     // believes is signerDid's. This closes the defect where a brand-new
     // agent's first proof answered 503 because resolveVerificationMethod
@@ -295,7 +295,7 @@ export function createIdentityAdapter(
     // to the observed-key store exactly as before, so a well-behaved
     // caller who simply omits the field sees no change at all.
     //
-    // PRF1 r1 (Proof review round 1, defect 2): when the fallback ALSO has
+    // PRF1: when the fallback ALSO has
     // nothing, the two ways of getting here are told apart. A caller who
     // offered a candidate and had it rejected gets CandidateKeyRejectedError:
     // the gist is public and operator-authored, so naming the bad line back
@@ -359,7 +359,7 @@ export function createIdentityAdapter(
   };
 }
 
-// PRF1 (bugs.md B31): the binding check a candidate key must pass before
+// PRF1 (B31): the binding check a candidate key must pass before
 // verify() above will use it -- does the key's OWN derived DID equal the
 // DID the caller claims it belongs to? Identical in substance to
 // buildDidAbtLoader's binding check (did-abt-resolver.ts) and the R-34

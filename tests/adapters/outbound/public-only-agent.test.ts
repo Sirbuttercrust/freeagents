@@ -1,4 +1,4 @@
-// FIX-SW4a (bugs.md SW4-01, SW4-08): the webhook sender and the push sender
+// FIX-SW4a (SW4-01, SW4-08): the webhook sender and the push sender
 // never open a connection to an internal address, whether the host is a
 // literal or a name that resolves to one. A plain TCP server on the loopback
 // interface counts connections; TLS never completes and does not need to,

@@ -109,7 +109,7 @@ describe('toBrowseCard', () => {
     expect(card.lastVerifiedAt).toBe('2026-03-09T00:00:00.000Z');
   });
 
-  // Review finding (t_698205aa, defect summary-contradicts-tier): buyerCount used to
+  // summary-contradicts-tier: buyerCount used to
   // be handed in from a tier-blind buyerDiversity() call over EVERY
   // completed job, so an agent with one public and two private merges
   // rendered "1 verified hire, 3 buyers" while its own profile page said
@@ -238,7 +238,7 @@ describe('sortBrowseCards', () => {
     expect(sorted.map((c) => c.did)).toEqual(['did:abt:moreHires', 'did:abt:fewerHiresMorePortfolio']);
   });
 
-  // Review finding (t_698205aa, defect sort-mutation-guard-too-weak): the guard above
+  // sort-mutation-guard-too-weak: the guard above
   // only exercises a hire+portfolio blend, and its fixture pins
   // verifiedPriorWorkCount to 0 on every card, so a comparator blended with
   // verifiedPriorWorkCount instead (the review's own mutation:
@@ -325,7 +325,7 @@ describe('toBrowseCard: structural no-blend sweep', () => {
     return forbiddenSums;
   }
 
-  // The review finding (t_698205aa, defect no-blend-sweep-vacuous) reproduced the sweep
+  // The no-blend-sweep-vacuous finding reproduced the sweep
   // code verbatim against a reachable state (1 public, 2 private, 3
   // distinct buyers) and it reported offenders ["buyerCount=3"], because
   // the shipped fixture picked a buyerCount value (7) that was deliberately

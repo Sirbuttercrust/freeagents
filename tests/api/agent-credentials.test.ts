@@ -1,4 +1,4 @@
-// B9 (launch ledger): the receipts listing every agent profile already links
+// B9: the receipts listing every agent profile already links
 // to. GET /agents/:agentDid/credentials replaces the notImplemented stub.
 //
 // The anchor this file exists to hold: a deemed-completion credential is not

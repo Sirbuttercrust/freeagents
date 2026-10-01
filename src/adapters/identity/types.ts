@@ -22,7 +22,7 @@ export interface DidDocument {
   // (a 503: the operator cannot fix what this adapter has no path to
   // check). Collapsing the third state into null is what let a resolver
   // that can never learn alsoKnownAs hand out a 409 whose remedy it can
-  // never observe being satisfied (Review finding, round 1, D1, task t_8a82c865).
+  // never observe being satisfied.
   readonly alsoKnownAs: readonly string[] | null | undefined;
 }
 
@@ -30,7 +30,7 @@ export interface SignedPayload {
   readonly payload: string;
   readonly signature: string;
   readonly signerDid: string;
-  // PRF1 (bugs.md B31): an optional publicKeyMultibase the caller believes
+  // PRF1 (B31): an optional publicKeyMultibase the caller believes
   // is signerDid's own key (e.g. the gist statement's own `key` line).
   // verify() below only trusts this when it derives signerDid itself --
   // the identical binding check buildDidAbtLoader and the R-34 signing-key

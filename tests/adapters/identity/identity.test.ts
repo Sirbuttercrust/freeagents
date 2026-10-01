@@ -129,13 +129,13 @@ describe('createIdentityAdapter, verify (real, local-only)', () => {
   });
 });
 
-// PRF1 (bugs.md B31): a brand-new agent's first proof must not depend on a
+// PRF1 (B31): a brand-new agent's first proof must not depend on a
 // prior agent-signed request having taught the platform its key. The gist
 // statement may name the signer's own key directly; verify() accepts it as
 // a CANDIDATE only after checking it derives the claimed signerDid itself
 // (the identical binding check buildDidAbtLoader and the R-34 signing-key
 // resolver already perform), never as a trusted value on its own.
-describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)', () => {
+describe('createIdentityAdapter, verify with a candidate key (PRF1, B31)', () => {
   it('verifies a genuine signature against a candidate key that derives the claimed DID, with NO prior observation at all', async () => {
     const identity = createIdentityAdapter(createKnownKeyStore());
     const wallet = fromRandom();
@@ -169,7 +169,7 @@ describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)
     ).rejects.toThrow(CandidateKeyRejectedError);
   });
 
-  // PRF1 r1 (defect 2): the two failure shapes must stay distinguishable, so
+  // PRF1: the two failure shapes must stay distinguishable, so
   // the route can answer each with its own 409 remedy: fix the existing
   // `key` line for a rejected candidate, or add one for an unobserved DID.
   it('throws CandidateKeyRejectedError (not DidNotResolvableError) when a candidate was offered but rejected', async () => {
@@ -250,7 +250,7 @@ describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)
   });
 });
 
-// D2 (Review finding, round 1, task t_8a82c865): identity resolution must not depend
+// Identity resolution must not depend
 // on process warmth. The anchor: "a stranger derives the same
 // verificationMethod from the keyid whether or not this process happened
 // to be running when the agent last signed" -- so this process must not
@@ -259,7 +259,7 @@ describe('createIdentityAdapter, verify with a candidate key (PRF1, bugs.md B31)
 // tests below simulate one by handing resolveDid/verify a FRESH KnownKeyStore
 // (never taught anything) alongside a durable store that already carries
 // the observation "from before the restart".
-describe('createIdentityAdapter, durable fallback (D2, task t_8a82c865)', () => {
+describe('createIdentityAdapter, durable fallback', () => {
   it('resolveDid falls back to the ObservedKeyRepository when the in-process KnownKeyStore has no entry, simulating a restart', async () => {
     const wallet = fromRandom();
     const signing = await signingIdentityFromWallet(wallet);
@@ -305,7 +305,7 @@ describe('createIdentityAdapter, durable fallback (D2, task t_8a82c865)', () => 
 });
 
 // P8d: createOperatorDid is the real derivation the auto-provisioning card
-// (t_dcbf6a5e) needs: deterministic from FREEAGENTS_PLATFORM_SEED and the
+// needs: deterministic from FREEAGENTS_PLATFORM_SEED and the
 // sign-in subject, so signing in twice as the same subject can never mint
 // a second DID, and the platform never stores a private key.
 describe('createIdentityAdapter, createOperatorDid (P8d)', () => {

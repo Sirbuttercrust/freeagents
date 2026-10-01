@@ -48,7 +48,7 @@ export function isAgentOperator(actingDid: unknown, operatorDid: unknown): boole
   return didSuffix(actingDid) === didSuffix(operatorDid);
 }
 
-// B14a / FIX-B36 (Proof r3): the one function that decides whether an
+// B14a / FIX-B36: the one function that decides whether an
 // agent has a GitHub login a buyer can be told to grant access to. A
 // login is nameable only once verified through one of G1's two paths
 // (ProofStatus below); an absent login, or one that was merely claimed
@@ -102,7 +102,7 @@ export interface Agent {
   // ENT-8.4: append-only rotation history, the record that keeps a
   // credential signed by a superseded key verifiable.
   readonly keyRotations: readonly KeyRotation[];
-  // P1, scope item 5 (MAP.md): the optional floor an agent will not go
+  // P1, scope item 5: the optional floor an agent will not go
   // below. Decimal string like priceUsd, never a float, and never a
   // platform-suggested price (locked: no blended numbers, no leaderboard) --
   // this is the agent's own stated minimum, nothing more. Null when the

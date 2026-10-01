@@ -7,7 +7,7 @@
 // PNG/JPEG/WebP through, mirroring how src/adapters/github/github.ts is
 // the only file that knows GitHub's REST shape exists.
 //
-// HEIC (Proof r1, defect 1): sharp's prebuilt binaries ship libvips
+// HEIC: sharp's prebuilt binaries ship libvips
 // without HEVC/HEIC decode support, because HEVC remains
 // patent-encumbered (github.com/lovell/sharp/issues/4132) -- building
 // libvips against libheif from source is not something this deployment
@@ -25,9 +25,9 @@ import heicConvert from 'heic-convert';
 
 // `detail` carries the underlying decoder's own message (libvips,
 // heic-convert, whichever ran) for the SERVER's own log only -- never
-// read by the route when building the client-facing response (Proof r1,
-// defect 1: raw libvips text must never reach the client). `message`
-// stays the one fixed, library-agnostic sentence every caller sees.
+// read by the route when building the client-facing response (raw libvips
+// text must never reach the client). `message` stays the one fixed,
+// library-agnostic sentence every caller sees.
 export class ImageReencodeError extends Error {
   readonly detail: string;
   constructor(message: string, detail: string) {
@@ -83,8 +83,8 @@ export async function reencodeImage(buffer: Buffer, isHeic = false): Promise<Ree
       .toBuffer();
     return { bytes, thumbnailBytes };
   } catch (err) {
-    // Never the underlying library's raw text reaching the client
-    // (Proof r1, defect 1): the message is logged in full by the route's
+    // Never the underlying library's raw text reaching the client:
+    // the message is logged in full by the route's
     // own console.error (via ImageReencodeError.detail), but the error
     // THROWN here carries a fixed, library-agnostic sentence so a
     // caller never learns which decoder failed or how.

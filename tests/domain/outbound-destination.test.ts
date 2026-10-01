@@ -1,4 +1,4 @@
-// FIX-SW4a (bugs.md SW4-01, SW4-08): the one rule for where the platform
+// FIX-SW4a (SW4-01, SW4-08): the one rule for where the platform
 // may send a webhook or a push. Every refused range is pinned with one
 // literal, so removing a range from the list turns a named row red.
 import { describe, expect, it } from 'vitest';

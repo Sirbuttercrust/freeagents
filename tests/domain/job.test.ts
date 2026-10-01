@@ -590,7 +590,7 @@ describe('criteria exchange', () => {
     ]);
   });
 
-  // FIX-B45 (bugs.md B45): a matched line's author is part of its stored
+  // FIX-B45 (B45): a matched line's author is part of its stored
   // record, exactly like its marks. The route's B26 rule still labels every
   // INPUT line with the sender's seat before this call ever runs, but a
   // line that matches an existing stored line by trimmed text is unchanged
@@ -894,7 +894,7 @@ describe('confirmSpec (R-9)', () => {
 // FIX-B36 (Make item 3): followRepositoryMove only ever changes
 // `repository`, and it is refused once the job is past confirmed -- the
 // repository question is settled for good the moment staging exists
-// (job.ts's own comment beside the function). Proof r1: no test pinned
+// (job.ts's own comment beside the function). No test pinned
 // the refusal, so deleting the guard left 54/54 tests green.
 describe('followRepositoryMove', () => {
   it('changes only repository on a confirmed job', () => {
@@ -915,7 +915,7 @@ describe('followRepositoryMove', () => {
   });
 });
 
-// FIX-B37 (bugs.md B37): agreementGap is the SAME rule confirmSpec has
+// FIX-B37 (B37): agreementGap is the SAME rule confirmSpec has
 // always enforced, lifted out so a deposit door can ask it before any
 // money moves (route-support.ts's checkAgreementReady). Every gap kind,
 // in the order confirmSpec has always checked them, and null once a job

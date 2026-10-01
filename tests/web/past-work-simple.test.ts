@@ -782,7 +782,7 @@ describe('(e) exactly one primary button in every loaded state, none on a not-fo
 //
 // The floor carries 0.05px of slack, as incoming.test.ts does for its foot
 // action. getBoundingClientRect() on a min-height: 44px chip at 320 with a
-// 2x device scale has read 43.99993896484375 under load (Proof r1), which is
+// 2x device scale has read 43.99993896484375 under load, which is
 // float noise in layout and not a short control. 0.05px is 20 times narrower
 // than a 43px control, and the planted control below proves 43px and 43.9px
 // are still caught.

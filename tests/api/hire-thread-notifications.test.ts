@@ -1,4 +1,4 @@
-// HT1 Part B (STEER item 4 + bugs.md B19): notifications, webhook
+// HT1 Part B (STEER item 4 + B19): notifications, webhook
 // delivery, and the deposit/remainder-paid system events. Injects the
 // message/notification repositories and a fake WebhookSender directly so
 // assertions read storage state rather than re-deriving it from HTTP
@@ -284,7 +284,7 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
     const buyerNotifications = await notificationRepo.listByAccountDid(buyer.did);
     expect(buyerNotifications.some((n) => n.jobId === jobId && n.eventType === 'new_message')).toBe(true);
 
-    // Proof r1, defect 8 (the read-through-the-route half): the row must
+    // The read-through-the-route half: the row must
     // be visible reading GET /jobs/:jobId/messages as BOTH parties, not
     // only through messageRepo directly.
     const asBuyer = await req('GET', `/jobs/${jobId}/messages`, undefined, buyer);
@@ -295,7 +295,7 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
     expect(asOperatorBody.messages.some((m) => (m.systemEvent as Record<string, unknown> | null)?.type === 'deposit_paid')).toBe(true);
   });
 
-  // Proof r1, defect 8: the B19 STEER asks for one route-level test PER
+  // The B19 STEER asks for one route-level test PER
   // LEG, reading the thread as buyer and owner. Only the deposit leg
   // existed; this covers the remainder leg through the full route walk
   // (confirm, stage, then the remainder wallet-response).
@@ -329,7 +329,7 @@ describe('HT1 Part B: notifications, webhook delivery, settlement system events'
   });
 });
 
-// Proof r1, defect 7: the webhook gate ("never contacted unless both
+// The webhook gate ("never contacted unless both
 // enabled negotiation AND set the webhook") only ever had a positive
 // test. This block covers both negative halves against the real route,
 // each with its own agent fixture and its own webhook spy.
@@ -494,13 +494,13 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
     }
   });
 
-  // Proof r2, defect 1: the r1 handoff claimed "a slow webhook does not
+  // An earlier handoff claimed "a slow webhook does not
   // delay the response" but no test ever exercised that. This one
   // injects a webhook sender AND a push sender that each hang for
   // several seconds, then asserts the job-creation response comes back
   // in well under that time -- the response must never wait on either
   // send. The operator subscribes for push through the real route
-  // first (Proof r3, defect 1: without a registered subscription,
+  // first (without a registered subscription,
   // notify()'s push loop iterates zero times and the hanging push
   // sender is never called at all, so this test would pass even if the
   // `await` in front of pushSender.send were restored). A mutation
@@ -543,7 +543,7 @@ describe('HT1 Part B (STEER item 4): the webhook gate stays closed unless BOTH c
     }
   });
 
-  // FIX-B56 (bugs.md B56): FIX-PUSH's service worker can only open the
+  // FIX-B56 (B56): FIX-PUSH's service worker can only open the
   // conversation a notification is about if the push payload names which
   // job that is. Each test here captures the payload PushSender.send
   // actually receives, through a real subscription made via the real

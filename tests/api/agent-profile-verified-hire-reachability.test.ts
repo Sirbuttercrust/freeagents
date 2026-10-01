@@ -1,4 +1,4 @@
-// R-17 (ENT-8, invariant 4), proof gate round 1 finding: verifiedHires must
+// R-17 (ENT-8, invariant 4): verifiedHires must
 // be reachable from a REAL merge, not only from a test fixture that calls
 // credentialRepo.save({..., repositoryPublic: true}) by hand. Every other
 // R-17 test builds its verified-hire fixture that way, which is exactly how

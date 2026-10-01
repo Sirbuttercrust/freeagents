@@ -128,7 +128,7 @@ async function openRoster(b: RealBrowser): Promise<{ rowsAt: number; dcl: number
 }
 
 describe('SW2-03: a reveal block taller than the screen shows at once', { timeout: 60000 }, () => {
-  // t_70cced06: this used to read the first row's opacity at a fixed 400 ms
+  // This used to read the first row's opacity at a fixed 400 ms
   // against > 0.9. The entrance runs 450 ms, so a slow runner caught it
   // mid-fade (0.83) with is-in already set. What SW2-03 needs is that the
   // observer revealed the roster, not a wall-clock frame of its fade: so at

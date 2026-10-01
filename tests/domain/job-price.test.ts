@@ -222,7 +222,7 @@ describe('confirmedSpecHash covers the price fields (ENT-4.2)', () => {
   });
 });
 
-// The optional agent floor (MAP.md): a proposal below it is refused at
+// The optional agent floor: a proposal below it is refused at
 // propose time, naming the floor. This is the domain half; the route calls
 // this function once it has read the agent's floorPriceUsd from storage.
 describe('assertPriceAboveFloor', () => {

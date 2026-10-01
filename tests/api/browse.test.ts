@@ -146,7 +146,7 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
-  // Proof r1, defect 1 (claim-contradicts-implementation): the resolved
+  // The resolved
   // avatar spec must ride under the SAME key on every agent-bearing
   // response. DATA-CONTRACT.md section 2 names `avatarSpec` for the search
   // response; before this fix the browse card carried it as `avatar`
@@ -337,7 +337,7 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
-  // The exact reproduction from review (t_698205aa, summary-contradicts-tier): an
+  // The exact reproduction: an
   // agent with one PUBLIC merge (buyer-a, verified) and two PRIVATE merges
   // (buyers b and c, portfolio) used to render "1 verified hire, 3 buyers"
   // because buyerCount was computed over every completed job regardless of
@@ -426,7 +426,7 @@ describe('GET /agents (R-20 browse)', () => {
     });
   });
 
-  // Review finding (t_698205aa, defect no-blend-sweep-vacuous): the original fixture
+  // The original fixture
   // here was 1 verified hire (implicitly 1 buyer) and 1 portfolio item, so
   // tierCounts [1, 0, 1] made forbiddenSums {1, 2} and buyerCount 1 (now
   // derived structurally by toBrowseCard) collided with its own sum. Because

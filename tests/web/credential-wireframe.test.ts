@@ -4,7 +4,7 @@
 // same discipline tests/web/job-wireframe.test.ts already holds to for the
 // job page: a control that only satisfies the conformance instrument's text
 // match, with no real href wired to it, is the
-// conformance-satisfied-by-dead-markup class (W1 round 2).
+// conformance-satisfied-by-dead-markup class.
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 

@@ -47,8 +47,7 @@
    guessed "confirmed" (the same stance myagents.js:174-179 states).
 
    EVERY SECTION SHELL AND EVERY ROW SHAPE IS A <template> IN
-   dashboard.html, cloned here (conformance-satisfied-by-dead-markup, W1
-   round 2): the headings, the "See all" links and every control label a
+   dashboard.html, cloned here (conformance-satisfied-by-dead-markup): the headings, the "See all" links and every control label a
    person sees are the same literal source the wireframe-conformance
    instrument scans, never a hand-typed duplicate string living only in
    this file.

@@ -202,7 +202,7 @@ describe('the /signin page sends and keeps no passkey name', () => {
   });
 });
 
-// P8e (qa review round 1, D2, claim-contradicts-implementation): P8d
+// P8e (claim-contradicts-implementation): P8d
 // merged before this fix and provisions an Account on the FIRST sign-in
 // for every method, passkey included -- proved by
 // tests/api/account-provisioning.test.ts's own "passkey sign-in: a
@@ -317,7 +317,7 @@ describe('a completed passkey sign-in on the real page tells the person the trut
   });
 });
 
-// qa review round 1, D1 (inert-declared-control): nav.js renders exactly
+// inert-declared-control: nav.js renders exactly
 // once at DOMContentLoaded and, before this fix, exposed nothing on
 // window; signin.js wrote fa_session on the passkey path and never
 // re-rendered it. Unlike the GitHub path there is no navigation

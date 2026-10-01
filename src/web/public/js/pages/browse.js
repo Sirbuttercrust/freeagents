@@ -293,7 +293,7 @@
      instead of through [data-disclose]: a shared handler double-firing
      against a control this page already owns is worse than a second small
      function). Called from both renderResultBar() (the normal path) and
-     renderZeroState() (review round 1, D1): polish.js's own init() calls
+     renderZeroState(): polish.js's own init() calls
      announceFilters() once on page load, and skipping this call on the
      zero-result path left that stale, always-wrong write standing.
 
@@ -301,7 +301,7 @@
      the middle dot BETWEEN two counts: "4 agents &middot; 1 filter". The
      zero-result path (renderZeroState()) never calls renderResultBar(),
      so #result-count is left empty; showing the separator there opened
-     the bar with a bare dot and nothing on its left (review round 2, D2).
+     the bar with a bare dot and nothing on its left.
      The separator only earns its place beside an actual result count. */
   function renderFilterCount() {
     var host = A.el("filter-count");
@@ -557,7 +557,7 @@
   function renderZeroState() {
     A.showById("zero-host", true);
 
-    // D1 (review round 1): this slot is shared with polish.js's
+    // This slot is shared with polish.js's
     // announceFilters(), which counts [data-toggle] chips this page never
     // uses and always finds zero, so it can leave the slot reading "No
     // filters" here. renderResultBar() already corrects that write on the

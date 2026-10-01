@@ -1,4 +1,4 @@
-// A guard for headings()'s div.h widening (t_01a003ca).
+// A guard for headings()'s div.h widening.
 //
 // The polished wireframes draw some headings as <div class="h"> instead of
 // an h1/h2/h3 tag (spec/wireframe/verify.html's three panel headings, for

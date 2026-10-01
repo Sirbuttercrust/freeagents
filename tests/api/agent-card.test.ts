@@ -1,7 +1,7 @@
-// FIX-B58 (bugs.md B58): GET /agents/:agentDid/card serves the agent's
+// FIX-B58 (B58): GET /agents/:agentDid/card serves the agent's
 // work-history extension block, the object an owner pastes into the agent's
 // own A2A card under `capabilities.extensions`. The route answered 501 since
-// it was declared. MAP.md ruled option 1 for B58: FreeAgents serves the
+// it was declared. FreeAgents serves the
 // extension block only, because a whole card would need an A2A address no
 // agent has given us.
 //

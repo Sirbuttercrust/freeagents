@@ -216,7 +216,7 @@ describe('POST /agents, path one (G1): session-verified GitHub login registers v
     expect(body.proofStatus).toBe('unverified');
   });
 
-  // qa (review round 1, guard-without-a-test): the sessionMethod ===
+  // The sessionMethod ===
   // 'github-oauth' check at the path-one branch has no coverage. A passkey
   // session's subject is whatever the caller picked at POST
   // /auth/passkey/register, so without this check a passkey named after a

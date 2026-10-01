@@ -315,7 +315,7 @@ describe('parseGistStatement', () => {
     expect(parseGistStatement(42 as unknown as string)).toBeNull();
   });
 
-  // PRF1 (bugs.md B31): the statement may optionally name the signer's own
+  // PRF1 (B31): the statement may optionally name the signer's own
   // key, so a brand new agent's first proof does not depend on a prior
   // agent-signed request having taught the platform its key. Additive: the
   // four required fields and the version marker are unchanged.

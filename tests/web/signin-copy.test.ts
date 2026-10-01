@@ -68,7 +68,7 @@ describe('/signin offers the two real controls, and no longer says sign-in does 
     expect(body).not.toContain('this build does not create one for you automatically yet');
   });
 
-  // qa review round 3, D3 (claim-contradicts-implementation): the
+  // claim-contradicts-implementation: the
   // account-notice above told the truth, and the "How signing in works"
   // section 737px below it told the opposite: that every account can hire
   // and list "from the moment it exists" and identity "is created behind

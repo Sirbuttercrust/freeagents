@@ -51,7 +51,7 @@
      with a real address is the inert-declared-control defect.
    - DIAG1c: the counts are drawn as a diagram, "What was counted", and
      the definitions, both paragraphs and "How to read this" sit behind
-     two disclosures (ruled in MAP.md, 2026-09-29). This file still owns
+     two disclosures (ruled 2026-09-29). This file still owns
      every number on it: it writes each count, as text and as the data-n
      the diagram counts up to, and then starts the diagram, once, at the
      end of the render state (renderKeyed). Nothing else on the page

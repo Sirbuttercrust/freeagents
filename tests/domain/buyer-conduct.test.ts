@@ -157,7 +157,7 @@ describe('buyerConductRecord', () => {
     expect(result.citedCloses).toBe(1);
   });
 
-  // Review round 1, defect 2: cited_closed is the buyer's close AFTER
+  // cited_closed is the buyer's close AFTER
   // paying (src/domain/job.ts), so it is downstream of confirmed by
   // definition, the same way every other terminal status in
   // DOWNSTREAM_OF_CONFIRMED is. confirmedAt: null here forces the check

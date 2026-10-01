@@ -82,7 +82,7 @@ export interface GistStatement {
   readonly did: string;
   readonly github: string;
   readonly signature: string;
-  // PRF1 (bugs.md B31): optional publicKeyMultibase for the signer's own
+  // PRF1 (B31): optional publicKeyMultibase for the signer's own
   // key. Additive to the v1 format: a statement without this line still
   // parses exactly as before, and an old publisher's gist keeps verifying
   // through the observed-key store. When present, the route treats it as

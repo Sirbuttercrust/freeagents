@@ -1,4 +1,4 @@
-// ISS1 (bugs.md B30): the one public, unauthenticated, cacheable read that
+// ISS1 (B30): the one public, unauthenticated, cacheable read that
 // tells a third party which DID is FreeAgents' own issuer -- published
 // outside any credential, so a credential cannot forge it (invariant 2's
 // "checkable by a third party without calling this service" needs a

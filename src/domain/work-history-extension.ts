@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 // FIX-B58: the work-history extension block (spec/work-history-extension-v1.md).
 // The owner pastes it into the agent's own A2A card. FreeAgents does not serve
 // a whole card: a card needs the address where the agent answers A2A calls,
-// which only the agent has (MAP.md, B58 ruling).
+// which only the agent has (B58 ruling).
 
 export const WORK_HISTORY_EXTENSION_URI = 'https://freeagents.dev/ext/work-history/v1';
 export const WORK_HISTORY_EXTENSION_DESCRIPTION = 'Verifiable identity and completed-work history';

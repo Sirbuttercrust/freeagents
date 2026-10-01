@@ -13,7 +13,7 @@
 // never a step a job's own state machine waits on. The caller never
 // awaits a retry; there is exactly one attempt per event.
 //
-// FIX-SW4a (bugs.md SW4-01): the platform never posts to a private,
+// FIX-SW4a (SW4-01): the platform never posts to a private,
 // loopback or link-local address. send() first asks the domain rule
 // (isOutboundDestinationAllowed) about the stored URL, which stops an
 // address stored before that rule existed and any IP-literal host, and then

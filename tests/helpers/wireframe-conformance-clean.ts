@@ -63,7 +63,7 @@ export function strip(htmlText: string): string {
 // "The author matches the agent's proven account" panels). A gate that
 // reads only h1-h3 cannot see the second kind, which is how a div.h
 // heading was silently reworded on a built page while this suite stayed
-// green (t_01a003ca). Pinned by wireframe-conformance-div-h.test.ts.
+// green. Pinned by wireframe-conformance-div-h.test.ts.
 export function headings(htmlText: string): string[] {
   const tagHeadings = [...strip(htmlText).matchAll(/<(h1|h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((m) => clean(m[2] ?? ''));
   const divHeadings = [...strip(htmlText).matchAll(/<div class="h"[^>]*>([\s\S]*?)<\/div>/g)].map((m) => clean(m[1] ?? ''));

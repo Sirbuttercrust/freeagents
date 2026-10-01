@@ -19,7 +19,7 @@
 //     satisfies the regex. Measured on task/w-operatorjob-polished at
 //     4dd9c4b: deleting renderWho's real setAttribute call and leaving the
 //     comments untouched kept the conformance file green, so the page could
-//     have shipped with no mount at all (card t_cf2d9eab).
+//     have shipped with no mount at all.
 //  2. CSS COMMENTS, which an HTML-comment strip does not reach. On
 //     dashboard.html and pullrequest.html the surviving occurrences sit in
 //     block comments inside <style>, so the narrow repair of stripping
@@ -56,7 +56,7 @@ import ts from 'typescript';
 // separate DocumentFragment, so document.querySelectorAll never reaches it,
 // and that is the behaviour this gate wants: markup inside a template that
 // nothing clones is the conformance-satisfied-by-dead-markup defect this
-// suite already found and fixed once (Proof round 2 D1, the removed
+// suite already found and fixed once (the removed
 // tmpl-verify-prior in agent.html, still described in ALLOWED_ABSENT's
 // "gist proof" entry). A page that builds rows at runtime satisfies this
 // gate through its script instead, which is the honest route.

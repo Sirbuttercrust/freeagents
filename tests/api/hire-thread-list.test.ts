@@ -51,7 +51,7 @@ async function getSigned(baseUrl: string, path: string, identity: SigningIdentit
   });
 }
 
-// Review r1, defect 2: the unread-count tests must drive the real POST
+// The unread-count tests must drive the real POST
 // /jobs/:jobId/messages/read route, not write threadReadStateRepo
 // directly, so the assertion also proves the route itself advances the
 // caller's own read state.
@@ -167,7 +167,7 @@ describe('GET /accounts/:did/threads: authentication', () => {
       const res = await getSigned(baseUrl, `/accounts/${owner.did}/threads`, stranger);
       expect(res.status).toBe(403);
       const body = (await res.json()) as Record<string, unknown>;
-      // Review r1, defect 2b: pins the exact wording (the sibling routes'
+      // Pins the exact wording (the sibling routes'
       // own pattern -- "an account may only read its own X list") rather
       // than merely checking the response is SOME 403; a swap to a
       // generic "forbidden" must turn this red.
@@ -269,7 +269,7 @@ describe('GET /accounts/:did/threads: storage capability', () => {
     }
   });
 
-  // Review r1, defect 1: the three guard tests above only cover a METHOD
+  // The three guard tests above only cover a METHOD
   // MISSING from the driver, which the route refuses before its own try
   // block ever runs. This drives an ACTUAL throw from inside that try
   // block (a present method that rejects, the same shape a real Postgres
@@ -465,7 +465,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       for (const t of body.threads) expect(t.seat).toBe('buyer');
       const declined = body.threads.find((t) => t.jobId === 'job-declined')!;
       expect(declined.writable).toBe(false);
-      // Review r2, defect 2: pin the row's own status field (not just
+      // Pin the row's own status field (not just
       // writable) against every one of the four distinct statuses seeded
       // above, so a mutant that hardcodes or drops the status key is caught.
       expect(declined.status).toBe('declined');
@@ -482,7 +482,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       expect(draft.counterpartGithubLogin).toBe('threads-shape-owner');
       expect(draft.brief).toBe('Fix the login bug');
       expect(typeof draft.createdAt).toBe('string');
-      // Review r2, defect 2: pin avatarSpec's real resolved value (the agent
+      // Pin avatarSpec's real resolved value (the agent
       // has no stored override, so it is the DID-derived default), not
       // merely truthy, so a mutant resolving another DID's spec is caught.
       expect(draft.avatarSpec).toEqual(resolveAvatar(null, agent.did));
@@ -538,7 +538,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
     }
   });
 
-  // Review r1, defect 4: agentName falls back to the agent's own DID when
+  // agentName falls back to the agent's own DID when
   // no agent row exists (never an empty string).
   it('agentName falls back to the agent DID when the agent row is gone', async () => {
     const built = await buildApp();
@@ -560,7 +560,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
     }
   });
 
-  // Review r1, defect 4: counterpartGithubLogin is a real null (never an
+  // counterpartGithubLogin is a real null (never an
   // empty string) when the counterpart account has no GitHub login (a
   // passkey-only account).
   it('counterpartGithubLogin is null, never empty string, for a passkey-only counterpart', async () => {
@@ -598,7 +598,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.jobRepo.create(jobFixture({ id: 'job-oldest', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-newest', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-05T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-middle', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-03T00:00:00Z')));
-      // Review r1, defect 3: a genuine tie -- two rows sharing the exact
+      // A genuine tie -- two rows sharing the exact
       // same lastActivityAt (job createdAt here, since neither has a
       // message) -- so a reversed tie-break actually reddens this test.
       // 'job-tie-b' sorts after 'job-tie-a' lexically, so the correct
@@ -636,7 +636,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       const body = (await res.json()) as { threads: Array<{ jobId: string; lastActivityAt: string; createdAt: string }> };
       expect(body.threads.map((t) => t.jobId)).toEqual(['job-activity-old-brief-new-message', 'job-activity-newer-brief-no-messages']);
       expect(body.threads[0]!.lastActivityAt).toBe(new Date('2026-08-10T00:00:00Z').toISOString());
-      // Review r1, defect 4: the row's OWN createdAt is the job's brief
+      // The row's OWN createdAt is the job's brief
       // date (2026-08-01), never lastActivityAt (2026-08-10) -- these two
       // fields answer different questions and a mutant collapsing them
       // together must turn this red.
@@ -661,7 +661,7 @@ describe('GET /accounts/:did/threads: both seats, all statuses, shape', () => {
       await built.jobRepo.create(jobFixture({ id: 'job-party-message', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-system-message', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
       await built.jobRepo.create(jobFixture({ id: 'job-attachment-only', buyerDid: buyer.did, agentDid: agent.did, status: 'draft' }, new Date('2026-08-01T00:00:00Z')));
-      // Review r1, defect 4: a fourth job whose last message is authored
+      // A fourth job whose last message is authored
       // by the OWNER (authorKind 'owner', authorParty 'agent') -- a
       // mutant that forces lastMessage.authorKind to a constant 'buyer'
       // must turn this red, since the other three fixtures above all
@@ -849,7 +849,7 @@ describe('GET /accounts/:did/threads: unreadCount and unreadTotal', () => {
     }
   });
 
-  // Review r1, defect 2a: the brief's own Tests line asks for unreadCount
+  // The brief's own Tests line asks for unreadCount
   // "before and after POST /jobs/:jobId/messages/read", for both seats.
   // This drives the REAL route (not a direct write into
   // threadReadStateRepo) for the buyer seat AND the agent (owner) seat,

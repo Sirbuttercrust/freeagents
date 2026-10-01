@@ -1,4 +1,4 @@
-// ISS1 (bugs.md B30): the invariant-2 test CLAUDE.md requires for anything
+// ISS1 (B30): the invariant-2 test CLAUDE.md requires for anything
 // touching credentials, one level up from the existing per-credential
 // invariant-2 tests. A stranger holding ONLY a credential the app actually
 // issued, plus the /.well-known/freeagents-issuer.json response the same

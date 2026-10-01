@@ -239,7 +239,7 @@ describe('S5+S6: signature replay is refused and future-dated signatures are ref
     expect(SIGNATURE_MAX_AGE_SECONDS).toBe(300);
   });
 
-  // D1 (QA review round 1, task t_05b14bcc): decided, documented trade-off.
+  // D1: decided, documented trade-off.
   // Section 3 of this card's brief forbids adding a nonce parameter to the
   // protocol, and ed25519 signing is deterministic -- the same signer,
   // method, target-uri, body and `created` second always produce the same

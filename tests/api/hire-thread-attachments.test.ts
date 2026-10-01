@@ -258,8 +258,8 @@ describe('HT1 Part B: message attachments', () => {
     expect(download.headers.get('content-disposition')).toContain('attachment');
   });
 
-  // Proof r1, defect 1: a real HEIC file (produced by macOS sips from a
-  // source PNG, the exact reproduction the review used) must actually
+  // A real HEIC file (produced by macOS sips from a
+  // source PNG, the exact reproduction) must actually
   // upload and download, not fail with the underlying libvips text
   // leaking to the client.
   it('a real HEIC file uploads, decodes, and downloads as a re-encoded JPEG', async () => {
@@ -286,7 +286,7 @@ describe('HT1 Part B: message attachments', () => {
     expect(thumb.status).toBe(200);
   });
 
-  // Proof r1, defect 1 (the error-sanitisation half): a file that LOOKS
+  // The error-sanitisation half: a file that LOOKS
   // like HEIC by its magic bytes but is not decodable image data must
   // answer a clean, library-agnostic 400, never the raw libvips/
   // heic-convert failure text.
@@ -349,7 +349,7 @@ describe('HT1 Part B: message attachments', () => {
       expect(row.kind).toBe('image/png');
       expect(row.contentType).toBe('image/jpeg');
       expect(row.originalFilename).toBe('first.png');
-      // Review r1, defect 4: sizeBytes is the REAL stored size (matching
+      // sizeBytes is the REAL stored size (matching
       // the upload reply's own sizeBytes for the same attachment), never
       // a constant 0 -- "typeof number" alone stays green under a
       // mutant that hardcodes 0.
@@ -366,7 +366,7 @@ describe('HT1 Part B: message attachments', () => {
       expect(body.attachments).toEqual([]);
     });
 
-    // Review r1, defect 1: a throwing attachment repository (a real
+    // A throwing attachment repository (a real
     // storage outage, not a missing method) must answer 503, never a
     // silent empty list. A separate app instance, built with the same
     // fixture pattern as the suite above, but with a THROWING

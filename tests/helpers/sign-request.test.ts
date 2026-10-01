@@ -1,4 +1,4 @@
-// D3 (QA review round 1, task t_05b14bcc): nextCreated() walks the default
+// D3: nextCreated() walks the default
 // `created` back one second per call within a wall-clock second so rapid
 // same-second test calls don't collide as accidental replays (S5). That
 // bucket has a ceiling: once SIGNATURE_MAX_AGE_SECONDS is exhausted, the
@@ -7,7 +7,7 @@
 // failure with no indication the fixture -- not the signature -- is out of
 // room. This pins that the fixture fails loudly and by name instead.
 //
-// D5 (QA review round 2, task t_05b14bcc): the per-second bucket used to
+// D5: the per-second bucket used to
 // reset its offset back to zero every time the wall clock ticked over to a
 // new second, then walk the SAME descending range again from that new
 // second. A call made right after the tick could land on a `created` a

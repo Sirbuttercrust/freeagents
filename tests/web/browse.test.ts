@@ -439,7 +439,7 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
     }
   });
 
-  // Review round 1, D1: the result bar's data-filter-count slot has two
+  // The result bar's data-filter-count slot has two
   // possible writers, this page's own renderFilterCount() and polish.js's
   // shared announceFilters(). Both select the same [data-filter-count]
   // element. On a normal, non-zero result renderResultBar() calls this
@@ -465,7 +465,7 @@ describe('the browse page: zero-state relaxation (DATA-CONTRACT section 3)', () 
     }
   });
 
-  // Review round 2, D2: renderFilterCount() only ever consulted its own
+  // renderFilterCount() only ever consulted its own
   // count, never whether #result-count had anything to sit beside. The
   // zero-result path never calls renderResultBar(), so #result-count
   // stays empty, and the wireframe's separator (spec/wireframe/browse.html

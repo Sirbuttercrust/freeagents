@@ -349,7 +349,7 @@ describe('POST /agents/:agentDid/key-rotation, caller gating (S3)', () => {
     }
   });
 
-  // Proof audit round 1, D1: every positive control above signs with an
+  // Every positive control above signs with an
   // R-34 signature. The done-means list names a SEPARATE positive control,
   // the agent's own operator authenticated by a live session, and nothing
   // pinned it. testSessionAdapter always resolves its bearer token to the
@@ -407,7 +407,7 @@ describe('POST /agents/:agentDid/key-rotation, caller gating (S3)', () => {
     }
   });
 
-  // Proof audit round 1, D2: a caller who is not the agent's operator
+  // A caller who is not the agent's operator
   // must refuse 403 and store nothing. P8d widened what "resolves to no
   // registered account" means: a live session now always provisions one
   // (auto-provisioning at first sign-in), so the refusal this test pins

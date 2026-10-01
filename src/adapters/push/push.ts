@@ -15,7 +15,7 @@
 // and stored as FREEAGENTS_VAPID_PUBLIC_KEY / FREEAGENTS_VAPID_PRIVATE_KEY
 // env vars -- never in code, never committed (CLAUDE.md's secrets rule).
 //
-// FIX-SW4a (bugs.md SW4-08): the platform never sends a push to a private,
+// FIX-SW4a (SW4-08): the platform never sends a push to a private,
 // loopback or link-local address, or to anything that is not https. send()
 // first asks the domain rule (isOutboundDestinationAllowed) about the stored
 // endpoint, which stops a row stored before that rule existed and any
@@ -35,7 +35,7 @@ export interface PushSender {
   // (an expired subscription, a network error) never propagates past
   // this call, and never blocks the request that triggered it.
   //
-  // FIX-B56 (bugs.md B56): jobId names the job the notification is
+  // FIX-B56 (B56): jobId names the job the notification is
   // about, so the site's service worker can open that job's conversation
   // when the notification is clicked. Message text never rides here
   // (title and body are the fixed per-event-type sentences notify()

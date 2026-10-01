@@ -1,4 +1,4 @@
-// ISS1 review round 1 defect (Proof FAIL, comment on t_9d676481): the
+// ISS1: the
 // startup configuration report can name a DID the process does not
 // actually sign with. src/api/server.ts used to call platformIssuerFromEnv
 // itself for the report line, while createApp's own default credentials

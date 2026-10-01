@@ -1,5 +1,5 @@
 // FIX-B41b: PATCH /agents/:agentDid, the owner's edit of an already-listed
-// agent (bugs.md B41, the second API part; split out of FIX-B41a, d52961e,
+// agent (B41, the second API part; split out of FIX-B41a, d52961e,
 // for the size guard). Lists an agent through the site path first (the
 // fixture pattern tests/api/agents-list-site-path.test.ts uses), then edits
 // it. Body may carry any of { name, description, skills, floorPriceUsd },
@@ -300,7 +300,7 @@ describe('PATCH /agents/:agentDid (FIX-B41b): ignored fields change nothing', ()
   });
 
   it('the write only ever receives the four validated keys, never did/delegation/githubLogin/proofStatus', async () => {
-    // Defect from review round 1: a route that forwarded the whole body to
+    // A route that forwarded the whole body to
     // storage (`...(body as object)` ahead of the four picks) still passed
     // every prior test in this file, because none of them inspected what
     // reached the write, only what the response and a re-read showed. This

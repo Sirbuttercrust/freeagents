@@ -1,4 +1,4 @@
-// HT1 Part B (Proof r1, defect 9; Proof r2, defect 2): a route-level
+// HT1 Part B: a route-level
 // invariant-3 test. The prior test (tests/domain/message-invariant3.test.ts)
 // built Message objects that were never wired into any function confirmSpec
 // could reach, so it could not fail no matter what leaked. This drives TWO
@@ -13,7 +13,7 @@
 // commit, and the platform's own signature (a distinct id/timestamp/staged
 // commit makes the signed bytes distinct too, so the signature itself is a
 // legitimately-differing field, not a leak). Using shared identities across
-// both twins (Proof r2 fix) means signedBy, buyer and issuer are no longer
+// both twins means signedBy, buyer and issuer are no longer
 // separately excluded as "different agents" -- they are asserted equal
 // because they must be, closing the gap the prior version papered over.
 //
@@ -105,7 +105,7 @@ async function req(baseUrl: string, method: string, path: string, body: unknown,
 }
 
 // A SINGLE fixture (one buyer, one agent, one operator, one github fake)
-// shared by both twin jobs (Proof r2, defect 2). The prior version started
+// shared by both twin jobs. The prior version started
 // two separate fixtures with two separate agent/buyer identities, which
 // forced the credential comparison to skip signedBy and buyer as
 // "legitimately different" when they were only different because the test

@@ -707,7 +707,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
     }
   });
 
-  // Review round 1, defect 1 (vacuous-gate): the two redo counts must be
+  // The two redo counts must be
   // proved to reach the response over the wire, not only inside the pure
   // domain function. A route-level test asserting a NON-ZERO
   // counts.redosRequested, driven by setting the durable fact on a
@@ -750,7 +750,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
     }
   });
 
-  // Review round 1, defect 1 (vacuous-gate), the operator half. Same
+  // The operator half. Same
   // proof shape: a route-level assertion on a NON-ZERO
   // operatorCounts.redosRefused, driven by setting redoRefusedAt on a
   // stored job. Deleting the redoRefusedAt line in operatorConductForDid

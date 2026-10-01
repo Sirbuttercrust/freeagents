@@ -201,7 +201,7 @@ describe('GET /accounts/:did/incoming: only draft and proposed offers to this op
   }
 
   it('draft and proposed rows appear; every other JobStatus is absent, proved over the whole enum (mutation proof 1, done-means 5)', async () => {
-    // QA D1 (review round 1): five hand-picked statuses reach only three
+    // Five hand-picked statuses reach only three
     // of jobListBucketOf's five buckets, so waitingOnYou (staged,
     // submitted) went unpinned and a filter widened to include it left
     // the whole suite green. Seed one job per status in
@@ -380,8 +380,8 @@ describe('GET /accounts/:did/incoming: only draft and proposed offers to this op
   });
 });
 
-describe('GET /accounts/:did/incoming: avatarSpec (Proof r2, unverified-state-claim)', () => {
-  // Proof r2 defect (unverified-state-claim): the r2 audit table claimed
+describe('GET /accounts/:did/incoming: avatarSpec', () => {
+  // An earlier audit table claimed
   // this route already carried avatarSpec via "toBrowseCard-independent
   // per-row resolution already in place". A live probe showed offers[0]
   // .avatarSpec undefined even with an override set -- the route never

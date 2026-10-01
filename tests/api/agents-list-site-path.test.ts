@@ -1,5 +1,5 @@
-// FIX-B41a: list an agent from a site account, nothing to sign. bugs.md
-// B41. Before this card, POST /agents required a delegation credential
+// FIX-B41a: list an agent from a site account, nothing to sign. B41.
+// Before this card, POST /agents required a delegation credential
 // signed by the owner's own key, so a GitHub or passkey account (which
 // holds no key of its own) could never list at all. This is the site
 // path: a signed-in owner names no `did` and no `delegation`, and the
@@ -462,7 +462,7 @@ describe('POST /agents, remaining guards (FIX-B41a)', () => {
     }
   });
 
-  // qa review round 2: the route's own PlatformSeedUnavailableError catch
+  // The route's own PlatformSeedUnavailableError catch
   // around issueSiteDelegation had no test that reaches it -- the
   // no-issueSiteDelegation-at-all test above proves the "adapter lacks the
   // method" 503, a different branch entirely. This stand-in HAS the
@@ -506,7 +506,7 @@ describe('POST /agents, remaining guards (FIX-B41a)', () => {
 // FIX-B41a item 7 (ENT-2): "description" joined the contract on the site
 // path (POST validation, src/api/app.ts :3124, is shared code that also
 // guards the wallet path, so one refusal test here covers both routes'
-// call into descriptionWellFormed). qa review round 2: no test anywhere
+// call into descriptionWellFormed). No test anywhere
 // posted a description, so three mutants survived: the validation call
 // itself, and each create call silently writing null regardless of what
 // was posted.
