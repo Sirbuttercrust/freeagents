@@ -1,5 +1,7 @@
 # FreeAgents wireframe: where the work is, and what is left
 
+_Note, 2026-09-30: the build scripts this file cites moved to the private operations repository. Where a sentence below names a check by its role (the polish check, the ink check, the gate runner, a round's mutation suite), that script is kept in the private operations repository and not on disk here. The checks that stay in this repository are `verify_designmd.py`, `verify_reduced_motion.py`, `tapfloor.py`, `tokens.py`, `population.py`, `wirebrowse.py` and `devserver.py`._
+
 Rewritten 2026-09-09, when the two wireframes became one. Written for whoever
 picks this up next, including a later version of me with no memory of it.
 Everything here is checkable with a command.
@@ -13,7 +15,7 @@ Everything here is checkable with a command.
 git fetch origin
 git checkout task/d1-wireframe-reconcile
 cd spec/wireframe && python3 devserver.py 3111
-python3 verify_all.py
+python3 verify_designmd.py
 ```
 
 For a while there were two wireframes. The late-August polished pass (identity
@@ -33,12 +35,13 @@ one of them has an entry. Two content questions are recorded there as OPEN rathe
 than decided, because what a reader needs is not a visual-system call.
 
 ```
-python3 reconcile_inventory.py     # what each parent had that the result does not
-python3 check_renames.py           # every rename in those notes still holds
-python3 flowcss_deadrules.py       # which flow.css rules govern nothing
+# reconcile inventory: what each parent had that the result does not
+# rename check: every rename in those notes still holds
+# dead-rule script: which flow.css rules govern nothing
+# all three are kept in the private operations repository and not on disk here
 ```
 
-`reconcile_inventory.py` is the instrument that found the losses, and it is worth
+The reconcile inventory is the instrument that found the losses, and it is worth
 knowing why a file-list comparison could not: every file on either parent exists
 here, and elements inside them still left. Its own first two versions printed a
 clean green over a broken comparison, because `git ls-tree` prints paths relative
@@ -73,35 +76,35 @@ variables, no pip install, no file outside this directory.
 
 ```
 python3 devserver.py 3111 &
-python3 verify_all.py            # exit 0 only if every gate passes
+python3 verify_designmd.py       # exit 0 only if DESIGN.md matches the tree
+python3 verify_reduced_motion.py
 ```
 
-Count them rather than trusting a sentence, which was wrong here once already:
+The gate runner (kept in the private operations repository and not on disk here) counted the gates in its own list and the gates in the DESIGN.md table, so a sentence carrying a number was never trusted:
 
 ```
-grep -c '^    ("verify_' verify_all.py     # gates the runner runs
-grep -c '^| `verify_' DESIGN.md            # gates the doc claims
+# the runner's list of gates, and the table's gates, were compared by the runner
 ```
 
-Those two must agree, and `verify_all.py` fails if they do not, in both
+Those two had to agree, and the gate runner failed if they did not, in both
 directions. A gate in the doc but not the runner is a coverage claim nothing
 backs; a gate in the runner but not the doc is invisible.
 
 **And a gate's SCOPE is derived, never named.** That is round 4's finding and
-it is the reason `population.py` and `verify_coverage.py` exist.
-`verify_ink.py` carried a list of eight screen names while DESIGN.md, this
+it is the reason `population.py` and the coverage check exist.
+The ink check carried a list of eight screen names while DESIGN.md, this
 file and the gate table all asserted AA of the whole set, so twenty-five
 screens had never been measured against it. Nothing failed, because a list of
 names cannot fail on a file it does not mention.
 
 Nine gates carried such a list. Every one now computes its population from the
-directory, and `verify_coverage.py` fails any gate that goes back to naming
+directory, and the coverage check fails any gate that goes back to naming
 screens. The general 320px sweep is the COMPLEMENT of the payment sweep rather
 than a second list, so a screen added next month is measured by default
 instead of forgotten by default.
 
 **Round 5 found the same defect one layer down, inside that gate.**
-`verify_coverage.py` inspected assignments whose value is a literal list, and
+The coverage check inspected assignments whose value is a literal list, and
 four gates passed it while each measuring one hardcoded page, because none of
 them bound a list: `verify_rail` and `verify_blast_preview` wrote the page
 into a `goto`, `verify_flow_motion` into a `URL` constant, `verify_pickers`
@@ -112,10 +115,10 @@ meant "a population of one that nothing can see".
 Each of the four now derives its screens from the markup its own assertion
 needs (the rail radio, the signature chip, the travelling spark, the picker
 list), and each refuses to pass on an empty population rather than iterating
-zero times in silence. `verify_coverage.py` walks the whole syntax tree, so an
+zero times in silence. The coverage check walks the whole syntax tree, so an
 inline name fails the same way a list does, with an `INLINE_WITH_REASON` table
 beside the existing one for the cases that are genuinely a fact about one page
-rather than a scope decision. `verify_round5_mutation.py` restores each of the
+rather than a scope decision. The round 5 mutation suite restores each of the
 four to the exact shape it shipped in and asserts the gate names both the file
 and the reason, because a mutation caught for the wrong reason proves nothing.
 
@@ -155,7 +158,7 @@ seventeen durations and 800ms appears nowhere. Section 4.1 said
 `measure_density.py` is "in this directory" while section 10 of the same file
 said it does not exist on this branch.
 
-`verify_round6_mutation.py` carries eight controls. Two are worth knowing about
+The round 6 mutation suite carries eight controls. Two are worth knowing about
 before you trust the gate:
 
 - **B mutates `base.css`, not the document.** The defect is a DISAGREEMENT and
@@ -220,7 +223,7 @@ round 7 exempted every `.js`, so the document said three files and the gate
 meant seven, and `polish.js` could paint an `h1` on all 33 screens. Take a
 file out of that row and its literals fail the same run.
 
-`verify_round8_mutation.py` carries nine defects and eight legal colours. The
+The round 8 mutation suite carries nine defects and eight legal colours. The
 negatives are the half that matters here, because widening a colour vocabulary
 is exactly the change that starts condemning correct code, and two of them
 caught real bugs in this round's own work: `url(white.png)` was reported as a
@@ -260,10 +263,10 @@ unverified badge ink, and three copies of the form-error colour.
 
 **The eight discs became the generated identity avatar**, keyed on the DID
 `settings.html` states as the reader's own, read at run time by
-`port_menu_avatars.py` rather than typed into it. That closes the
+the menu-avatar port script rather than typed into it. That closes the
 "no flat placeholder disc left in the tree" claim by construction rather than
 by editing the sentence. Two of those eight were not loading `swarm.js`, so
-`verify_polish.py` now measures `[data-avatar]` the way it already measured
+the polish check now measures `[data-avatar]` the way it already measured
 `[data-ico]`. What those two would have painted is written wrong here and was
 corrected in round 11: not a blank box, but a face from the older `FA.avatar`
 engine that `polish.js` falls back to. See the avatar entry further down.
@@ -281,7 +284,7 @@ come out wearing the colour that means verified. Move `--accent` and that guard
 reserves the old hue: a real product defect with every gate green. Three copies
 are annotated `/* = --token */` and recomputed on every run.
 
-`verify_round7_mutation.py` carries twelve controls, and the four that matter
+The round 7 mutation suite carries twelve controls, and the four that matter
 most are the ones that must NOT fire. They plant a pull request number in a
 paragraph, an alpha over a surface, a stencil in a mask, and a thirteenth hue
 in the renderer, and they assert exit 0. That half exists because the first
@@ -290,13 +293,13 @@ was about and produced five confident wrong failures against correct
 stylesheets. A gate that cries wolf is retired by the first person who reads
 its output, and then the real drift goes through.
 
-The six that came from the polished pass (`verify_polish.py`,
-`verify_profile_header.py`, `verify_agents_below.py`,
-`verify_reduced_motion.py`, `verify_flow_motion.py`,
-`verify_blast_preview.py`) used to import a browser driver that lived on one
+The six that came from the polished pass (the polish check,
+the profile-header check, the agents-below check,
+`verify_reduced_motion.py`, the flow-motion check,
+the blast-preview check) used to import a browser driver that lived on one
 machine, and to default to a port nothing served. Both are fixed: they fall
 back to the committed `wirebrowse.py` and take their url from `WF_BASE`, which
-`verify_all.py` sets. That matters more than it sounds. Pointed at an empty
+the gate runner sets. That matters more than it sounds. Pointed at an empty
 port they reported "polish layer not loaded" on all 26 screens, which reads
 exactly like a real regression and is not one.
 
@@ -309,7 +312,7 @@ catch. The ones that take no url ignore the argument.
 for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
 ```
 
-`verify_round3_mutation.py` is the one to read if you are wondering why the
+The round 3 mutation suite is the one to read if you are wondering why the
 tap-target probe is shaped the way it is. It carries the reviewer's own three
 positive controls as permanent mutations, plus three more: a 20x20 button in a
 visible body (which the old probe already caught), the same size as a `select`
@@ -346,7 +349,7 @@ and the second is the expensive one:
   reads exactly like a gate that cannot discriminate. A MISSED verdict on a dirty
   tree is a fact about the tree: re-run it clean before touching the gate.
 
-`verify_flow_mutation.py` now warns at startup when the files it mutates are
+The flow mutation suite now warns at startup when the files it mutates are
 dirty, which turns that confusing red run into one line.
 
 **A catchable kill now restores the tree before it exits.** `mutationsafe`
@@ -364,14 +367,14 @@ costs them a debugging session that ends somewhere else.
 
 There is no `verify_mobile.py`, and there never has been on any branch. The
 320px sweep with every dialog open, the 44px floor and the overflow check are
-all inside `verify_flow.py` and `verify_polish.py`. If a document tells you to
+all inside the payment-flow check and the polish check. If a document tells you to
 run `verify_mobile.py`, that document is wrong.
 
 **The tap-target floor is measured on BOTH axes, in EVERY reachable state, on
 every kind of control. It took three rounds to get there, and the shape of
 those rounds is the lesson.**
 
-Round 1: `verify_polish.py` read only `height`, so a control 20px wide and
+Round 1: the polish check read only `height`, so a control 20px wide and
 44px tall passed. 13 real failures stood behind that green gate, including the
 `edit` control that reopens a signed line of a paid agreement.
 
@@ -383,20 +386,20 @@ that: eleven facet checkboxes in browse's drawer and a settings toggle.
 
 Round 3 moved the probe into `tapfloor.py` and had the gates import it. One
 selector list, one set of exemptions, one definition of which states get
-opened. `verify_polish.py` now prints how many states it opened per screen,
+opened. The polish check now prints how many states it opened per screen,
 because a gate that opens nothing reports a clean page in both the broken and
 the fixed state.
 
 Round 5 found what round 3 left behind: it unified the TAP probe and not the
-OVERFLOW probe. `verify_flow.py` kept an element-level check over the 8 payment
-screens while `verify_polish.py` asserted only `scrollWidth > 320` over the
+OVERFLOW probe. The payment-flow check kept an element-level check over the 8 payment
+screens while the polish check asserted only `scrollWidth > 320` over the
 other 25, and **`scrollWidth` does not grow for an element hanging off the LEFT
 edge in an LTR document**. So on 25 of the 33 screens nothing could fail on
 left-side overflow at any magnitude. Two screens were rendering the
 builder-notes control at x=-20, cut off and reading `uilder notes`, and they
 had been since the polished parent was merged.
 
-`verify_mobile_coverage.py` was green throughout and was correct about what it
+The mobile-coverage check was green throughout and was correct about what it
 measured: both instruments really did visit all 33 screens between them. It
 asked which SCREENS each one visits and never which ASSERTIONS each one makes.
 **A count of names cannot see a weaker assertion**, which is why that gate now
@@ -404,7 +407,7 @@ compares each sweeper's `HANDLED` against the shared probe's `KINDS`, and the
 probe's `KINDS` against the kinds its JavaScript actually pushes. Both
 directions, so a declaration and an implementation cannot drift.
 
-**`verify_round9_mutation.py` carries three kinds of control, and conflating two
+**The round 9 mutation suite carries three kinds of control, and conflating two
 of them cost two rounds of false red.** A MUTATION plants a defect and requires a
 failure. A NEGATIVE plants legal layout and requires silence. A BLINDING plants a
 defect AND weakens the probe, and requires a PASS: the instrument has gone blind
@@ -451,7 +454,7 @@ Six rules follow, and none is optional:
   the probe is then enforced everywhere on the day it lands, instead of on the
   day somebody remembers to teach the second gate about it.
 - **And a law enforced in one STATE is not enforced.** Round 10. Declaring the
-  kinds says nothing about the states they are asserted in.  `verify_flow.py`
+  kinds says nothing about the states they are asserted in.  The payment-flow check
   declared all three truthfully, walked closed, disclosures and each dialog,
   and then read `chrome` and the unhandled-kind backstop from the CLOSED read
   alone, because those two lines sat above its own dialog walk. So the
@@ -460,21 +463,21 @@ Six rules follow, and none is optional:
   One element on one screen in two states:
 
   ```
-  planted in dialog #paybal on staged.html   verify_flow.py exit 0, never named
-  the SAME element visible on load           verify_flow.py exit 1, named it
+  planted in dialog #paybal on staged.html   the payment-flow check exit 0, never named
+  the SAME element visible on load           the payment-flow check exit 1, named it
   ```
 
   A per-state `HANDLED` would move the hole to the next state nobody
   enumerated, which is how this class survived five rounds of widening lists.
   Both sweepers drive `tapfloor.sweep`, which opens every disclosure and each
   dialog alone and tags each finding with the state it was reachable in, and
-  `verify_mobile_coverage.py` fails any sweeper that reads the raw probe and
+  the mobile-coverage check fails any sweeper that reads the raw probe and
   owns a walk it cannot audit.
 - **That coverage gate reads provenance, not consumption, and says so.**
   Round 11. It asks which route a sweeper's SOURCE reaches for and never what
   the sweeper filters out of the records, so a gate can drive the shared walk,
   receive every state, and assert on the closed read alone. Three characters of
-  filter in `verify_flow.py`'s chrome comprehension took it from exit 1 naming
+  filter in the payment-flow check's chrome comprehension took it from exit 1 naming
   a planted element to exit 0 silent, with the coverage gate green through
   both. Nor does it ask whether the call it found can run: a `tapfloor.sweep`
   under `if False:` reads the same in an AST as a live one. A third shape,
@@ -493,7 +496,7 @@ Six rules follow, and none is optional:
   found by auditing all 58 sentences in these documents that name an
   instrument and a detection rather than only the one a review named. Three
   were wrong, and this is the one that had a cheap real fix.
-  `verify_kept.py`'s docstring said the brand's accessible name is "computed
+  The kept-elements check's docstring said the brand's accessible name is "computed
   by Chrome... not 'the attribute is in the file'". Its probe read
   `getAttribute('aria-label') || textContent`, which is the file. Planting an
   `aria-labelledby` beside the untouched `aria-label` made Chrome announce
@@ -505,7 +508,7 @@ Six rules follow, and none is optional:
   One reviewed sentence is one instance of a class.
 
 - **And that class had a second half in the gate that names controls, where it
-  cost two real names.** Round 12. `verify_names.py` computed the accessible
+  cost two real names.** Round 12. The names check computed the accessible
   name for every control on all 33 screens with its own JavaScript ladder,
   ending in `title` and then `placeholder`. Both of those name a control with
   something A PERSON CANNOT SEE: a placeholder is painted only while the field
@@ -591,7 +594,7 @@ every other device, which is the most confusing possible failure.
   affordance is the message.
 - **One money model**, the 2026-09-01 ruling: price $1,200, deposit 25 percent,
   balance 75 percent, ABT 3 percent and one approval, USDC 6 percent and two.
-  `verify_money.py` fails any figure that does not derive from it.
+  The money check fails any figure that does not derive from it.
 - **Nothing on any screen has the platform running, scoring or reviewing an
   agent's work.** The attestation is facts only.
 - **Sample data is labelled as sample data**, on every screen that shows any.
@@ -600,7 +603,7 @@ every other device, which is the most confusing possible failure.
   them. It is injected once in the shared chrome rather than written per page,
   because the per-page version was the reason this sentence was false when it
   was first written: five screens said so and twenty did not.
-  `verify_sampledata.py` is the instrument, and it defines "shows sample data"
+  The sample-data check is the instrument, and it defines "shows sample data"
   by reading the rendered text rather than by naming a list of pages.
   No invented metrics, anywhere.
 - **Every avatar in the set is generated from the DID.** One hook,
@@ -617,9 +620,9 @@ every other device, which is the most confusing possible failure.
   prefers `FASwarm.avatar` and **falls back to the older `FA.avatar` engine**,
   so a screen missing the script paints a DIFFERENT face rather than an empty
   box: measured on a planted `agentsettings.html`, 12 shapes against the
-  swarm's 213, with every gate green. `load_swarm.py` was credited here with
+  swarm's 213, with every gate green. The swarm-load script was credited here with
   catching that. It does not: it REPAIRS the page, exits 0, and is in no gate
-  run. `verify_polish.py` now asserts the generator is loaded on any screen
+  run. The polish check now asserts the generator is loaded on any screen
   rendering an avatar, which is the causal fact rather than a signature of
   today's output, and its `[data-avatar]` svg check stays for the case where
   neither engine is present. Measured across the set the day it landed: 36
@@ -627,7 +630,7 @@ every other device, which is the most confusing possible failure.
 
 ## The scope claim that was wrong, and the gate that replaced it
 
-Round 4 found that `verify_ink.py` measured 8 of 33 screens while this file,
+Round 4 found that the ink check measured 8 of 33 screens while this file,
 DESIGN.md and the gate table all asserted AA of every screen. Twenty-five
 screens had never been opened by it. Nothing failed, because a list of names
 cannot fail on a file it does not mention.
@@ -635,11 +638,11 @@ cannot fail on a file it does not mention.
 Widening that list would have been the same mistake the three previous rounds
 made: round 1 fixed an axis, round 2 fixed a selector, round 3 fixed the open
 states, and each time the identical defect was already sitting elsewhere in a
-different shape. So the fix is `population.py` plus `verify_coverage.py`: a
+different shape. So the fix is `population.py` plus the coverage check: a
 gate declares the RULE that decides its scope, and a gate that names screens
 fails.
 
-Widening the sweep then found three instrument bugs in `verify_ink.py`
+Widening the sweep then found three instrument bugs in the ink check
 itself, each of which had been producing confident wrong numbers on the
 screens it had never looked at:
 
@@ -656,7 +659,7 @@ disclosures together and each overlay panel alone in its own scope, and insets
 its samples two pixels from the run's edges.
 
 Two counts are printed on the face of the report for the same reason
-`verify_polish.py` prints its opened-state count: `states opened` and `content
+the polish check prints its opened-state count: `states opened` and `content
 still hidden after the reveal`. A gate that reveals nothing and a gate that
 reveals everything otherwise produce the same green result.
 
@@ -668,7 +671,7 @@ here. That was true, and it was the wrong claim. A file survives while an
 element inside it leaves, and two did: the September agreement's technical
 disclosure, and the brand's accessible name on four screens.
 
-`verify_kept.py` is the rerunnable version of the review that caught them. It
+The kept-elements check is the rerunnable version of the review that caught them. It
 asks Chrome for the brand's computed accessible name on all 33 screens, and
 searches rendered text with every disclosure opened for facts that must still
 exist somewhere in the set. Facts are tiered: a `buyer` fact demoted into the
@@ -700,7 +703,7 @@ It was not a naming preference needing a ruling. The tree settles it:
 `hire.html` offers `northline/design-tokens` as one of "the four public
 repositories on YOUR confirmed GitHub account", so northline is the buyer.
 
-`verify_linknames.py` is the rerunnable version. It reads what each destination
+The link-names check is the rerunnable version. It reads what each destination
 page calls itself and fails any link whose text claims otherwise, so renaming
 the operator stays a one-file change. `conduct.html` is excused by name with
 the reason attached: it shows one account acting as both buyer and operator,

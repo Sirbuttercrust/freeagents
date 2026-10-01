@@ -19,13 +19,15 @@ element traces to are settled and safe to wire a backend against.
 
 **The money model is the 2026-09-01 ruling and it is applied**: price $1,200,
 deposit 25 percent, balance 75 percent, ABT 3 percent with one approval, USDC
-6 percent with two. `verify_money.py` fails any figure on any screen that does
-not derive from it. The one open question is the $1,200 price itself, which
+6 percent with two. A money check run at build time failed any figure on any
+screen that did not derive from it; that script is kept in the private
+operations repository and is not on disk here. The one open question is the $1,200 price itself, which
 needs a decision from the operator and is flagged in `BUILD-STATE.md`.
 
 Gates hold the work. The count is not written here on purpose, because a number
-in prose is a claim nothing checks: `verify_all.py` prints it, and it fails if
-its own list and the `DESIGN.md` table disagree in either direction.
+in prose is a claim nothing checks: the build-time runner printed it, and it
+failed if its own list and the `DESIGN.md` table disagreed in either direction.
+That runner is kept in the private operations repository and is not on disk here.
 
 ## What is in here
 
@@ -43,9 +45,12 @@ its own list and the `DESIGN.md` table disagree in either direction.
 | `flow.css`, `flow.js` | the payment screens: rails, pickers, the scan sheet |
 | `pipeline.css` | the dashboard pipeline rail |
 | `perch.js`, `agents.js`, `swarm.js` | the decorative animated agents, and the DID-derived avatar engine |
-| `verify_*.py` | the gates. Standard library only, no environment to set up |
-| `measure_*.py`, `probe_ink.py`, `load_swarm.py` | scratch instruments that print numbers rather than asserting them |
-| `wirebrowse.py`, `devserver.py` | the browser driver and the preview server, both committed so a reviewer with a clone can run every gate |
+| `verify_designmd.py`, `verify_reduced_motion.py`, `tapfloor.py`, `tokens.py`, `population.py` | the checks that stay in this repository. Standard library only, no environment to set up |
+| `wirebrowse.py`, `devserver.py` | the browser driver and the preview server, both committed so a reviewer with a clone can run every kept check |
+
+The other build scripts (the per-screen verifiers, the scratch instruments that
+printed numbers rather than asserting them, and the mutation suites) are kept
+in the private operations repository and are not on disk here.
 
 ## How to view it
 
@@ -71,28 +76,26 @@ browser is showing you a cached page" stop being the same symptom.
 
 ```bash
 python3 devserver.py 3111 &
-python3 verify_all.py http://127.0.0.1:3111
+python3 verify_designmd.py
+python3 verify_reduced_motion.py
 ```
 
-One command, one table, exit 0 only if every gate exits 0. Exit 3 means no
-Chrome was found, which is reported as its own state and never folded into a
-pass. No environment setup: the driver and the server are committed beside the
-gates and use the standard library only.
+Each exits 0 only if its check passes. No environment setup: the driver and
+the server are committed beside the checks and use the standard library only.
+The build-time runner that ran every gate in one table is kept in the private
+operations repository and is not on disk here.
 
-The mutation suites are run separately, because they edit files and take
+The mutation suites were run separately, because they edit files and take
 several minutes. They put each defect back, require the gate to FAIL, revert,
 and require it to PASS, so a green gate is known to discriminate rather than
-merely to run:
+merely to run. They are kept in the private operations repository and are not
+on disk here.
 
-```bash
-for m in verify_*mutation*.py; do python3 "$m" http://127.0.0.1:3111; done
-```
-
-Written as a glob rather than as a list of names, and with no count in the
-sentence. This paragraph used to name three suites by hand and went stale the
-day a fourth was added, with nothing ever telling anyone. `verify_all.py`
-reads them off disk the same way for the same reason, and prints the number it
-found. The suites that take no url ignore the argument.
+They were run as a glob rather than as a list of names, and with no count in
+the sentence. This paragraph used to name three suites by hand and went stale
+the day a fourth was added, with nothing ever telling anyone. The runner read
+them off disk the same way for the same reason, and printed the number it
+found.
 
 ## Rules that bind anyone building from this
 

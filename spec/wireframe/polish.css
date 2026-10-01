@@ -315,7 +315,7 @@
    The operator, 2026-08-27: a lot of text on many pages is exhausting to
    read, and anything that can become a component or a diagram should.
 
-   Measured with measure_prose.py, which reads only VISIBLE text (builder
+   Measured with a prose-length count, which reads only VISIBLE text (builder
    notes are behind a toggle and do not count against a screen). */
 
 /* A short list of flat facts, one line each, with a leading glyph that says
@@ -553,7 +553,7 @@ kbd {
    and 32px, which is comfortable with a mouse and small with a thumb. Raised
    on touch pointers only, so the desktop proportions are unchanged.
 
-   Measured with verify_polish.py under a real touch profile, which is what
+   Measured with the polish check under a real touch profile, which is what
    found each of these: a width-only check at 320px does NOT match
    (pointer: coarse) and reports everything as passing. */
 @media (pointer: coarse) {
@@ -572,7 +572,7 @@ kbd {
   /* min-WIDTH as well as height. The pager's numbered buttons measured
      32x44: a control two thirds of the floor wide is not a 44px target, and
      the height-only check that let it stand for a month is the defect
-     verify_polish.py's touch probe was rewritten to catch. */
+     the touch probe of the polish check was rewritten to catch. */
   .sort button, .pager button { min-height: 44px; min-width: 44px; }
 
   /* .drawer label carried `padding: 10px 0` here and NEVER APPLIED. browse.html
@@ -624,7 +624,7 @@ kbd {
      .sechead was added 2026-08-28 with the dashboard flow rail. It is the
      section header that carries a title, a count and a "See all", and it
      replaced a plain .between on that page. Renaming the wrapper silently
-     dropped its links out of this rule and verify_polish.py caught all four
+     dropped its links out of this rule and the polish check caught all four
      at 21px. Keep this list in step with any new header wrapper. */
   footer a,
   .rows .small[href],
@@ -698,7 +698,7 @@ kbd {
    label that looks exactly like a 44px one in a screenshot. So the markup
    pattern that produces these gets the floor a second way, keyed on the flex
    layout the labels already use, and both routes are measured by
-   verify_polish.py rather than assumed.
+   the polish check rather than assumed.
 
    Outside the :has() block on purpose. A parse failure inside a selector list
    takes the whole rule with it, so these must not share a block. */

@@ -487,6 +487,40 @@ describe('(g) register makes the name and binds it to the ceremony', () => {
     });
   });
 
+  // A phone's passkey manager refused to save a passkey on the options this
+  // route used to answer (the library's defaults): an empty display name,
+  // Ed25519 as the first algorithm, and 60 seconds for a ceremony that may
+  // cross from a computer to a phone by QR code. Each is pinned here.
+  it('asks for a passkey a phone will save: a display name, ES256 then RS256, and five minutes to finish', async () => {
+    const rig = await startRig();
+
+    const started = await post(rig, '/auth/passkey/register');
+    expect(started.status).toBe(200);
+    const options = JSON.parse(String(started.body.optionsJson)) as {
+      user: { name: string; displayName: string };
+      pubKeyCredParams: { alg: number; type: string }[];
+      timeout: number;
+    };
+
+    expect(options.user.displayName).toBe('FreeAgents account');
+    expect(options.user.displayName).toBe(options.user.name);
+    expect(options.pubKeyCredParams).toEqual([
+      { alg: -7, type: 'public-key' },
+      { alg: -257, type: 'public-key' },
+    ]);
+    expect(options.timeout).toBe(5 * 60 * 1000);
+  });
+
+  it('gives a returning person the same five minutes at sign-in', async () => {
+    const rig = await startRig();
+
+    const started = await post(rig, '/auth/passkey/signin/start');
+    expect(started.status).toBe(200);
+    const options = JSON.parse(String(started.body.optionsJson)) as { timeout: number };
+
+    expect(options.timeout).toBe(5 * 60 * 1000);
+  });
+
   it('a body naming any subject changes nothing: the name is still the server\'s, and each register makes a new one', async () => {
     const rig = await startRig();
 

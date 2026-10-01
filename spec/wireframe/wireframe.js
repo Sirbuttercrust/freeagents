@@ -118,8 +118,8 @@
       "northsound.dev), the repository (design-tokens) and every dollar " +
       "figure are invented for the wireframe. They are plausible and they " +
       "are not claims about anyone real. The money model behind the figures " +
-      "is the 2026-09-01 ruling, and <code>verify_money.py</code> fails any " +
-      "amount that does not derive from it.";
+      "is the 2026-09-01 ruling, and every amount is derived " +
+      "from it.";
     document.body.appendChild(d);
   }
 
