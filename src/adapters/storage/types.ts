@@ -402,11 +402,11 @@ export interface ReviewRepository {
   listByAgentDid(agentDid: string): Promise<readonly Review[]>;
 }
 
-// R-3 + R-4 completion (D2, task t_8a82c865): the durable record of the
+// R-3 + R-4 completion: the durable record of the
 // most recent verification method this process has independently checked
 // for a DID, through the R-34 signing-key resolver's binding check (the
 // same check buildDidAbtLoader performs for a credential proof) AND a
-// genuinely verified request signature (D4/D5, task t_8a82c865: the write
+// genuinely verified request signature (the write
 // happens from http-signature.ts's verify(), only once the ed25519 bytes
 // have checked out, never merely on the binding check over public data).
 // A side record, not a field on Agent or Account -- the same separation
@@ -593,7 +593,7 @@ export interface AttachmentRepository {
 // (a rare but real event, e.g. after clearing site data) replaces the
 // prior key material rather than accumulating a stale duplicate.
 //
-// FIX-SW4b (bugs.md SW4-02): a subscription belongs to the account that
+// FIX-SW4b (SW4-02): a subscription belongs to the account that
 // registered it. removeForAccount deletes the row only when that account
 // holds the endpoint and does nothing otherwise; findByEndpoint lets the
 // caller of upsert see who holds an endpoint before it takes it over.

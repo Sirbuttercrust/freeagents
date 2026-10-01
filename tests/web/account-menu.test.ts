@@ -1,5 +1,5 @@
 // NAV1: the account menu at the top right, under a person's own profile
-// icon (MAP.md, "The account menu and a person's own icon", 2026-09-30).
+// icon (2026-09-30).
 //
 // Every pin here but (i) drives real Chrome (tests/helpers/real-browser.ts)
 // against createApp() with a real session adapter, so sessions, the one

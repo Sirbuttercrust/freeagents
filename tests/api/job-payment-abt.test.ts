@@ -4,7 +4,7 @@
 // WALLET side of the protocol itself, exactly the sequence
 // qr-server.mjs's real mobile wallet drives: call the buyer's own /start
 // route to mint a session, decode the wallet callback URL it returns
-// (review round 1, D1: no test may hard-code that path, since a real
+// (no test may hard-code that path, since a real
 // wallet only ever learns it from the /start response), fetch the first
 // signed claim (authPrincipal), answer it, receive the second signed
 // claim (prepareTx), sign the partial transaction the way a wallet
@@ -146,7 +146,7 @@ async function startAbtApp(
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      // FIX-B37 (bugs.md B37 + B42): confirm has always refused an agent
+      // FIX-B37 (B37 + B42): confirm has always refused an agent
       // with no verified GitHub login, and the deposit doors this file
       // exercises now check the identical fact before a session ever
       // mints (route-support.ts's checkAgentGithubVerified). This
@@ -255,7 +255,7 @@ describe('the ABT DID Connect payment flow, driven end to end over HTTP', () => 
   });
 });
 
-describe('the ABT payment flow refuses a wallet that redirects the operator output to an attacker (review round 2, D1)', () => {
+describe('the ABT payment flow refuses a wallet that redirects the operator output to an attacker', () => {
   it('a wallet that signs and broadcasts cleanly but names a different owner for the operator output does not confirm', async () => {
     const fakeChain8 = fakeAbtChainClient(true);
     const started8 = await startAbtApp(fakeChain8.client);
@@ -504,7 +504,7 @@ describe('confirm() answering confirmed: false writes no settlement row on ABT',
 });
 
 describe('POST /jobs/:jobId/payments/deposit/abt/start: the wallet callback URL it returns is reachable on the same server', () => {
-  it('review round 1, D1: fetching body.url\'s decoded callback path answers the real DID Connect claim, not a 404', async () => {
+  it('fetching body.url\'s decoded callback path answers the real DID Connect claim, not a 404', async () => {
     const fakeChain4 = fakeAbtChainClient(true);
     const started4 = await startAbtApp(fakeChain4.client);
     try {
@@ -542,7 +542,7 @@ describe('POST /jobs/:jobId/payments/deposit/abt/start: an unconfigured rail ref
       delegation: { fixture: true } as never,
       name: 'scout',
       skills: ['triage'],
-      // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+      // FIX-B37 (B37 + B42): see the identical comment on the
       // first startAbtApp fixture above.
       githubLogin: 'scout-abt-unconfigured',
       negotiatesOnOwnersBehalf: true,
@@ -597,7 +597,7 @@ describe('POST /jobs/:jobId/payments/deposit/abt/start: an unconfigured rail ref
   });
 });
 
-describe('review round 1, D2: the abt session-minting route refuses a request that does not name the buyer', () => {
+describe('the abt session-minting route refuses a request that does not name the buyer', () => {
   let started5: StartedAbtApp;
   let fakeChain5: ReturnType<typeof fakeAbtChainClient>;
 
@@ -645,7 +645,7 @@ describe('review round 1, D2: the abt session-minting route refuses a request th
   });
 });
 
-describe('review round 2, D3: the token-route buyer gate must check the jobId the session actually binds to', () => {
+describe('the token-route buyer gate must check the jobId the session actually binds to', () => {
   let started6: StartedAbtApp;
   let fakeChain6: ReturnType<typeof fakeAbtChainClient>;
   let attacker: SigningIdentity;
@@ -689,7 +689,7 @@ describe('review round 2, D3: the token-route buyer gate must check the jobId th
   });
 });
 
-describe('review round 3, D4: the job\'s own agent is a real party to the job but not its buyer, and starting an abt payment is refused', () => {
+describe('the job\'s own agent is a real party to the job but not its buyer, and starting an abt payment is refused', () => {
   it('the agent cannot start a payment for the job it was hired on, and no settlement is written', async () => {
     const fakeChain7 = fakeAbtChainClient(true);
     const started7 = await startAbtApp(fakeChain7.client);
@@ -783,7 +783,7 @@ describe('S3: a buyer naming their own address is refused on both doors, and nev
   });
 });
 
-describe('S3: the second door combined with a malicious wallet redirect is refused, proving onAuth derives independently of prepareTx (review round 1, D1)', () => {
+describe('S3: the second door combined with a malicious wallet redirect is refused, proving onAuth derives independently of prepareTx', () => {
   it('a session minted through /api/did/pay/token naming an attacker address, then a wallet that redirects the signed payout to that same address, still refuses and settles nothing', async () => {
     const fakeChain12 = fakeAbtChainClient(true);
     const started12 = await startAbtApp(fakeChain12.client);
@@ -899,7 +899,7 @@ describe('S3, Trap 1: self-hire settles normally on ABT, paying the buyer\'s own
         delegation: { fixture: true } as never,
         name: 'self-hired-scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // FIX-B37 (B37 + B42): see the identical comment on the
         // first startAbtApp fixture above.
         githubLogin: 'self-hired-scout-login',
         negotiatesOnOwnersBehalf: true,
@@ -1005,7 +1005,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         delegation: { fixture: true } as never,
         name: 'scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // FIX-B37 (B37 + B42): see the identical comment on the
         // first startAbtApp fixture above.
         githubLogin: 'scout-abt-unset',
         negotiatesOnOwnersBehalf: true,
@@ -1112,7 +1112,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
         delegation: { fixture: true } as never,
         name: 'scout',
         skills: ['triage'],
-        // FIX-B37 (bugs.md B37 + B42): see the identical comment on the
+        // FIX-B37 (B37 + B42): see the identical comment on the
         // first startAbtApp fixture above.
         githubLogin: 'scout-abt-set',
         negotiatesOnOwnersBehalf: true,
@@ -1258,7 +1258,7 @@ describe('P8c: the ABT rail reads Account.operatorAddressAbt, and fails closed w
   });
 });
 
-// Proof round 1, D2 (comment 561 on this card): B23's own status gate
+// B23's own status gate
 // (legStatusEligible) was wired onto the /start route and the token-mint
 // door, but never onto onAuth (abt-did-connect.ts), the wallet-response
 // leg of the ABT rail. A session minted while the job was 'proposed' could

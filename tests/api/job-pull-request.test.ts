@@ -747,7 +747,7 @@ describe('job pull-request, the P4 anchor and the five 409 facts (STG2)', () => 
     }
   });
 
-  // HIGH defect, QA round 1: GitHub reports owner, repo and login in ITS
+  // GitHub reports owner, repo and login in ITS
   // OWN canonical case, case-insensitively, regardless of how POST /jobs,
   // account-proof or stage stored the caller's original spelling. An exact
   // !== compare on repository, login or head sha refuses an honest PR
@@ -1025,7 +1025,7 @@ describe('pull-request, invariant 1 and Gate 2 (R-10, STG2)', () => {
         'getPublicGist',
         'getPullRequest',
         'grantPush',
-        // ORG1 r2 fix: platformLogin is a read-only string, not a
+        // ORG1: platformLogin is a read-only string, not a
         // capability -- it names the account every read-only method
         // above already runs as, so a caller (app.ts) can put that
         // account in a message without re-deriving it from the

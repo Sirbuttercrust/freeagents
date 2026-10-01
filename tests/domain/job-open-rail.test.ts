@@ -1,4 +1,4 @@
-// FIX-B39 (bugs.md B39): rule 1, the price proposal may leave the currency
+// FIX-B39 (B39): rule 1, the price proposal may leave the currency
 // open. A proposal that names a rail still pins the job to it exactly as
 // before (tests/domain/job-price.test.ts, untouched); this file pins the
 // NEW case: a proposal that omits rail entirely.

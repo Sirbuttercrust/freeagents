@@ -1077,7 +1077,7 @@ export class PrismaReviewRepository implements ReviewRepository {
   }
 }
 
-// D2 (task t_8a82c865): addressed structurally, for the same reason
+// Addressed structurally, for the same reason
 // rotationDb() and compromiseDb() are: the generated client lags the
 // schema, and this path cannot regenerate it.
 interface ObservedKeyRow {
@@ -1098,7 +1098,7 @@ function observedKeyDb() {
   };
 }
 
-// D2 (task t_8a82c865): the durable half of the R-34 signing-key
+// The durable half of the R-34 signing-key
 // resolver's binding check. upsert, not create: a later verified signature
 // replaces the prior row, the same overwrite-on-record stance the
 // in-process KnownKeyStore already takes (did-abt-resolver.ts).

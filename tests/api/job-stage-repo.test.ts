@@ -210,7 +210,7 @@ describe('POST /jobs/:jobId/stage: ancestry from baseCommit (B14a scope item 3)'
   });
 });
 
-// FIX-B14b (bugs.md B14b): when the commit is not visible in the staging
+// FIX-B14b (B14b): when the commit is not visible in the staging
 // repository, that can mean the commit genuinely was never pushed, OR it
 // can mean the agent never accepted the collaborator invitation confirm
 // sent it and so could never have pushed anything at all. Reading

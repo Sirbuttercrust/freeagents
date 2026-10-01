@@ -32,8 +32,8 @@ const builtDir = join(here, '../../src/web/pages');
 const wireDir = join(here, '../../spec/wireframe');
 
 // Built page -> wireframe file, where the names differ. The landing page was
-// built from the design seat's landing-swarm.html (kept outside the repo,
-// see PLAN.md); spec/wireframe/index.html is the sitemap page, so landing is
+// built from the design seat's landing-swarm.html (kept outside the repo);
+// spec/wireframe/index.html is the sitemap page, so landing is
 // not compared here.
 const WIREFRAME_FOR: Record<string, string | null> = {
   landing: null,
@@ -74,7 +74,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     'Hires 12': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
     'Prior 31': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
     'Claims 2': 'same reason as "All 45": a live count, never the wireframe\u2019s sample digit',
-    // Review round 2, D1 (conformance-satisfied-by-dead-markup): these two
+    // These two
     // prior-work controls used to sit inside <template> elements that
     // nothing cloned, so removed conformance-agent-carries-every-control's
     // pass by neither a page change nor an honest absence. R-17's three
@@ -97,9 +97,9 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // "gist proof" above documents), so no gallery card for that tier is
     // ever built at runtime; a <template> carrying these two controls with
     // nothing that ever clones them is exactly the conformance-satisfied-
-    // by-dead-markup defect review round 2 (D1) already found and fixed once
+    // by-dead-markup defect already found and fixed once
     // in this file, for the row-level verify affordance.
-    'See the commits': 'ENT-11 not wired (verifiedPriorWork is always [], agent-work-record.ts); no prior-work gallery card is ever built for this control to sit on, and a template nothing clones is the dead-markup defect review round 2 (D1) already fixed once in this file',
+    'See the commits': 'ENT-11 not wired (verifiedPriorWork is always [], agent-work-record.ts); no prior-work gallery card is ever built for this control to sit on, and a template nothing clones is the dead-markup defect already fixed once in this file',
     'Read the source': 'same reason as "See the commits": ENT-11 not wired, no prior-work gallery card exists for this affordance yet',
     // The wireframe's four sample gallery card titles (its one example
     // agent's specific portfolio items). VerifiedHireItem carries no title
@@ -188,8 +188,8 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     //
     // NAV1 built that menu on every page (each page's #nav-signed-in row,
     // wired by nav.js), and its face is the person's profile icon
-    // (FAApi.personMark), never a bot, by the ruling in MAP.md "The account
-    // menu and a person's own icon" (2026-09-30). A profile icon is not a
+    // (FAApi.personMark), never a bot (ruled 2026-09-30).
+    // A profile icon is not a
     // data-avatar bot mount, so this page still mounts none; this
     // wireframe's menu face predates the ruling.
     //
@@ -198,7 +198,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // (src/api/app.ts:1629-1637) with no DID on the row, so the only way to
     // draw a face there would be to derive an identity from a name, which
     // this codebase never does.
-    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/myjobs.html:41), never a row: its six rows carry .rowtext and .rowtrail and no avatar. The menu is built (NAV1, every page's #nav-signed-in row), and its face is the person's profile icon, never a bot (MAP.md, \"The account menu and a person's own icon\"), so it is no data-avatar mount; and GET /accounts/:did/jobs returns no DID on a row (src/api/app.ts:1629-1637), so a row avatar could only come from deriving an identity out of a name",
+    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/myjobs.html:41), never a row: its six rows carry .rowtext and .rowtrail and no avatar. The menu is built (NAV1, every page's #nav-signed-in row), and its face is the person's profile icon, never a bot, so it is no data-avatar mount; and GET /accounts/:did/jobs returns no DID on a row (src/api/app.ts:1629-1637), so a row avatar could only come from deriving an identity out of a name",
   },
   job: {
     // The wireframe draws the closed-without-shipping state as a second
@@ -345,8 +345,8 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // three .orow rows (spec/wireframe/incoming.html:87-145) carry .who,
     // .repo, .brief and .foot and draw no face at all. NAV1 built the menu
     // on every page, and its face is the person's profile icon
-    // (FAApi.personMark), never a bot, by the ruling in MAP.md "The account
-    // menu and a person's own icon" (2026-09-30), so it is no data-avatar
+    // (FAApi.personMark), never a bot (ruled 2026-09-30),
+    // so it is no data-avatar
     // mount; this wireframe's menu face predates the ruling.
     //
     // NOT the myjobs reason. GET /accounts/:did/incoming DOES return
@@ -354,7 +354,7 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
     // reads it, so a row face here is available and is still not drawn:
     // the wireframe's own rows draw none, and adding one would be an
     // addition to the design rather than conformance to it.
-    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/incoming.html:66), never a row: its three .orow rows (spec/wireframe/incoming.html:87-145) carry .who, .repo, .brief and .foot and draw no face at all. The menu is built (NAV1, every page's #nav-signed-in row), and its face is the person's profile icon, never a bot (MAP.md, \"The account menu and a person's own icon\"), so it is no data-avatar mount. This route does carry a row identity (agentDid on every offer, src/api/app.ts:1720-1727), so the absence is the design's call and not the data's: drawing a face the wireframe's own rows do not draw would be an addition to the design rather than conformance to it",
+    'avatars': "the wireframe's one data-avatar is the face on its nav account menu (spec/wireframe/incoming.html:66), never a row: its three .orow rows (spec/wireframe/incoming.html:87-145) carry .who, .repo, .brief and .foot and draw no face at all. The menu is built (NAV1, every page's #nav-signed-in row), and its face is the person's profile icon, never a bot, so it is no data-avatar mount. This route does carry a row identity (agentDid on every offer, src/api/app.ts:1720-1727), so the absence is the design's call and not the data's: drawing a face the wireframe's own rows do not draw would be an addition to the design rather than conformance to it",
   },
   myagents: {
     // Two of the wireframe's four example agent names (myagents.html:109,

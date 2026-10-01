@@ -44,7 +44,7 @@ describe('calculateFee: decimal-string math, never a JS float', () => {
     expect(calculateFee('0.50', ABT_FEE_RATE_PERCENT)).toBe('0.02');
   });
 
-  // D3 (review, round 1): the 0.005 boundary above is NOT actually pinned,
+  // The 0.005 boundary above is NOT actually pinned,
   // because rounding the INPUT up to a whole cent and rounding the FEE up
   // on a tie give the same answer at that one amount (both land on 0.00).
   // 0.165 tells the two rules apart: round-the-input-first takes 0.165 to
@@ -95,7 +95,7 @@ describe('usdToTokenAmount: dollar amount converted at an injected rate, decimal
     expect(() => usdToTokenAmount('10.00', '0')).toThrow();
   });
 
-  // D2 (review, round 1): the USD-per-token rate used to be parsed through
+  // The USD-per-token rate used to be parsed through
   // the same hundredths-only parser as a dollar amount, so a rate like
   // $0.0345/ABT was rounded to $0.03 before the division ever ran. ABT
   // trades at fractions of a cent, so the rate must be carried at full

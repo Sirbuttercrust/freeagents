@@ -629,7 +629,7 @@ describe('every other outcome in Make 3', () => {
     expect(result.outcome).toBe('fee_due');
     expect(await h.settlementRepo.findByJobAndLeg(h.jobId, 'deposit')).toBeNull();
   });
-  it('never reports fee_due when the price itself has not confirmed yet (B49 review round 1, defect 2)', async () => {
+  it('never reports fee_due when the price itself has not confirmed yet (B49)', async () => {
     // The price landed on chain but has not mined yet, so the server's
     // legs.price.status answers not_confirmed. fee_due must never be
     // guessed from "the fee was refused" alone.
@@ -727,7 +727,7 @@ describe('no wallet-response posts before both receipts exist', () => {
     expect(wallet.calls.filter((c) => c === 'eth_getTransactionReceipt').length).toBeGreaterThan(2);
   });
 });
-describe('outcomes with no case before B49 review round 1 (defect 3)', () => {
+describe('outcomes with no case before B49', () => {
   it('already_paid: the server\'s own already-paid refusal is forwarded and the stored record cleared', async () => {
     const { chainState, h, page } = await setup(21);
     const first = await payDeposit(page, h, fakeWalletEntry('w21a', { chainState }));

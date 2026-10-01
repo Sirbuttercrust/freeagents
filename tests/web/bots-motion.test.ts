@@ -148,7 +148,7 @@ describe('bots move only when they should', { timeout: 60000 }, () => {
     }
   });
 
-  // Review round 1: the page claimed to follow the setting while open, and did not.
+  // The page claimed to follow the setting while open, and did not.
   // The bots stayed on the loop with their pixels changing nine seconds after
   // the switch. Every assertion here is taken AFTER the emulated media
   // changes, with no reload in between, and the frame counter is the check

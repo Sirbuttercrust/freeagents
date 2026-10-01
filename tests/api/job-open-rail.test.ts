@@ -1,4 +1,4 @@
-// FIX-B39 (bugs.md B39): rules 2, 3 and 6, on the lightweight open-rail
+// FIX-B39 (B39): rules 2, 3 and 6, on the lightweight open-rail
 // harness (deposits are settled by writing straight to settlementRepo,
 // the shortcut tests/api/job-confirm-staging.test.ts also takes).
 // Rule 6: GET /jobs/:jobId carries payableRails while 'proposed' and
@@ -156,8 +156,8 @@ describe('confirm on an open quote: the settlement gate says settled but no reco
     expect(body.error).toContain('settlement record');
   });
 
-  it('does NOT fire when the real refusal is unaccepted price, even though a deposit already settled (review r2, defect 1)', async () => {
-    // Review r2 repro: a settled deposit exists (findByJobAndLeg finds a
+  it('does NOT fire when the real refusal is unaccepted price, even though a deposit already settled', async () => {
+    // A settled deposit exists (findByJobAndLeg finds a
     // real row), so the "no record" branch must never trigger here --
     // the actual reason confirmSpec refuses is that re-proposing the
     // price (with no rail named) reset both acceptances, and neither

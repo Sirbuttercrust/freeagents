@@ -2286,7 +2286,7 @@ describe('PrismaPasskeyCredentialRepository', () => {
   });
 });
 
-// FIX-SW4b (bugs.md SW4-02): the owner rule is in the query, so the driver's
+// FIX-SW4b (SW4-02): the owner rule is in the query, so the driver's
 // exact arguments are what keep another account from removing a row.
 describe('PrismaPushSubscriptionRepository: the owner rule', () => {
   const createdAt = new Date('2026-09-30T00:00:00.000Z');
@@ -2332,7 +2332,7 @@ describe('PrismaPushSubscriptionRepository: the owner rule', () => {
   });
 });
 
-// FIX-SW4f (bugs.md SW4-05): the four methods the unsent-upload quota and
+// FIX-SW4f (SW4-05): the four methods the unsent-upload quota and
 // the sweep read and write, against the stubbed client.
 describe('PrismaAttachmentRepository: unsent uploads (FIX-SW4f)', () => {
   const createdAt = new Date('2026-09-30T12:00:00.000Z');

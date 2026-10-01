@@ -118,115 +118,11 @@ function pointsAtPrivateProcess(line: string): boolean {
   return matchesClassPattern(line) || hasSeatName(line, SEAT_HASHES);
 }
 
-// Files other open work is editing, or that the second half of this cleanup
-// has yet to reach. Each path leaves this set when its own cleanup lands.
-// Adding a path here is never how a red line is fixed: fix the line.
-const PENDING: readonly string[] = [
-  'src/adapters/config/report.ts',
-  'src/adapters/identity/did-abt-resolver.ts',
-  'src/adapters/payment/abt-did-connect.ts',
-  'src/adapters/payment/abt-usd-rate.ts',
-  'src/adapters/payment/abt.ts',
-  'src/adapters/payment/route-support.ts',
-  'src/adapters/payment/types.ts',
-  'src/adapters/payment/usdc-half-paid-storage-prisma.ts',
-  'src/adapters/payment/usdc-half-paid-storage-types.ts',
-  'src/adapters/payment/usdc.ts',
-  'src/adapters/storage/memory.ts',
-  'src/adapters/storage/prisma.ts',
-  'src/adapters/storage/storage.ts',
-  'src/adapters/storage/types.ts',
-  'src/api/app.ts',
-  'src/api/rate-limit-classes.ts',
-  'src/api/rate-limit-middleware.ts',
-  'src/api/server.ts',
-  'src/api/stream-caps.ts',
-  'src/domain/job.ts',
-  'src/domain/message.ts',
-  'src/domain/payment.ts',
-  'src/web/pages/agentsettings.html',
-  'src/web/pages/agreement.html',
-  'src/web/pages/browse.html',
-  'src/web/pages/conduct.html',
-  'src/web/pages/dashboard.html',
-  'src/web/pages/how.html',
-  'src/web/pages/job.html',
-  'src/web/pages/myagents.html',
-  'src/web/pages/operator.html',
-  'src/web/pages/operatorjob.html',
-  'src/web/pages/outcomes.html',
-  'src/web/pages/pullrequest.html',
-  'src/web/pages/verify.html',
-  'src/web/public/css/league.css',
-  'src/web/public/js/pages/api.js',
-  'src/web/public/js/pages/job.js',
-  'src/web/public/js/pages/nav.js',
-  'src/web/public/js/pages/operator.js',
-  'src/web/public/js/pages/operatorjob.js',
-  'src/web/public/js/pages/staged.js',
-  'src/web/public/js/usdc-wallet.js',
-  'tests/adapters/config/report.test.ts',
-  'tests/adapters/payment/abt.test.ts',
-  'tests/adapters/payment/rail-door-eligibility.test.ts',
-  'tests/adapters/payment/usdc.test.ts',
-  'tests/adapters/prisma.test.ts',
-  'tests/adapters/schema.test.ts',
-  'tests/api/job-attestation.test.ts',
-  'tests/api/job-cited-close.test.ts',
-  'tests/api/job-confirm-github-unverified.test.ts',
-  'tests/api/job-confirm-moved-repository.test.ts',
-  'tests/api/job-confirm-repository-inaccessible.test.ts',
-  'tests/api/job-confirm-staging-invited.test.ts',
-  'tests/api/job-confirm.test.ts',
-  'tests/api/job-criteria.test.ts',
-  'tests/api/job-deem-asks-github.test.ts',
-  'tests/api/job-deemed-completion.test.ts',
-  'tests/api/job-deposit-locks-terms.test.ts',
-  'tests/api/job-deposit-readiness.test.ts',
-  'tests/api/job-deposit-repository-check.test.ts',
-  'tests/api/job-github-access-needed.test.ts',
-  'tests/api/job-invariant2.test.ts',
-  'tests/api/job-lapse-enforcement.test.ts',
-  'tests/api/job-merge-restart.test.ts',
-  'tests/api/job-merge.test.ts',
-  'tests/api/job-multi-agent-request.test.ts',
-  'tests/api/job-open-rail.test.ts',
-  'tests/api/job-operator-acts.test.ts',
-  'tests/api/job-payment-abt.test.ts',
-  'tests/api/job-payment-already-paid.test.ts',
-  'tests/api/job-payment-rail-door-eligibility.test.ts',
-  'tests/api/job-payment-status-and-rail-guards.test.ts',
-  'tests/api/job-payment-usdc.test.ts',
-  'tests/api/job-plain-close.test.ts',
-  'tests/api/job-pull-request.test.ts',
-  'tests/api/job-redo.test.ts',
-  'tests/api/job-stage-default-observer.test.ts',
-  'tests/api/job-stage-repo.test.ts',
-  'tests/api/job-staged-paid.test.ts',
-  'tests/api/job-withdraw.test.ts',
-  'tests/api/rate-limit-classes.test.ts',
-  'tests/api/rate-limit-e2e.test.ts',
-  'tests/domain/job-open-rail.test.ts',
-  'tests/domain/payment.test.ts',
-  'tests/helpers/abt-fixtures.ts',
-  'tests/helpers/open-rail-fixtures.ts',
-  'tests/web/account-menu.test.ts',
-  'tests/web/bots-motion.test.ts',
-  'tests/web/conduct.test.ts',
-  'tests/web/dashboard.test.ts',
-  'tests/web/deposit.test.ts',
-  'tests/web/hire-flow.test.ts',
-  'tests/web/hire-journey-simple.test.ts',
-  'tests/web/incoming.test.ts',
-  'tests/web/job-wireframe.test.ts',
-  'tests/web/nav-auth.test.ts',
-  'tests/web/operator-roster.test.ts',
-  'tests/web/operatorjob.test.ts',
-  'tests/web/outcomes.test.ts',
-  'tests/web/staged.test.ts',
-  'tests/web/usdc-wallet.test.ts',
-  'tests/web/wireframe-conformance.test.ts',
-];
+// Files that another open change is editing right now. The list is empty: a
+// path goes in only while such a change holds that file, and comes out when
+// that change lands. Adding a path here is never how a red line is fixed: fix
+// the line.
+const PENDING: readonly string[] = [];
 
 function gitList(): string[] {
   const out = execFileSync('git', ['ls-files', '-z', '--', 'src', 'tests'], {
@@ -326,7 +222,7 @@ describe('no internal process notes in the public source', () => {
       expect(listing.length).toBeGreaterThan(400);
     });
 
-    it('PENDING takes some files out of the listing and leaves the rest scanned', () => {
+    it('the scanned set is the listing minus PENDING, and holds more than 300 files', () => {
       expect(scanned.length).toBe(listing.length - PENDING.filter((p) => listing.includes(p)).length);
       expect(scanned.length).toBeGreaterThan(300);
     });

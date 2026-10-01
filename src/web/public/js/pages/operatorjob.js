@@ -10,7 +10,7 @@
    signed-in session that resolves to the agent's OWN OPERATOR, not just
    the agent's key or the buyer.
 
-   ROUND 2 FIX (qa D1): GET /jobs/:jobId/attestation's own party check
+   GET /jobs/:jobId/attestation's own party check
    admits the buyer too (the buyer reads the same document, P5's own
    rule), so a 200 or 404 from that probe means only "not a stranger",
    never "this is the agent/operator seat" -- this screen's own controls
@@ -19,7 +19,7 @@
    the job's buyerDid before this screen's body ever renders. A buyer
    session lands on the party-error panel.
 
-   ROUND 3 FIX (qa D1, gate-fails-open): resolveIsBuyerParty returns
+   resolveIsBuyerParty returns
    "buyer" / "not-buyer" / "unresolved" rather than a boolean, because
    false was the ADMIT branch for this screen's controls and a failed
    read (/accounts/me answers 401, 404 and 503, all ordinary) must not
@@ -139,7 +139,7 @@
   var PANEL_IDS = ["load-error", "signin-required", "party-error", "operatorjob-body"];
   function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
 
-  // Round 3 fix (qa D1, gate-fails-open): resolveIsBuyerParty returns one
+  // resolveIsBuyerParty returns one
   // of three strings, because "confirmed not the buyer" and "could not
   // confirm" are different outcomes. On this screen the buyer is the party
   // being EXCLUDED, so folding "could not confirm" into "not buyer" would
@@ -186,7 +186,7 @@
     // is "no attestation", never "not a party". The attestation route's
     // party check admits the buyer too, so a further check (below)
     // resolves whether THIS caller is the buyer before this agent/
-    // operator-only screen renders its controls. Round 3 fix (qa D1):
+    // operator-only screen renders its controls.
     // "unresolved" (the account read could not confirm either way)
     // routes to party-error exactly like "buyer" does, never to the
     // controls -- a read that failed to clear the caller is not a
@@ -287,7 +287,7 @@
   // The redo panel: the one control that needs an answer. Renders only
   // at redo_requested, and names the cited criterion by its stored
   // text, never a fixture line number. Hides itself at every other
-  // status (qa round 4, D3: reload() re-renders on the SAME 200 that
+  // status (reload() re-renders on the SAME 200 that
   // answers this panel, so a total renderer is required or the just-
   // answered control stays on screen, live and inert, offering a
   // transition the server has already closed).
@@ -374,7 +374,7 @@
   // The stage panel: submitting the staged commit for the first time,
   // reachable once the job is confirmed and has not yet staged. Hides
   // itself at every other status, same reasoning as renderRedoPanel
-  // above (qa round 4, D3).
+  // above.
   function renderStagePanel(job_) {
     if (job_.status !== "confirmed") {
       A.showById("stage-panel", false);

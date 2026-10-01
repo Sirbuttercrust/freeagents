@@ -57,7 +57,7 @@ async function postSigned(baseUrl: string, path: string, body: unknown, identity
 
 async function getSigned(baseUrl: string, path: string, identity: SigningIdentity): Promise<Response> {
   const targetUri = `${baseUrl}${path}`;
-  // Proof r1 fixture bug: content-digest must ride on a GET too (an empty
+  // content-digest must ride on a GET too (an empty
   // body still hashes to a real digest, matching every other route test's
   // own getSigned helper, e.g. tests/api/accounts-pending.test.ts). Its
   // absence here silently made every signature-gated GET in this file
@@ -85,7 +85,7 @@ let agentA: SigningIdentity;
 let agentB: SigningIdentity;
 let agentC: SigningIdentity;
 let agentD: SigningIdentity;
-// Proof r1 (HIGH, vacuous-privacy-gate): the sweep must act as agent B's
+// The sweep must act as agent B's
 // REAL registered operator, not a stray session or the agent's own key.
 // ownerB is a keyed signing identity in its own right (so the signature
 // leg of the sweep signs with the OPERATOR's key, never agentB's), and
@@ -108,7 +108,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
     agentB = await signingIdentityFromSeed(new Uint8Array(32).fill(163));
     agentC = await signingIdentityFromSeed(new Uint8Array(32).fill(164));
     agentD = await signingIdentityFromSeed(new Uint8Array(32).fill(165));
-    // Proof r1 (HIGH, vacuous-privacy-gate): a real, keyed identity for
+    // A real, keyed identity for
     // agent B's operator, not the unkeyed 'did:abt:owner-b-multi-agent'
     // placeholder the earlier attempt used. Keyed so the sweep's signature
     // leg can sign as this exact account.
@@ -116,7 +116,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
 
     accountRepo = new MemoryAccountRepository();
     await accountRepo.register({ did: buyer.did, githubLogin: 'buyer-multi-agent' });
-    // Proof r1: registered under 'test-session-user', the exact login
+    // Registered under 'test-session-user', the exact login
     // testSessionAdapter's fakeGitHubFetch always mints a session for
     // (session-fixtures.ts), so mintSession's session leg resolves to
     // ownerB.did, not to some other, unrelated fresh account.
@@ -275,7 +275,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
       body.jobs.forEach((j) => expect(j.status).toBe('draft'));
     });
 
-    // Proof r2 (MEDIUM, guard-without-a-test): pairing agentRows[i] with
+    // Pairing agentRows[i] with
     // createdRows[i] in POST /jobs's multi-agent branch (src/api/app.ts,
     // the githubAccessNeededFor call inside jobs.map) has to line up each
     // row with the SAME index's agent, not agent A's login copied onto
@@ -474,14 +474,14 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
 
       // Give agent B's job a price, so a price leak has something real to
       // catch (a null/absent price would pass any assertion vacuously).
-      // Proof r1 (HIGH): proposed AS ownerB's own signature, not agentB's
+      // Proposed AS ownerB's own signature, not agentB's
       // key -- the operator relation (P8v) makes ownerB agent B's party
       // too, and the sweep below needs a negotiation reply this exact
       // operator identity produced.
       const proposeRes = await postSigned(baseUrl, `/jobs/${jobIdB}/criteria`, { criteria: [{ text: 'Bravo scope', proposedBy: 'agent' }], priceUsd: '777.00', rail: 'abt' }, ownerB);
       expect(proposeRes.status).toBe(200);
 
-      // Proof r2 (MEDIUM, vacuous-privacy-gate): give siblings A and C
+      // Give siblings A and C
       // distinctive prices too, so a leak of sibling PRICES alone (with
       // no id/name/requestId attached) still has a real needle to catch.
       // Without this, ruling item 3's "any sibling price" clause and the
@@ -498,7 +498,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
         });
       }
 
-      // POSITIVE CONTROL (ruling item 3, Proof r1 fix): the earlier
+      // POSITIVE CONTROL (ruling item 3): the earlier
       // version checked a string this test made up, which proves nothing
       // about assertNoLeak catching a REAL leak. Run the identical
       // assertion against the buyer's own POST /jobs reply instead: that
@@ -524,7 +524,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
       assertNoLeak('GET /jobs/:jobId (own job, signature)', await ownJobBySignature.text());
 
       // /accounts/:did/incoming: the main place an owner reads offers to
-      // its own roster (Proof r1's own reproduction planted the leak
+      // its own roster (a reproduction planted the leak
       // here). ownerB is a registered, keyed account, so both proofs
       // resolve to it.
       const incomingBySession = await getSession(baseUrl, `/accounts/${encodeURIComponent(ownerB.did)}/incoming`, ownerBSession);
@@ -592,8 +592,7 @@ describe('HT1 Part A2: one brief to up to three agents', () => {
   });
 
   describe('503 fail-closed: confirming a multi-agent job with a storage driver that lacks findByRequestId', () => {
-    // Proof r1 (MEDIUM, unverified-state-claim): the prior handoff claimed
-    // this test existed; it did not. A stand-in JobRepository that mirrors
+    // A stand-in JobRepository that mirrors
     // the ~10 existing hand-rolled confirm-test stand-ins (create/update/
     // findById/complete/findCompletedByJobId only, no findByRequestId at
     // all) drives the exact fail-closed branch app.ts's confirm route

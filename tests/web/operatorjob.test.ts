@@ -122,7 +122,7 @@ async function renderPage(
   path: string,
   session: { token: string } | null,
   onFetch?: (input: string, init?: RequestInit) => void,
-  // Round 3 fix (qa D1, gate-fails-open): lets a test fault ONE route the
+  // Lets a test fault ONE route the
   // page reads without touching the real app, so a degraded read can be
   // told apart from a healthy one. Returns a Response to short-circuit
   // that request, or null to let it pass through to the real server
@@ -357,7 +357,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
     // Draft, for the drafting-section link.
     await jobRepo.create(jobFixture({ id: 'job-draft', status: 'draft', criteria: [] }));
 
-    // qa D2, round 2: draft and proposed can both be declined or withdrawn
+    // Draft and proposed can both be declined or withdrawn
     // (job.ts:348-349) without ever reaching confirmed. jobProjection omits
     // confirmedAt entirely for such a row (app.ts:353-356), so these two
     // fixtures carry no confirmedSpecHash and no confirmedAt.
@@ -462,7 +462,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
   });
 
   describe("a buyer session (not this job's agent or operator)", () => {
-    it('is refused with the party-error panel, never the agent/operator controls (round 2 fix, D1)', async () => {
+    it('is refused with the party-error panel, never the agent/operator controls', async () => {
       // The 2026-09-01 "one account, many roles" case: a session that
       // resolves to THIS job's buyer, reached through the ordinary
       // /operatorjob?job=<id> link dashboard.js and incoming.js now emit.
@@ -511,7 +511,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
     });
   });
 
-  describe("a buyer session whose own account read is degraded (qa round 3, D1: gate-fails-open)", () => {
+  describe("a buyer session whose own account read is degraded", () => {
     it('lands on the party-error panel, never the agent/operator controls, when GET /accounts/me cannot confirm the seat', async () => {
       // Same fixture as the healthy-read buyer test above (a session that
       // resolves to job-redo-requested's own buyerDid, whose agent
@@ -628,7 +628,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(afterBody.status).toBe('staged');
         expect(afterBody.stagedCommit).toBe('commit-confirmed-first');
 
-        // qa round 4, D3 (inert-declared-control): the panel's own
+        // The panel's own
         // reload() re-renders on this same 200, so the stage panel that
         // was just answered must not stay on screen offering a control
         // that can no longer act on a job that is no longer confirmed.
@@ -688,7 +688,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
     });
   });
 
-  describe('the redo dialogs show the consequence from the job\'s own real numbers (round 2 fix, D2)', () => {
+  describe('the redo dialogs show the consequence from the job\'s own real numbers', () => {
     it('the accept dialog states the real extension days, the unchanged price and the redos left', async () => {
       const page = await renderOperatorJob(baseUrl, 'job-redo-requested', operatorSession);
       try {
@@ -733,7 +733,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(afterBody.status).toBe('staged');
         expect(afterBody.stagedCommit).toBe('commit-sha-restaged');
 
-        // qa round 4, D3 (inert-declared-control): the redo panel must
+        // The redo panel must
         // not stay open, still offering "Accept, and restage" on a job
         // reload() just re-rendered back to staged.
         expect(page.document.getElementById('redo-panel')?.hidden).toBe(true);
@@ -757,7 +757,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
         expect(afterBody.status).toBe('staged');
         expect(afterBody.redo.refusedAt).not.toBeNull();
 
-        // qa round 4, D3 (inert-declared-control): same as the accept
+        // Same as the accept
         // leg above, the panel that was just answered must not stay
         // open with the redo controls still enabled.
         expect(page.document.getElementById('redo-panel')?.hidden).toBe(true);
@@ -985,7 +985,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       }
     });
 
-    // qa D1, round 1: the sub paragraph under the drafting heading kept
+    // The sub paragraph under the drafting heading kept
     // saying "This job has not been confirmed yet" even once the section
     // was widened to render as history, which is false on a job that has
     // moved past draft/proposed and offers an action ("sign the agreement")
@@ -1022,7 +1022,7 @@ describe('the operator job screen, driven end to end against the real app (P8v)'
       }
     });
 
-    // qa D2, round 2: the round-1 fix split the sub two ways on
+    // The earlier fix split the sub two ways on
     // stillDrafting (draft/proposed), so every other status, including a
     // job that was declined or withdrawn straight out of draft/proposed and
     // never confirmed, got the sentence that claims it "was confirmed". That

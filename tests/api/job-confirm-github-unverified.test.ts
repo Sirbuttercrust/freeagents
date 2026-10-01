@@ -1,4 +1,4 @@
-// B28 (bug ledger, C1 rehearsal s4 and s6): confirm answered 503 "github
+// B28: confirm answered 503 "github
 // unavailable" when the real cause was that the agent has no verified
 // GitHub login -- a caller was told to retry something that would never
 // work no matter how many times it tried. The fix distinguishes the two

@@ -293,7 +293,7 @@ describe('job confirm (R-9)', () => {
     // Criterion 1 is missing the agent's acceptance.
 
     const early = await postSigned(`/jobs/${jobId}/confirm`, {}, buyer);
-    // B27 (bug ledger, C1 rehearsal s1): criteria outstanding is a state
+    // B27: criteria outstanding is a state
     // conflict, the same fact a missing price already answers with 409,
     // not a malformed-input 400 -- nothing the caller SENT was wrong.
     expect(early.status).toBe(409);

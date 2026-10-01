@@ -1,5 +1,5 @@
 // FIX-B36, Make item 3: a moved repository is followed, never stranded.
-// bugs.md B36: a buyer who moves the repository into a new GitHub
+// B36: a buyer who moves the repository into a new GitHub
 // organization between POST /jobs and confirm gets a successful confirm
 // (the adapter follows GitHub's 301), but before this card job.repository
 // never updated, so every pull request the agent later opens was refused
@@ -147,7 +147,7 @@ describe('POST /jobs/:jobId/confirm follows a moved repository (FIX-B36 Make ite
   });
 
   // job.ts's own comment: briefHash and confirmedSpecHash never cover
-  // job.repository, so a move leaves both untouched. Proof r1: the
+  // job.repository, so a move leaves both untouched. The
   // previous version of this test created one job and confirmed a
   // DIFFERENT job, then only checked hash FORMAT -- it could not fail
   // even if a move rewrote either hash, because nothing here compared a

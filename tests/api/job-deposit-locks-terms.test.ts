@@ -1,4 +1,4 @@
-// FIX-B74 (bugs.md B74): once the buyer's deposit has settled, a proposed job
+// FIX-B74 (B74): once the buyer's deposit has settled, a proposed job
 // takes no criteria/price proposal and no withdraw. Decline already refused
 // (DEP1); this pins the other two doors, plus the depositSettled key on
 // GET /jobs/:jobId that lets a page word the paid state.

@@ -342,7 +342,7 @@ describe('job criteria exchange (R-8)', () => {
     expect(body.error).toBe('a proposal needs at least one acceptance criterion');
   });
 
-  // B26 (bug ledger, C1 rehearsal s9): proposedBy names who WROTE a
+  // B26: proposedBy names who WROTE a
   // criterion line, and that fact belongs to the signer, not to a string
   // the request body can claim. The buyer's own request body labelling a
   // line "agent" must not be trusted; the server derives proposedBy from
@@ -373,7 +373,7 @@ describe('job criteria exchange (R-8)', () => {
     ]);
   });
 
-  // FIX-B45 (bugs.md B45): a re-proposed line keeps its author. B26 still
+  // FIX-B45 (B45): a re-proposed line keeps its author. B26 still
   // wins for a NEW or CHANGED line - the sender's own resolved seat labels
   // it, whatever the body claims - but a line whose trimmed text matches
   // an existing line is unchanged, and an unchanged line's author does not

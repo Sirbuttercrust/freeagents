@@ -101,7 +101,7 @@ export interface AttachAbtPaymentHandlersOptions {
   readonly baseUrl: string;
   readonly txEncoder: AbtTxEncoder;
   readonly sessionStorage?: DidConnectSessionStorage;
-  // STEER (bugs.md B19, 2026-09-25): "when the platform observes
+  // STEER (B19, 2026-09-25): "when the platform observes
   // a deposit or a balance leg settle... it writes a `deposit paid` or
   // `balance paid` system row into the hire thread." Called AFTER the
   // settlement row above is written, with the identical facts (never a
@@ -452,7 +452,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (job === null) {
         return { confirmed: false, error: 'job not found' };
       }
-      // B23 (bug ledger, C1 rehearsal s7, Proof round 1 D2): a session can
+      // B23: a session can
       // be minted while the job is eligible and completed later, after the
       // buyer has walked away or the job has otherwise moved past the leg
       // it was minted for -- the exact gap /start, the token-mint door and
@@ -464,7 +464,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (!legStatusEligible(leg, job.status)) {
         return { confirmed: false, error: legStatusConflictMessage(leg, job.status) };
       }
-      // FIX-B39 (bugs.md B39), rule 5: ONE shared check, in place of
+      // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
       // address for this rail. operatorAddressOk here makes its OWN
@@ -483,7 +483,7 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       if (!eligibility.ok) {
         return { confirmed: false, error: eligibility.message };
       }
-      // B49 (bugs.md, this card): a leg that already settled must never be
+      // B49 (this card): a leg that already settled must never be
       // paid again. Refused before anything is broadcast or recorded.
       const alreadySettled = await checkLegNotAlreadySettled({
         jobId,

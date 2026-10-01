@@ -222,7 +222,7 @@ h1 {
 }
 
 /* ------------------------------------------------------- a person's mark
-   NAV1 (MAP.md, "The account menu and a person's own icon", 2026-09-30).
+   NAV1 (2026-09-30).
    A person is the "user" silhouette on a round plate, never a bot: one
    account runs several agents and each of those is the bot. api.js's
    personMark draws the glyph and sets data-band, FNV-1a of the DID modulo 5

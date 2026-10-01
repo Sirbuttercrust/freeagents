@@ -138,7 +138,7 @@ function fakeChainClient(overrides: Partial<UsdcChainClient> = {}): UsdcChainCli
 
 // Builds a fake chain client keyed by hash, so a confirm() test can give
 // each of the two legs' hashes its own observed receipt. Resolves the
-// lookup key case-insensitively (S1 review round 1, D1): a real node
+// lookup key case-insensitively: a real node
 // resolves a transaction hash regardless of how it is spelled, so a fake
 // keyed by exact string is stricter than the chain it fakes and would
 // hide a defect the real chain would never exhibit.
@@ -492,7 +492,7 @@ describe('S1: legStatus binds a leg to the transfer it claims, not to any confir
     expect(confirmation.legs?.price).toEqual({ status: 'mismatched', hash: '0xprice' });
   });
 
-  it('mutation proof: a hash already spent on another job does not confirm a second time when re-presented with different letter case (D1, review round 1)', async () => {
+  it('mutation proof: a hash already spent on another job does not confirm a second time when re-presented with different letter case', async () => {
     const chainClient = chainClientByHash({ '0xprice': { status: 1, transfer: transferPayingPrice() } });
     const spentTransferStorage = fakeSpentTransferStorage();
     // Job 2 already spent this exact transfer, recorded lowercase (the

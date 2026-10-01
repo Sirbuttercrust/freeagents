@@ -105,7 +105,7 @@ describe('class rate limits, end to end over real HTTP (S7)', () => {
   });
 
   it('exhausting the verify class (GET /v1/credentials/:credentialId) never throttles the read class (GET /agents/:agentDid) for the same caller', async () => {
-    // FIX-S7 round 3 (round 3's ruling): GET /agents/:agentDid moved from
+    // FIX-S7: GET /agents/:agentDid moved from
     // `verify` to `read`, so this test now exercises the verify class
     // through GET /v1/credentials/:credentialId instead (still verify,
     // answers 404 for an unknown id rather than needing a real credential
@@ -171,15 +171,15 @@ describe('class rate limits, end to end over real HTTP (S7)', () => {
   });
 });
 
-// FIX-S7 round 2 (qa proof r1, defect 1) + round 3 (round 3's ruling): a
+// FIX-S7: a
 // page shell paint on one of the four negotiated paths (/agents/:agentDid,
 // /accounts/:did, /v1/credentials/:credentialId, /jobs/:jobId) never
 // touches the class bucket that path's OWN json reads consume. Reproduces
-// the exact repro qa's proof gave: exhaust the bucket GET /agents/:agentDid
-// now belongs to (`read`, since round 3's ruling) with real JSON reads,
+// the case: exhaust the bucket GET /agents/:agentDid
+// now belongs to (`read`, since FIX-S7) with real JSON reads,
 // then confirm the page shell for the SAME did still answers 200 html
 // rather than a JSON 429 body.
-describe('class rate limits: negotiated page shells never share a bucket with their own JSON reads (FIX-S7 round 2)', () => {
+describe('class rate limits: negotiated page shells never share a bucket with their own JSON reads', () => {
   const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
   it('GET /agents/:agentDid as an html page shell is never 429, even after the read bucket is exhausted by json reads to the same path', async () => {
@@ -202,7 +202,7 @@ describe('class rate limits: negotiated page shells never share a bucket with th
     const baseUrl = await listen(app);
 
     // Exhaust the read bucket (GET /agents/:agentDid's own class, since
-    // round 3's ruling): first json read succeeds, second trips 429.
+    // FIX-S7): first json read succeeds, second trips 429.
     const firstJson = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: 'application/json' } });
     expect(firstJson.status).toBe(200);
     const secondJson = await fetch(`${baseUrl}/agents/${agentDid}`, { headers: { Accept: 'application/json' } });
@@ -216,7 +216,7 @@ describe('class rate limits: negotiated page shells never share a bucket with th
   });
 
   it('page shells alone (no json) never trip the verify bucket at the default limit', async () => {
-    // The page-shell half of qa's repro (proof r1): paging browse
+    // The page-shell half of the repro: paging browse
     // 1,2,3,1,2,3 then opening an agent profile is 7 page-shell paints on
     // /browse (exempt by EXEMPT_WEB_PAGE_PATHS already) plus one page-shell
     // paint on /agents/:agentDid -- none of which may consume any bucket
@@ -249,20 +249,20 @@ describe('class rate limits: negotiated page shells never share a bucket with th
   });
 });
 
-// FIX-S7 round 3 (round 3's ruling; qa proof r2's HIGH defect, "the verify
-// budget must also hold up across an honest multi-page session"). qa's own
-// repro: the page-shell-only e2e test above passes whether or not a real
+// FIX-S7: the verify
+// budget must also hold up across an honest multi-page session. The
+// page-shell-only e2e test above passes whether or not a real
 // session works, because Node fetch runs no page script and so never fires
 // the per-card avatar reads browse.js's own script makes. This test
 // replays those JSON reads directly (the same counts
 // tests/web/rate-limit-burst-measurement.test.ts measures in real Chrome:
 // 1 GET /agents + 10 GET /agents/:agentDid per browse page), at DEFAULT
-// limits, and asserts every one succeeds. Before round 3's ruling moved GET
+// limits, and asserts every one succeeds. Before FIX-S7 moved GET
 // /agents/:agentDid to `read`, six browse pages (60 avatar reads) plus the
 // agent page's own read (61st) tripped the pre-existing 60/minute verify
-// bucket exactly as qa's real-Chrome repro found; this test fails the same
+// bucket exactly as a real-Chrome repro found; this test fails the same
 // way if the route is ever moved back.
-describe('class rate limits: an honest multi-page browse session, JSON reads replayed, never meets a 429 at default limits (FIX-S7 round 3)', () => {
+describe('class rate limits: an honest multi-page browse session, JSON reads replayed, never meets a 429 at default limits', () => {
   it('six browse page loads (10 cards each) followed by one agent page: every JSON read succeeds at DEFAULT limits', async () => {
     const agentRepo = new MemoryAgentRepository();
     const agents: string[] = [];
@@ -296,15 +296,15 @@ describe('class rate limits: an honest multi-page browse session, JSON reads rep
       }
     }
 
-    // The agent page's own JSON read (the one qa's real-Chrome repro found
+    // The agent page's own JSON read (the one a real-Chrome repro found
     // rendered "AGENT NOT FOUND" instead of the record).
     const agentPageRead = await fetch(`${baseUrl}/agents/${agents[0]}`, { headers: { Accept: JSON_ACCEPT } });
     expect(agentPageRead.status).toBe(200);
   });
 });
 
-// FIX-S7 round 2 (qa proof r1, defect 5a) + round 2 review (qa proof r2,
-// item 2b): this e2e test proves classifyRoute puts /api/did/pay/* in the
+// FIX-S7:
+// This e2e test proves classifyRoute puts /api/did/pay/* in the
 // upstream class, but it CANNOT pin the explicit UPSTREAM_PREFIX check by
 // itself: deleting that check still lands the same request on `upstream`
 // via the generic unrecognised-route fallback (rate-limit-classes.ts's own
@@ -312,10 +312,8 @@ describe('class rate limits: an honest multi-page browse session, JSON reads rep
 // identical either way. Only the unit-level classificationReason assertion
 // (tests/api/rate-limit-classes.test.ts's "classificationReason" describe
 // block, asserting 'upstream-prefix' rather than 'fallback-unclassified')
-// actually distinguishes the two, and the PR body says so plainly per
-// FACTORY_RULES rule 1 rather than repeating qa's r2 finding that this
-// level pins it.
-describe('class rate limits: the /api/did/pay/ mount is upstream (FIX-S7 round 2, defect 5a)', () => {
+// actually distinguishes the two.
+describe('class rate limits: the /api/did/pay/ mount is upstream', () => {
   it('an unconfigured deployment (no ABT rail mounted) still classifies /api/did/pay/token as upstream', async () => {
     const app = createApp(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { upstream: 1 });
     const baseUrl = await listen(app);

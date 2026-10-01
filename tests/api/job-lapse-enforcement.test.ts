@@ -1,4 +1,4 @@
-// P4, review round 1 (D2/D3, t_cb5d35cd): the two clocks (expireUnstaged,
+// P4: the two clocks (expireUnstaged,
 // lapseAtStaged) were only applied on GET, so a job that lapsed while
 // nobody was looking could still be ACTED ON by a mutation route -- the
 // exact "unpaid work reaches a buyer's repository" failure this card
@@ -210,7 +210,7 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
     expect(body.status).toBe('submitted');
   });
 
-  // P6 review round 2 (D3, t_604e3f2a): the round-1 fix widened
+  // P6: the earlier fix widened
   // lapseAtStaged to also run at redo_requested, but applyLiveLapses only
   // ever asked the settlement gate `if (job.status === 'staged')`. A paid
   // buyer whose redo the operator has not yet answered was fed a
@@ -239,7 +239,7 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
   });
 });
 
-// D7 (review round 2, t_cb5d35cd): the merge route's nonObservationStatuses
+// The merge route's nonObservationStatuses
 // guard predated P4 and never learned the five statuses this card adds. A
 // caller mistake (asking to merge a job that was never submitted) turned
 // into a 500 platform fault instead of an honest 409, because the route
@@ -247,7 +247,7 @@ describe('lapse enforcement binds to mutation routes, not only GET (P4, anchor)'
 // that never carry one. Each of these must answer 409 before github is
 // ever asked, the same way draft/proposed/confirmed/withdrawn/declined
 // already do.
-describe('merge refuses every P4 non-observable status with 409, not 500 (D7, t_cb5d35cd)', () => {
+describe('merge refuses every P4 non-observable status with 409, not 500', () => {
   let server: Server;
   let baseUrl: string;
   let jobRepo: MemoryJobRepository;

@@ -111,7 +111,7 @@ export function createKnownKeyStore(): KnownKeyStore {
   };
 }
 
-// D2 (task t_8a82c865): the durable half of the binding check's memory.
+// The durable half of the binding check's memory.
 // Optional so every existing caller (tests, and the smoke-test wrapped
 // adapter) is unaffected; when supplied, a keyid that passes the binding
 // check is recorded here too, so the SAME observation survives a process
@@ -143,7 +143,7 @@ export function createDidAbtSigningKeyResolver(
         format: 'jwk',
       }).export({ type: 'spki', format: 'pem' }) as string;
 
-      // D4/D5 (task t_8a82c865): recording is deferred to onVerified,
+      // Recording is deferred to onVerified,
       // called by http-signature.ts's verify() only after the request's
       // own signature bytes have checked out -- not here, where only the
       // keyid's binding check (public data) has passed. knownKeys.record

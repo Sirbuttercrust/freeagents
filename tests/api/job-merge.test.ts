@@ -1132,7 +1132,7 @@ describe('job merge, head moved off the attested commit (STG2)', () => {
     }
   });
 
-  // QA round 1, defect 1 (HIGH): the same case-insensitive identity GitHub
+  // The same case-insensitive identity GitHub
   // reports on a repository or login also applies to a commit sha -- an
   // uppercase-attested sha, or a sha GitHub echoes back in different case
   // than this service stored, is still the same commit, not a moved head.
@@ -1387,7 +1387,7 @@ describe('job merge, outcomes (R-12)', () => {
 });
 
 describe('job merge, who may (B8, 2026-09-01)', () => {
-  // D2 from review on t_66170f30: the merge guard was live but pinned by no
+  // The merge guard was live but pinned by no
   // test, so reinstating the pre-B8 unauthenticated route passed the whole
   // suite. This block exists to make that mutation fail. Same shape as the
   // B6 and B7 blocks: unsigned 401, stranger 403, zero GitHub calls on the

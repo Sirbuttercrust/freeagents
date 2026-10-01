@@ -72,7 +72,7 @@ export function createReviewRepository(): ReviewRepository {
   return new MemoryReviewRepository();
 }
 
-// D2 (task t_8a82c865): the durable half of identity resolution. Same
+// The durable half of identity resolution. Same
 // selection stance as every repository above: Prisma when configured,
 // in-memory (with the same restart-does-not-survive warning) otherwise.
 export function createObservedKeyRepository(): ObservedKeyRepository {

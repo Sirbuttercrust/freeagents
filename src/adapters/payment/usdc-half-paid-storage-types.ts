@@ -23,7 +23,7 @@ export interface UsdcHalfPaidStorage {
   record(row: UsdcHalfPaidRow): Promise<void>;
   read(jobId: string, leg: 'deposit' | 'balance'): Promise<UsdcHalfPaidRow | null>;
   // Removes a settlement's half-paid row once confirm() observes it is no
-  // longer half-paid (both legs confirmed, review round 1, D2): a
+  // longer half-paid (both legs confirmed): a
   // late-landing second signature is the ordinary case on a two-transaction
   // rail, and a stale half-paid row left behind would tell P4's state
   // machine a settlement is half-paid after it has actually completed. A

@@ -56,7 +56,7 @@ async function startWith(repo: JobRepository, attestationRepo: MemoryAttestation
   await agentRepo.updateGithubBinding(agent.did, { handle: AGENT_GITHUB_LOGIN, status: 'verified' });
   const operatorRepo = new MemoryAccountRepository();
   await operatorRepo.register({ did: buyer.did, githubLogin: 'buyer-redo-scripted' });
-  // P6 review round 3, D6 (t_604e3f2a): a stranger's signature must be
+  // A stranger's signature must be
   // verifiable (registered somewhere, the way requireSignedParty's own
   // header comment distinguishes 401 "no signature" from 403 "signature
   // does not name a party") for the redo route's own party check, not the
@@ -163,7 +163,7 @@ describe('job redo at staged (P6, design record row 2)', () => {
     expect(res.status).toBe(403);
   });
 
-  // P6 review round 3, D6 (t_604e3f2a): the brief's own "done means" list
+  // The brief's own "done means" list
   // names this explicitly ("the agent cannot request a redo and a stranger
   // cannot either"). The agent half was pinned above; a verified signature
   // that names neither party to the job was not.

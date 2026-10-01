@@ -20,7 +20,7 @@ import { createJob, type Job, type JobStatus } from '../../src/domain/job.js';
 import { signingIdentityFromSeed, signRequest, type SigningIdentity } from '../helpers/sign-request.js';
 
 // Real key-backed identities: withdraw is a signed, buyer-only route since
-// the launch rehearsal found it unauthenticated (bug ledger B6, 2026-09-01).
+// the launch rehearsal found it unauthenticated (B6, 2026-09-01).
 const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(71));
 const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(72));
 const strangerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(73));

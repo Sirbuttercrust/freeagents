@@ -602,7 +602,7 @@ describe('the dashboard screen, driven end to end against the real app', () => {
     }
   });
 
-  it('section 3 caps at five rows COMBINED, not five per half: six attention rows plus one offer render only the first five attention rows and drop the offer entirely (review round 1, D1)', async () => {
+  it('section 3 caps at five rows COMBINED, not five per half: six attention rows plus one offer render only the first five attention rows and drop the offer entirely', async () => {
     // A per-half cap (attentionRows.slice(0, 5).concat(offerRows.slice(0, 5)))
     // passed the old fixture (one attention row, two offers, asserting
     // rows.length === 3) because that count is identical under both the
@@ -1817,7 +1817,7 @@ describe('the Dashboard entry (P8u ruling 7, moved into the account menu by NAV1
 
 // FIX-SW12g (SW3-10): the dashboard tells the owner of at least one agent
 // whose account names no payout address on either rail that hirers cannot
-// pay them (PLAN.md P8d). The line sits above the grid and is not one of
+// pay them (P8d). The line sits above the grid and is not one of
 // the four sections. Every account here is its own row in its own app
 // (tests/helpers/payout-accounts.ts).
 describe('the payout notice on /dashboard (SW3-10)', () => {

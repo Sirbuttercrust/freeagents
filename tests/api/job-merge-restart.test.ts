@@ -1,4 +1,4 @@
-// D2 fix (Review finding, round 1, task t_8a82c865): identity resolution must not
+// Identity resolution must not
 // depend on process warmth. The anchor: "a stranger derives the same
 // verificationMethod from the keyid whether or not this process happened
 // to be running when the agent last signed" -- so this process must not
@@ -97,7 +97,7 @@ describe('POST /jobs/:jobId/merge survives a process restart between the last si
     servers = [];
   });
 
-  it('completes the merge against a fresh process sharing only durable storage (D2, task t_8a82c865)', async () => {
+  it('completes the merge against a fresh process sharing only durable storage', async () => {
     const agentIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(121));
     const buyerIdentity = await signingIdentityFromSeed(new Uint8Array(32).fill(122));
 

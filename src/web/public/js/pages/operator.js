@@ -12,8 +12,8 @@
    (script-rendered-icon-never-painted); it is fixed here by construction
    rather than left to be re-earned.
 
-   THE HEADER IS A PERSON, NOT A BOT (NAV1, MAP.md "The account menu and a
-   person's own icon"). The operator's mark is the profile icon the nav's
+   THE HEADER IS A PERSON, NOT A BOT (NAV1).
+   The operator's mark is the profile icon the nav's
    account menu wears, FAApi.personMark (api.js): the user silhouette on a
    plate in the operator's identity colour, from the DID this page already
    reads. The bot core (bots.js and its vendor renderer) is no longer
@@ -770,7 +770,7 @@
     return figure;
   }
 
-  /* Test-only hook, mirroring the W3 round 2 pattern (agentTierInfo): a
+  /* Test-only hook, mirroring the W3 pattern (agentTierInfo): a
      pure function exposed so a test can call it directly over a shaped
      object rather than fabricating an HTTP fixture. Never read by product
      code. */

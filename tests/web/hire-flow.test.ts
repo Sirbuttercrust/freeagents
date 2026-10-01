@@ -822,7 +822,7 @@ describe('every refusal POST /jobs can return renders its own distinct sentence'
     // input the client guard admits and the ROUTE refuses (its own
     // isValidOperatorDid check, src/api/app.ts:2334), so this reaches the
     // route's own 400 through a real form submit rather than a raw
-    // fetch, per D2 (review round 1): "collect the 400 sentence from
+    // fetch, as required: "collect the 400 sentence from
     // submit-error-detail after a real form submit whose repository or
     // brief the client guard admits and the route refuses". The DID
     // contains whitespace in its suffix so GET /agents/:agentDid (which

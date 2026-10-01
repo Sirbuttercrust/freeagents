@@ -11,7 +11,7 @@ const port = resolveListenPort();
 // operator who wants to run without USDC configured is told plainly that
 // the USDC rail is off, not stopped from running.
 //
-// ISS1 (bugs.md B30, review round 1): the credentials adapter is built
+// ISS1 (B30): the credentials adapter is built
 // ONCE, here, and handed straight into createApp below -- both the
 // adapter itself and the credential repository it shares with the app's
 // other credential reads and writes. That makes exactly one call to

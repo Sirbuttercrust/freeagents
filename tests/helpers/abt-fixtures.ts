@@ -2,7 +2,7 @@
 // shared by every test that needs to drive a real ABT payment end to end
 // over HTTP (no unit test substitutes for this: every guard in the payment
 // surface is a route guard). Extracted from tests/api/job-payment-abt.test.ts
-// (P8d, Proof review round 1, D2) so tests/api/account-provisioning.test.ts
+// (P8d) so tests/api/account-provisioning.test.ts
 // can prove the custody fence at the payment boundary with the SAME harness,
 // rather than a second copy that could quietly diverge.
 //
@@ -40,8 +40,8 @@ export function abtEnv(
     FREEAGENTS_ABT_FEE_ADDRESS: feeAddress,
     // The DID Connect wallet callback URL is built from this (WalletAuthenticator's
     // own baseUrl), which is why it must resolve to the SAME server this
-    // test's own fetch calls land on (review round 1, D1): a mismatch here
-    // is exactly the defect that round found.
+    // test's own fetch calls land on: a mismatch here
+    // would send the callback to another server.
     FREEAGENTS_PUBLIC_BASE_URL: baseUrl,
   };
 }
@@ -148,7 +148,7 @@ export async function walletResponseJwt(
 // tests/adapters/payment/never-input-owner.test.ts's identical helper.
 // `outputsOverride`, when supplied, replaces the outputs the partial tx
 // itself named before signing -- simulating a MALICIOUS wallet that
-// redirects a payment (review round 2, D1's own reproduction shape).
+// redirects a payment.
 export async function walletSignsPartialTx(partialTxBase58: string, buyer: WalletObject, outputsOverride?: unknown): Promise<string> {
   const decoded = cborDecodeTx(fromBase58(partialTxBase58)) as Record<string, unknown>;
   const itx = decoded.itx as { readonly typeUrl: string; readonly outputs: unknown };
@@ -206,7 +206,7 @@ export async function getSigned(baseUrl: string, path: string, identity: Signing
   });
 }
 
-// Calls the buyer's own /start route (review round 1, D1: never a
+// Calls the buyer's own /start route (never a
 // hard-coded /api/did/pay/token call) and decodes the wallet callback URL
 // it hands back, exactly as a real DID Wallet would: the response's `url`
 // field is the abtwallet.io deep link, and the callback address the

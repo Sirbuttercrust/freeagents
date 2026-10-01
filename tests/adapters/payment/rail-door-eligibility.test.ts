@@ -1,4 +1,4 @@
-// FIX-B39 (bugs.md B39), rule 5: ONE shared function every payment door
+// FIX-B39 (B39), rule 5: ONE shared function every payment door
 // calls in place of B25's job-rail-only check. Refuses (409) for exactly
 // three causes, checked in this order: the job is pinned to the other
 // currency, the deposit already settled in the other currency, or the

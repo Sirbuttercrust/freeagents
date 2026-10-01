@@ -156,7 +156,7 @@ export type WalletResponseInput =
       // the wallet's finalTx.
       readonly amountToken: string;
       readonly feeToken: string;
-      // S2 review round 2, D1: the operator address the PLATFORM itself
+      // The operator address the PLATFORM itself
       // named when it built the payment request (the same value
       // createRequest's CreateRequestInput carried, read at the route
       // from the session's own extraParams, never from the wallet's
@@ -216,8 +216,8 @@ export type WalletResponseInput =
 // Opaque per rail: what confirm() and every downstream caller address a
 // settlement by. ABT: the broadcast transaction hash, the operator
 // address onWalletResponse was TOLD to expect (input.operatorAddress,
-// never decoded from the finalTx being confirmed -- S2 review round 2,
-// D1), the configured fee address, the job and leg the ref belongs to
+// never decoded from the finalTx being confirmed),
+// the configured fee address, the job and leg the ref belongs to
 // (S2: needed so confirm() can refuse a hash that already backed a
 // different job or leg), and the expected operator/fee amounts in the
 // chain's smallest unit, computed once from the locked token amounts the

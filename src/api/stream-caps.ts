@@ -1,4 +1,4 @@
-// SW4-04 (bugs.md): one caller must not be able to hold unlimited live
+// SW4-04: one caller must not be able to hold unlimited live
 // streams open. A stream is one request that never ends, so the request
 // limiter cannot bound what it holds; this counts the open sockets instead.
 //

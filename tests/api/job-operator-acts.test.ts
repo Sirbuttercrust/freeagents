@@ -1,6 +1,6 @@
 // P8v: an operator acting on behalf of their own listed agent must be
-// accepted as that agent's party on a job (2026-09-08 ruling, PLAN.md
-// entry "an operator acting on behalf of their own listed agent should be
+// accepted as that agent's party on a job (2026-09-08 ruling:
+// "an operator acting on behalf of their own listed agent should be
 // accepted as that agent's party on a job"). partyForDid (src/api/app.ts)
 // resolved a caller to 'agent' only when the acting DID equalled
 // job.agentDid; a human operator signing in with a session resolves to
