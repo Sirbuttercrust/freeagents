@@ -271,7 +271,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   let server: Server;
   let baseUrl: string;
   let buyerToken: string;
-  // P8k round 1 fix (qa D1): the buyer's session subject/method, needed
+  // P8k: the buyer's session subject/method, needed
   // by every test that exercises redo or decline (staged.js's own party
   // probe reads these, not just the token).
   let buyerSession: { readonly token: string; readonly subject: string; readonly method: 'github-oauth' | 'passkey' };
@@ -386,7 +386,7 @@ describe('the staged screen, driven end to end against the real app', () => {
 
     // Markup in a changed path and a test name: literal text, never
     // parsed (api.js rule 3). The criterion text also carries markup
-    // (round 1 fix, qa D3), for the picker's own escaping guard: the
+    // for the picker's own escaping guard: the
     // only fixture in this file that puts markup in a criterion.
     const markupJob = jobFixture({ id: 'job-markup', status: 'staged', criteria: [{ text: '<img src=x onerror=alert(1)>Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '150.00', rail: 'abt', redoAllowance: 1, priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, stagedCommit: 'commit-markup' });
     await jobRepo.create(markupJob);
@@ -677,7 +677,7 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    // Round 1 fix (qa D3): a criterion's text is buyer/agent prose from
+    // A criterion's text is buyer/agent prose from
     // a hire this platform does not author, the same class of untrusted
     // string the facts list already guards. No fixture in this file put
     // markup INSIDE a criterion before this test; job-markup's own
@@ -1432,7 +1432,7 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    // Round 1 fix (qa D2): mirrors the redo path's own re-enable guard
+    // Mirrors the redo path's own re-enable guard
     // test above. The existing "no body... second click fires no second
     // request" test above fires its two clicks synchronously, which the
     // in-flight disable already stops on its own; it cannot observe
@@ -1497,7 +1497,7 @@ describe('the staged screen, driven end to end against the real app', () => {
   });
 
   describe('party and session gates on redo and decline (done means item 13, 14)', () => {
-    // Round 1 fix (qa D1): GET /jobs/:jobId/attestation (the party probe
+    // GET /jobs/:jobId/attestation (the party probe
     // every page on this screen shares, staged.js's own header comment)
     // admits BOTH the buyer and the agent on a job (app.ts:3485,
     // resolveJobActingParty), so a signed-in agent still reads this
@@ -1505,7 +1505,7 @@ describe('the staged screen, driven end to end against the real app', () => {
     // resolves whether the session's account IS the job's buyerDid (via
     // GET /accounts/me, the caller's own account, since FIX-B61b) before
     // rendering redo or decline, so an agent who is not that buyer sees
-    // neither control, closing the gap qa's round 1 review found.
+    // neither control.
     it('an agent signed in on a staged hire is refused with the buyer-only 403 sentence and is shown neither control, and the job is unchanged', async () => {
       const agentSessionAdapter = createSessionAdapter({ github: fakeGitHubConfig(), fetchImpl: fakeGitHubFetch({ login: 'staged-page-agent-login', id: 9403 }) });
       const agentAccountRepo = new MemoryAccountRepository();
@@ -1515,7 +1515,7 @@ describe('the staged screen, driven end to end against the real app', () => {
       await new Promise<void>((resolve) => agentServer.once('listening', resolve));
       const agentBaseUrl = `http://127.0.0.1:${(agentServer.address() as AddressInfo).port}`;
       try {
-        // Round 2 fix (qa D4): the FULL minted session, not just the
+        // The FULL minted session, not just the
         // token, so the session this page reads is exactly the one the
         // server minted. Since FIX-B61b the party check reads
         // GET /accounts/me with this token, and the absence asserted
@@ -1524,7 +1524,7 @@ describe('the staged screen, driven end to end against the real app', () => {
         // mintSessionToken already ran, kept whole instead of discarding
         // subject/method.
         const agentSession = await mintSession(agentSessionAdapter);
-        // D6 (qa round 4): decline-btn shipped visible (redo-btn shipped
+        // decline-btn shipped visible (redo-btn shipped
         // hidden); polling catches the flash before the party probe ends.
         const everVisible: boolean[] = [];
         // CI2 fix: the fixed 350ms wait raced this test's own 300ms
@@ -1576,7 +1576,7 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    // Round 2 fix (qa D4, requirement 2): resolveIsBuyerParty's
+    // resolveIsBuyerParty's
     // fail-closed leg on a job whose buyerDid names no Account row at
     // all. Signed in as the job's own AGENT (a real party, so the
     // server-side attestation gate lets the page render at all). Since
@@ -1637,12 +1637,12 @@ describe('the staged screen, driven end to end against the real app', () => {
       }
     });
 
-    // Round 2 fix (qa D4, requirement 3): a buyer who signed in with a
+    // A buyer who signed in with a
     // passkey, not GitHub OAuth, must still see the controls, and a
     // passkey session belonging to a DIFFERENT account than the job's
     // buyer must not. Since FIX-B61b the page asks GET /accounts/me which
     // account the passkey session is; it no longer compares subjects.
-    describe('a passkey session on resolveIsBuyerParty (round 2 fix, qa D4, requirement 3)', () => {
+    describe('a passkey session on resolveIsBuyerParty', () => {
       it('a passkey session belonging to the buyer account renders both controls', async () => {
         const passkeyAccountRepo = new MemoryAccountRepository();
         const passkeySubjectValue = 'staged-page-passkey-buyer-subject';

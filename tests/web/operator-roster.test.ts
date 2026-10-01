@@ -318,7 +318,7 @@ function gallerySettled(doc: Document): boolean {
   return !galleryEmpty.hidden || gallery.children.length > 0;
 }
 
-// D-CI3 round 2 (Proof r1, comment 549): render()'s /browse branch used to
+// D-CI3: render()'s /browse branch used to
 // fall back to a fixed 400ms sleep, the SAME teardown race the gallery fix
 // above closes, just on browse.js's own chain instead of operator.js's.
 // cardFor (browse.js:359-403) puts a card in the DOM and calls loadAvatar
@@ -415,7 +415,7 @@ async function render(path: string): Promise<Rendered> {
   // unhandled rejection. Polling for the real signal above closes that
   // window instead of widening it.
   //
-  // D-CI3 round 2 (Proof r1, comment 549): /browse carried the identical
+  // D-CI3: /browse carried the identical
   // race on its own async chain (browse.js's loadAvatar into bots.js's
   // mount()), still behind the fixed 400ms wait this replaces below with
   // browseSettled, the same closed-window shape as the gallery branch.
@@ -651,7 +651,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Review round 3, D1: filtering an above-ten roster down to a handful of
+  // Filtering an above-ten roster down to a handful of
   // rows must not delete the controls that produced the filter. Browse
   // keeps #sort and #skill visible in the identical case; the roster must
   // match it, gating on the FULL roster size, never the filtered one.
@@ -672,7 +672,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Review round 3, D3: a roster row must carry every field browse's card
+  // A roster row must carry every field browse's card
   // does for the same agent, not just the three tier counts already
   // checked above. Comparing the rendered DOM field by field (rather than
   // only the tier counts) is what the round-2 parity test missed: it never
@@ -735,7 +735,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Review round 3, D2: the summary sentence must not claim a population it
+  // The summary sentence must not claim a population it
   // is not showing. A skill filter narrows the rows on screen while the
   // aggregate stays full-roster (app.ts: an operator's accountability does
   // not shrink because a visitor filtered); the wording must say so
@@ -755,9 +755,9 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // Review round 3, D5: a filter that matches nothing must not be reported
+  // A filter that matches nothing must not be reported
   // as an empty roster. #roster-empty was gated on the POST-filter row
-  // count, the identical mistake D1 made for #roster-controls one line
+  // count, the identical mistake made for #roster-controls one line
   // above it in operator.js. This operator runs eleven agents; a filter
   // that matches none of them is a filter result, not an empty roster, and
   // the copy must say so the way browse.html's #empty already does for the
@@ -909,7 +909,7 @@ describe('the operator page roster (R-19)', () => {
     }
   });
 
-  // W3 round 2 fix (D2, guard-without-a-test): the tier-prior branch of
+  // W3: the tier-prior branch of
   // the roster row's per-tier table has no HTTP fixture to exercise it,
   // because agentWorkRecord (src/domain/agent-work-record.ts) hardcodes
   // verifiedPriorWork: [] until ENT-11 lands, the exact gap
@@ -978,8 +978,7 @@ describe('the operator page header, identity box and painted hosts (W12)', () =>
   // swarm.js each sweep the DOM once at load, before operator.js's own
   // fetch resolves, so any [data-ico] or [data-avatar] host this script
   // builds AFTER that sweep needs an explicit paint call or it ships
-  // empty. Guard without a test is the second most common defect class in
-  // the ledger (22 entries), so this asserts the painted svg child
+  // empty. So this asserts the painted svg child
   // directly rather than only the host's presence.
   it('every icon host operator.js builds at render time carries a painted svg child, not an empty span', async () => {
     const page = await render(`/accounts/${GALLERY_OPERATOR_DID}`);
@@ -1192,8 +1191,8 @@ describe('the operator page gallery, work across the roster behind the evidence 
   });
 
   // jsdom performs no layout, so it can tell a link exists but never
-  // whether a real 320px screen renders it under the 44px floor
-  // (tap-target-under-44px, 5 strikes in the ledger). Drives real headless
+  // whether a real 320px screen renders it under the 44px floor.
+  // Drives real headless
   // Chrome the same way tests/web/browse.test.ts's own tap-target case
   // does, over the same GALLERY_OPERATOR_DID fixture that already carries
   // both a roster .acard-name link and a gallery card, so one page load

@@ -220,8 +220,8 @@ describe('the Incoming work screen, driven end to end against the real app', () 
       // row to the wireframe's own per-state .foot button. This
       // assertion still proves the two things it always proved -- one
       // control per offer, each carrying that offer's own id, reaching a
-      // path the app actually mounts (proven below by the review round 1
-      // D2 test, which fetches every href against the real app) -- just
+      // path the app actually mounts (proven below by the
+      // anchor test, which fetches every href against the real app) -- just
       // read off the button instead of the row.
       const footLinks = page.document.querySelectorAll('#rows .foot a');
       expect(footLinks.length).toBe(3);
@@ -415,7 +415,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     }
   });
 
-  it('a non-200 from /accounts/me and an empty-did body each render the account sentence, distinct from every incoming-route sentence, and never issue the incoming read (review round 1 D1)', async () => {
+  it('a non-200 from /accounts/me and an empty-did body each render the account sentence, distinct from every incoming-route sentence, and never issue the incoming read', async () => {
     const realPort = (server.address() as AddressInfo).port;
 
     async function withAccountMe(respond: (req: http.IncomingMessage, res: http.ServerResponse) => void): Promise<{ detail: string; incomingRequested: boolean }> {
@@ -482,7 +482,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     expect(accountNoDid.incomingRequested).toBe(false);
   });
 
-  it('every anchor this page renders reaches a path the app actually mounts, asked of the real app rather than read out of an href (review round 1 D2, inert-declared-control)', async () => {
+  it('every anchor this page renders reaches a path the app actually mounts, asked of the real app rather than read out of an href', async () => {
     // Its own fixture row, not reused from an earlier test: an anchor
     // this test's mutation proof adds must appear regardless of which
     // other tests in this file happen to run alongside it.
@@ -856,7 +856,7 @@ describe('the Incoming work screen, driven end to end against the real app', () 
     try {
       expect(page.document.querySelectorAll('#rows > .orow').length).toBeGreaterThan(0);
       expect(page.document.querySelectorAll('#rows [data-avatar]').length, 'the wireframe\u2019s rows draw no face; neither do these').toBe(0);
-      expect(page.document.querySelectorAll('[data-avatar]').length, 'the nav account menu is not built (nav.js:91-126), so no avatar mounts anywhere').toBe(0);
+      expect(page.document.querySelectorAll('[data-avatar]').length, 'the account menu wears the person\'s profile icon, never a bot, so no avatar mounts anywhere').toBe(0);
       expect(page.document.querySelectorAll('#rows img, #rows svg.av, #rows .av, #rows .rav').length).toBe(0);
     } finally {
       page.close();

@@ -312,7 +312,7 @@ beforeAll(async () => {
     credentials,
     undefined,
     credentialRepo,
-    // FIX-S7 round 3: this suite drives ~86 real-Chrome page loads
+    // FIX-S7: this suite drives ~86 real-Chrome page loads
     // against ONE shared app across the whole file (every hire, job,
     // staged, and pullrequest page load fires a read-class GET
     // /agents/:agentDid for the identity strip), well past the tighter

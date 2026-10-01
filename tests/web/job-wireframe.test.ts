@@ -469,7 +469,7 @@ describe('the diff line renders only from the credential, never computed or defa
     }
   });
 
-  // D3 (qa round 1): the `hire === null` guard at job.js:192 is
+  // The `hire === null` guard at job.js:192 is
   // production-reachable, not theoretical. A deemed-completed job's
   // credential carries credentialSubject.deemedCompletion and no `hire`
   // at all, so a guard that read credential-present as "diff data
@@ -508,7 +508,7 @@ describe('Who did what tells the wireframe\'s fork story once a pull request exi
     }
   });
 
-  // D4 (qa round 2, unverified-state-claim): renderAccessline always ended
+  // renderAccessline always ended
   // with a past-tense claim that a merge was observed, even on states
   // where no merge ever happened. SW2-10 later reworded that claim to "We
   // saw the merge on GitHub and recorded it; we did not do it.". The
@@ -764,7 +764,7 @@ describe('the pull request opens on GitHub directly, a control distinct from the
   });
 });
 
-// D1 mobile-horizontal-overflow (qa round 1): the .who identity strip
+// The .who identity strip
 // overflowed 6px at 320px whenever the agent read succeeds and returns an
 // operatorDid, because the flex middle child's default min-width:auto let
 // the nowrap operator DID floor it wider than the strip had room for. jsdom
@@ -801,7 +801,7 @@ describe('the identity strip does not overflow a 320px viewport (mobile-horizont
   }, BROWSER_TIMEOUT_MS);
 });
 
-// D2 tap-target-under-44px (qa round 1): #who-operator-link and the
+// #who-operator-link and the
 // track's "Pull request opened" anchor are plain inline anchors with no
 // padding of their own, neither selector in base.css's inline-link
 // padding list. Page-local fix only (base.css stays untouched, per the
@@ -833,10 +833,10 @@ describe('every rendered interactive control on the job page is at least 44px at
   }, BROWSER_TIMEOUT_MS);
 });
 
-// layout-broken-at-desktop (three strikes on the standing ledger): the
+// layout-broken-at-desktop: the
 // 760px tap-target media query above must not leak past its own
 // breakpoint and the page must stay clean at 1280px, the same check the
-// qa round 1 review already ran by hand.
+// a review already ran by hand.
 describe('the job page stays clean at 1280px desktop (layout-broken-at-desktop)', () => {
   it('no horizontal overflow at 1280px', async () => {
     if (!hasRealBrowser()) {

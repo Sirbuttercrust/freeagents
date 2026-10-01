@@ -114,10 +114,10 @@ describe('classifyRoute: read (every other GET)', () => {
     expect(classifyRoute('GET', '/agents')).toBe('read');
   });
 
-  // FIX-S7 round 3 (round 3's ruling): moved out of `verify` because it is
+  // FIX-S7: moved out of `verify` because it is
   // the site's own ordinary agent-record read (twelve page scripts fetch
   // it for the agent strip), not a stranger's or a script's verification.
-  it("classifies GET /agents/:agentDid as read (round 3's ruling)", () => {
+  it("classifies GET /agents/:agentDid as read", () => {
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('read');
   });
 
@@ -232,7 +232,7 @@ describe('classifyRoute: an unrecognised route (defence in depth, never silently
   });
 });
 
-// FIX-S7 round 2 (review round 1, defect 1): the four page paths that collide
+// FIX-S7: the four page paths that collide
 // with a real API route (/agents/:agentDid, /accounts/:did,
 // /v1/credentials/:credentialId, /jobs/:jobId) are negotiated by Accept the
 // same way src/web/static.ts negotiates them: a browser painting the page
@@ -249,11 +249,11 @@ describe('classifyRoute: the four negotiated page shells are exempt ONLY when Ac
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', HTML_ACCEPT)).toBe('exempt');
   });
 
-  it("still classifies GET /agents/:agentDid as read when Accept is JSON (a real API read, not a page paint; round 3's ruling)", () => {
+  it("still classifies GET /agents/:agentDid as read when Accept is JSON (a real API read, not a page paint)", () => {
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent', JSON_ACCEPT)).toBe('read');
   });
 
-  it("still classifies GET /agents/:agentDid as read when no Accept header is present at all (round 3's ruling)", () => {
+  it("still classifies GET /agents/:agentDid as read when no Accept header is present at all", () => {
     expect(classifyRoute('GET', '/agents/did:abt:zSomeAgent')).toBe('read');
   });
 
@@ -282,7 +282,7 @@ describe('classifyRoute: the four negotiated page shells are exempt ONLY when Ac
   });
 });
 
-// FIX-S7 round 2 (review round 1, defect 5a): classifyRoute's returned
+// FIX-S7: classifyRoute's returned
 // CLASSIFICATION for an unmatched /api/did/pay/ path is 'upstream' whether
 // the explicit UPSTREAM_PREFIX check runs or the generic fallback catches
 // it (no ROUTE_TABLE entry names a did-connect leaf, so the two paths are

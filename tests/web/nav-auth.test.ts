@@ -129,7 +129,7 @@ describe('signed in, the nav tells the truth', () => {
     }
   });
 
-  // qa's own "build only what exists" instruction: signin.html has no
+  // Build only what exists: signin.html has no
   // Sign in link on itself today (it is the destination the link points
   // to), so there is nothing to hide there, but the signed-in state must
   // still be honest if a signed-in person lands back on it.
@@ -385,7 +385,7 @@ describe('the My agents link (P8n): one implementation in nav.js, absent signed 
   });
 });
 
-// P8n repair round 1, D1 (inert-declared-control): jsdom performs no
+// P8n: jsdom performs no
 // layout, so it cannot see that the nav bar this card's link joins
 // overflows a real 320px viewport and the overflow sits exactly under the
 // My agents link, making a tap on its centre land on the Sign out button

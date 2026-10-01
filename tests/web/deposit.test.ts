@@ -215,7 +215,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }),
     );
 
-    // D1 (Proof review round 1): a SEPARATE agent with a completed hire
+    // A SEPARATE agent with a completed hire
     // (AGENT_DID stays negative-case-only below).
     await agentRepo.create({
       did: HIRED_AGENT_DID,
@@ -254,8 +254,8 @@ describe('the deposit screen, driven end to end against the real app', () => {
     // The ABT rail needs a real operator address to resolve a recipient
     // (abt-did-connect.ts reads operatorAddressAbt, never the DID
     // suffix), and WalletAuthenticator bakes FREEAGENTS_PUBLIC_BASE_URL
-    // into the session it mints at construction time (review round 1,
-    // D1 in job-payment-abt.test.ts's own header comment), so the port
+    // into the session it mints at construction time (see
+    // job-payment-abt.test.ts's own header comment), so the port
     // has to be reserved before createApp is ever called.
     // FIX-B39 (Ruling, run 792): setOperatorAddressAbt answers null on
     // an unregistered DID (AccountRepository's own documented stance),
@@ -771,7 +771,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }
     });
 
-    // D3 (Proof review round 1): 401, 409, all three 503s from pay-start,
+    // 401, 409, all three 503s from pay-start,
     // plus 401/409 from confirm, via mocking one route on one rendered page.
     // The ABT 503's "nothing was charged" wording is pinned directly.
     it('the 401, 409 and all three 503 sentences from pay-start, and the 401/409 sentences from confirm, all differ (D3)', async () => {

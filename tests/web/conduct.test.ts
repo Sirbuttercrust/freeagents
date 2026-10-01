@@ -137,13 +137,13 @@ function declarationsOf(css: string, selector: string): string[] {
     .map((line) => line.trim());
 }
 
-// Round 2 (Proof defect 1, guard-without-a-test): the 404/network branches
+// The 404/network branches
 // of onLoaded() are reached only when GET /buyers/:githubLogin/conduct
 // itself answers 404 or the fetch throws, neither of which the real app
 // under test produces on this route (it only ever answers 200 or 503, see
 // src/api/app.ts:2474-2488). Reaching those branches for a real assertion
 // means intercepting window.fetch for exactly the /buyers/ call, the same
-// technique tests/web/deposit.test.ts already uses for its D3 case -- every
+// technique tests/web/deposit.test.ts already uses for its mocked-route case -- every
 // OTHER request (the page shell, css, js) still goes over the real network
 // to the real server, so this is not a client-side stub of the page itself.
 function renderConductMocked(
@@ -309,7 +309,7 @@ describe('the conduct record page, driven end to end against the real app', () =
     });
   });
 
-  describe('a 404 absent record, distinct from the 503 sentence (Proof round 1 defect: guard-without-a-test)', () => {
+  describe('a 404 absent record, distinct from the 503 sentence', () => {
     it('renders its own sentence, never the 503 wording and never a count row', async () => {
       const page = await renderConductMocked(baseUrl, 'conduct-page-buyer', async () =>
         new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } }),
@@ -327,7 +327,7 @@ describe('the conduct record page, driven end to end against the real app', () =
     });
   });
 
-  describe('a network failure, distinct from the 503 and 404 sentences (Proof round 1 defect: guard-without-a-test)', () => {
+  describe('a network failure, distinct from the 503 and 404 sentences', () => {
     it('renders the failed-read sentence, never a count row', async () => {
       const page = await renderConductMocked(baseUrl, 'conduct-page-buyer', async () => {
         throw new Error('simulated network failure');

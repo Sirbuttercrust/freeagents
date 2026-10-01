@@ -243,13 +243,13 @@ describe('the five endings (done-means 2, 3, 5)', () => {
     }
   });
 
-  // qa review round 2, D4 (vacuous-gate, regression of round-1 D2): matching
+  // Matching
   // a word shape ("percent", "%", "combined") is refuted by the next
-  // rephrasing. Round 1 mutated in "Combined record ... 100 percent";
-  // round 2's rephrasings ("2 of 2 parties came out of this hire in good
+  // rephrasing. One mutation put in "Combined record ... 100 percent";
+  // the next rephrasings ("2 of 2 parties came out of this hire in good
   // standing", "that is two records improved by this hire") say the same
   // blended, scored thing in prose the old regex never named, and one of
-  // them sat inside the record dd itself, past the round-1 fix's own scan
+  // them sat inside the record dd itself, past the first fix's own scan
   // region. Done-means 11 already requires this page to match
   // spec/wireframe/outcomes.html verbatim, because a paraphrase here is a
   // change to the product's public promise, so pinning the fixed copy
@@ -319,8 +319,7 @@ describe('the five endings (done-means 2, 3, 5)', () => {
     }
   });
 
-  // qa review round 3, D6 (vacuous-gate, third round of round-1 D2 /
-  // round-2 D4): a copy pin over the card values alone left the rest of the
+  // A copy pin over the card values alone left the rest of the
   // page as unpinned prose, so a blend, a score or an invented metric
   // written anywhere else passed untouched. Pinning all of <main>'s text is
   // the gate no rephrasing, in any region, can walk past: the page renders
@@ -455,14 +454,14 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
     }
   });
 
-  // qa review round 1, D1 (vacuous-gate): the class-list and inline-style
+  // The class-list and inline-style
   // checks above are blind to a rule in a stylesheet, which is where every
   // rule this page's cards take actually lives. A
   // class-list or attribute check can never see that vector. This measures
   // the five cards' computed style in a real browser instead, the only
   // instrument that sees a stylesheet rule the way a reader's screen does.
   //
-  // qa review round 2, D3 (vacuous-gate, regression of round-1 D1): a
+  // A
   // hardcoded six-property list is refuted by the seventh property. The
   // round-1 mutation set backgroundColor; the round-1 fix added
   // backgroundColor to the list; a round-2 mutation set filter and opacity
@@ -516,8 +515,7 @@ describe('no colour scale, no ordering from good to bad (done-means 5, mutation 
     }
   }, BROWSER_TIMEOUT_MS);
 
-  // qa review round 3, D5 (vacuous-gate, third round of round-1 D1 /
-  // round-2 D3): the element-level comparison above never descends into a
+  // The element-level comparison above never descends into a
   // card's children. A rule scoped to a descendant selector such as
   // `.oc:nth-child(1) h3` sets that heading's colour without changing any
   // property of the `.oc` element itself, so it walks straight past the
