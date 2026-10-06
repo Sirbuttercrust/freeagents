@@ -1,25 +1,56 @@
-/* USDC-WEBa: the browser wallet engine. Plain script, ES2020, no build
-   step, no dependency. Pays a deposit or a balance leg in USDC: connects
-   an EIP-1193 wallet, signs the two ERC-20 transfers the server already
-   priced (price, then fee), and reports both hashes to the existing
-   USDC routes (POST .../usdc/start, POST .../usdc/wallet-response).
-   No page loads this yet: every call here goes straight at the real
-   routes, proven by tests/web/usdc-wallet.test.ts.
-   THE RULE: a refused or failed step never reports paid; confirmed is
-   only ever set from the server's own { confirmed: true } answer, never
-   guessed from a hash existing. No user-facing string here ever says
-   "hash", "rail", "settlement", "credential" or a DID. */
+/* The browser wallet engine. Plain script, ES2020, no build step, no
+   dependency. Pays a deposit or a balance leg from a browser wallet:
+   connects an EIP-1193 wallet, signs the two ERC-20 transfers the server
+   already priced (price, then fee), and reports both transaction ids to
+   the routes of the chosen rail: POST .../<rail>/start and
+   POST .../<rail>/wallet-response, where <rail> is "usdc" (the default)
+   or "abt_eth" (ABT on Ethereum, pay({ rail: "abt_eth" })).
+   The USDC checkout (pages/usdc-pay.js, loaded by the deposit and staged
+   pages) is the only page that loads this, and it pays in USDC. No page
+   passes "abt_eth" yet. Both rails are proven against the real routes by
+   tests/web/usdc-wallet.test.ts and tests/web/abt-eth-wallet.test.ts.
+   The ABT report also carries the id of the price lock the start answered
+   (quoteLockId), and a transfer that arrived after the price hold and is
+   worth less now is the outcome "short", never "paid".
+   THE RULE: a refused or failed step never reports paid; paid is only
+   ever set from the server's own { confirmed: true } answer with no
+   "short", never guessed from a transaction id existing. No user-facing
+   string here ever says "hash", "rail", "settlement", "credential" or a
+   DID. */
 
 (function () {
   "use strict";
 
-  var STORAGE_PREFIX = "fa_usdc_wallet:";
   var ALREADY_PAID_PHRASE = "already been paid";
   var TRANSFER_SELECTOR = "0xa9059cbb";
 
-  // Measured 2026-09-27: the two chains this engine switches to, keyed
-  // by the chain id usdc/start names (wallet_addEthereumChain's shape).
+  // The rails this engine pays on. prefix keys the stored record, so a
+  // record of one rail is never read as another's; lock is true where the
+  // start answers a price lock that the report must name.
+  var RAILS = {
+    usdc: { name: "usdc", prefix: "fa_usdc_wallet:", lock: false },
+    abt_eth: { name: "abt_eth", prefix: "fa_abt_eth_wallet:", lock: true }
+  };
+  var UNSUPPORTED_RAIL = { outcome: "server_refused", message: "This page cannot pay that way yet. Nothing was charged." };
+  var SHORT_SENTENCE =
+    "Your payment arrived after the price hold, and ABT is now worth less than the agreed price. The owner will either accept it as paid or send it back to you, and the hire waits until they choose.";
+  var NO_SAVED_PRICE_SENTENCE = "There is no saved price for this payment. Start the payment again to finish it.";
+
+  // An absent rail is USDC; anything that is not a key of RAILS is null.
+  function railOf(value) {
+    if (value === undefined) return RAILS.usdc;
+    if (typeof value !== "string" || !Object.prototype.hasOwnProperty.call(RAILS, value)) return null;
+    return RAILS[value];
+  }
+
+  // Measured 2026-09-27 and 2026-10-06: the chains this engine switches to,
+  // keyed by the chain id the start answers (wallet_addEthereumChain's shape).
   var KNOWN_CHAINS = {
+    1: {
+      chainId: "0x1", chainName: "Ethereum",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: ["https://ethereum-rpc.publicnode.com"], blockExplorerUrls: ["https://etherscan.io"]
+    },
     42161: {
       chainId: "0xa4b1", chainName: "Arbitrum One",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -32,11 +63,11 @@
     }
   };
 
-  function storageKey(jobId, leg) { return STORAGE_PREFIX + jobId + ":" + leg; }
+  function storageKey(rail, jobId, leg) { return rail.prefix + jobId + ":" + leg; }
 
-  function readStored(win, jobId, leg) {
+  function readStored(win, rail, jobId, leg) {
     try {
-      var raw = win.localStorage.getItem(storageKey(jobId, leg));
+      var raw = win.localStorage.getItem(storageKey(rail, jobId, leg));
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       return parsed && typeof parsed === "object" ? parsed : null;
@@ -48,16 +79,36 @@
   // A wallet with storage disabled still completes the payment; it only
   // loses the resume-after-reload convenience, so both writers below
   // swallow their own errors rather than failing the payment over them.
-  function writeStored(win, jobId, leg, record) {
+  function writeStored(win, rail, jobId, leg, record) {
     try {
-      win.localStorage.setItem(storageKey(jobId, leg), JSON.stringify(record));
+      win.localStorage.setItem(storageKey(rail, jobId, leg), JSON.stringify(record));
     } catch (e) { /* see above */ }
   }
 
-  function clearStored(win, jobId, leg) {
+  function clearStored(win, rail, jobId, leg) {
     try {
-      win.localStorage.removeItem(storageKey(jobId, leg));
+      win.localStorage.removeItem(storageKey(rail, jobId, leg));
     } catch (e) { /* see writeStored */ }
+  }
+
+  // The report body. An ABT report names the price lock too; the USDC
+  // body is exactly what it was.
+  function reportBody(rail, priceHash, feeTx, lockId) {
+    var body = { priceTxHash: priceHash, feeTx: feeTx };
+    if (rail.lock) body.quoteLockId = lockId;
+    return body;
+  }
+
+  // The record kept on this device. USDC's is the two ids it always was;
+  // ABT on Ethereum's carries the lock id the start answered beside them.
+  function storedRecord(rail, priceHash, feeHash, lockId) {
+    var record = { priceTxHash: priceHash, feeTxHash: feeHash };
+    if (rail.lock) record.quoteLockId = lockId;
+    return record;
+  }
+
+  function routePath(rail, jobId, leg, route) {
+    return "/jobs/" + encodeURIComponent(jobId) + "/payments/" + leg + "/" + rail.name + "/" + route;
   }
 
   // EIP-6963: every wallet that answers within the window, deduped by
@@ -165,7 +216,7 @@
   // chain, so a transfer this device watched fail on the network reads
   // as failed even where not_confirmed alone can't tell that apart from
   // still-pending.
-  function outcomeFromResponse(win, jobId, leg, result, receipts, feeRefused) {
+  function outcomeFromResponse(win, rail, jobId, leg, result, receipts, feeRefused) {
     if (result.state !== "ok") {
       return { outcome: "server_refused", unreachable: true, message: "Could not reach the payment service. Try again in a moment." };
     }
@@ -173,13 +224,20 @@
     if (result.value.status !== 200) {
       var startError = typeof body.error === "string" ? body.error : "The payment could not be recorded.";
       if (startError.indexOf(ALREADY_PAID_PHRASE) !== -1) {
-        clearStored(win, jobId, leg);
+        clearStored(win, rail, jobId, leg);
         return { outcome: "already_paid", message: startError };
       }
       return { outcome: "server_refused", status: result.value.status, message: startError };
     }
+    // Both transfers confirmed, but after the price hold and worth less now:
+    // nothing settles and the owner decides, so this is never "paid" and
+    // nothing more is sent from this device for the leg.
+    if (body.confirmed === true && body.short && typeof body.short === "object") {
+      clearStored(win, rail, jobId, leg);
+      return { outcome: "short", message: SHORT_SENTENCE };
+    }
     if (body.confirmed === true) {
-      clearStored(win, jobId, leg);
+      clearStored(win, rail, jobId, leg);
       return { outcome: "paid", message: "This payment is confirmed." };
     }
     var price = receipts.price;
@@ -209,14 +267,17 @@
     return { outcome: "waiting_network", message: "The network has not confirmed this payment yet. Check again shortly." };
   }
 
-  // pay({ wallet, jobId, leg, token, resend }): wallet is one entry from
-  // discover(). leg is 'deposit' or 'remainder'. resend is 'price' |
-  // 'fee', set only on the buyer's own press after a transfer_failed
-  // outcome named that leg; absent, a transfer already known (from this
-  // device's own storage or the server's halfPaidRecord) is never sent
-  // again.
+  // pay({ wallet, jobId, leg, token, resend, rail }): wallet is one entry
+  // from discover(). leg is 'deposit' or 'remainder'. rail is 'usdc'
+  // (the default) or 'abt_eth'; anything else is refused with a sentence
+  // before any request or wallet call. resend is 'price' | 'fee', set
+  // only on the buyer's own press after a transfer_failed outcome named
+  // that leg; absent, a transfer already known (from this device's own
+  // storage or the server's halfPaidRecord) is never sent again.
   async function pay(opts) {
     opts = opts || {};
+    var rail = railOf(opts.rail);
+    if (rail === null) return UNSUPPORTED_RAIL;
     var win = opts.window || window;
     var wallet = opts.wallet;
     var jobId = opts.jobId;
@@ -240,8 +301,7 @@
     }
     var from = accounts && accounts[0];
 
-    var startPath = "/jobs/" + encodeURIComponent(jobId) + "/payments/" + leg + "/usdc/start";
-    var startResult = await window.FAApi.postAuthed(startPath, token, {});
+    var startResult = await window.FAApi.postAuthed(routePath(rail, jobId, leg, "start"), token, {});
     if (startResult.state !== "ok") {
       return { outcome: "server_refused", unreachable: true, message: "Could not reach the payment service. Try again in a moment." };
     }
@@ -249,10 +309,21 @@
     if (startResult.value.status !== 200) {
       var startError = typeof startBody.error === "string" ? startBody.error : "The payment could not start.";
       if (startError.indexOf(ALREADY_PAID_PHRASE) !== -1) {
-        clearStored(win, jobId, leg);
+        clearStored(win, rail, jobId, leg);
         return { outcome: "already_paid", message: startError };
       }
+      if (rail.lock && startResult.value.status === 503 && startError.toLowerCase().indexOf(window.FAApi.ABT_PRICE_PHRASE) !== -1) {
+        return { outcome: "server_refused", status: 503, message: window.FAApi.ABT_PRICE_SENTENCE };
+      }
       return { outcome: "server_refused", status: startResult.value.status, message: startError };
+    }
+
+    // The report names the lock this start answered, so a start with no
+    // usable lock is refused before the wallet is asked to do anything.
+    var quoteLock = startBody.quoteLock;
+    var lockId = quoteLock && typeof quoteLock.id === "string" && quoteLock.id !== "" ? quoteLock.id : null;
+    if (rail.lock && lockId === null) {
+      return { outcome: "server_refused", message: window.FAApi.ABT_PRICE_SENTENCE };
     }
 
     var chainResult = await ensureChain(provider, startBody.chainId);
@@ -271,7 +342,7 @@
     // a transfer can still be "not_confirmed" (merely slow)
     // rather than failed, and only a buyer's own resend press after a
     // transfer_failed outcome ever sends a known transfer again.
-    var stored = readStored(win, jobId, leg) || {};
+    var stored = readStored(win, rail, jobId, leg) || {};
     var halfPaidRecord = startBody.halfPaidRecord;
     var priceHash =
       resend === "price"
@@ -293,7 +364,7 @@
         if (err && err.code === 4001) return { outcome: "cancelled", message: "You closed the wallet before approving the price transfer." };
         return { outcome: "wallet_error", message: walletErrorMessage(err) };
       }
-      writeStored(win, jobId, leg, { priceTxHash: priceHash, feeTxHash: feeHash });
+      writeStored(win, rail, jobId, leg, storedRecord(rail, priceHash, feeHash, lockId));
     }
 
     if (!feeHash) {
@@ -302,7 +373,7 @@
           method: "eth_sendTransaction",
           params: [{ from: from, to: feeTransfer.tokenContract, data: transferCallData(feeTransfer.recipient, feeTransfer.amountBaseUnits), value: "0x0" }]
         });
-        writeStored(win, jobId, leg, { priceTxHash: priceHash, feeTxHash: feeHash });
+        writeStored(win, rail, jobId, leg, storedRecord(rail, priceHash, feeHash, lockId));
       } catch (err) {
         // Either the buyer refused, or the wallet failed some other way:
         // the price already sent, so this reports as the fee still due,
@@ -316,17 +387,19 @@
     var receipts = await pollReceipts(provider, pollItems, pollIntervalMs, pollLimit);
 
     var feeTx = feeRefused ? { signed: false } : { signed: true, hash: feeHash };
-    var responsePath = "/jobs/" + encodeURIComponent(jobId) + "/payments/" + leg + "/usdc/wallet-response";
-    var responseResult = await window.FAApi.postAuthed(responsePath, token, { priceTxHash: priceHash, feeTx: feeTx });
-    return outcomeFromResponse(win, jobId, leg, responseResult, receipts, feeRefused);
+    var responseResult = await window.FAApi.postAuthed(routePath(rail, jobId, leg, "wallet-response"), token, reportBody(rail, priceHash, feeTx, lockId));
+    return outcomeFromResponse(win, rail, jobId, leg, responseResult, receipts, feeRefused);
   }
 
-  // check({ wallet, jobId, leg, token }): reads this device's own stored
-  // hashes, reads their receipts ONCE (never a timer), and posts
-  // usdc/wallet-response once. For a payment pay() left "waiting on the
+  // check({ wallet, jobId, leg, token, rail }): reads this device's own
+  // stored transaction ids (and, for ABT on Ethereum, the stored price
+  // lock id), reads their receipts ONCE (never a timer), and posts
+  // <rail>/wallet-response once. For a payment pay() left "waiting on the
   // network": the buyer's own later press, never a poll loop.
   async function check(opts) {
     opts = opts || {};
+    var rail = railOf(opts.rail);
+    if (rail === null) return UNSUPPORTED_RAIL;
     var win = opts.window || window;
     var wallet = opts.wallet;
     var jobId = opts.jobId;
@@ -336,18 +409,21 @@
     if (!wallet || !wallet.provider) {
       return { outcome: "no_wallet", message: "No wallet was found. Install a wallet extension, or open this page inside your wallet app." };
     }
-    var stored = readStored(win, jobId, leg);
+    var stored = readStored(win, rail, jobId, leg);
     if (!stored || !stored.priceTxHash) {
       return { outcome: "server_refused", message: "There is nothing to check yet for this payment." };
+    }
+    var lockId = typeof stored.quoteLockId === "string" && stored.quoteLockId !== "" ? stored.quoteLockId : null;
+    if (rail.lock && lockId === null) {
+      return { outcome: "server_refused", message: NO_SAVED_PRICE_SENTENCE };
     }
     var feeRefused = !stored.feeTxHash;
     var items = [{ role: "price", hash: stored.priceTxHash }];
     if (!feeRefused) items.push({ role: "fee", hash: stored.feeTxHash });
     var receipts = await pollReceipts(wallet.provider, items, 0, 0);
     var feeTx = feeRefused ? { signed: false } : { signed: true, hash: stored.feeTxHash };
-    var responsePath = "/jobs/" + encodeURIComponent(jobId) + "/payments/" + leg + "/usdc/wallet-response";
-    var responseResult = await window.FAApi.postAuthed(responsePath, token, { priceTxHash: stored.priceTxHash, feeTx: feeTx });
-    return outcomeFromResponse(win, jobId, leg, responseResult, receipts, feeRefused);
+    var responseResult = await window.FAApi.postAuthed(routePath(rail, jobId, leg, "wallet-response"), token, reportBody(rail, stored.priceTxHash, feeTx, lockId));
+    return outcomeFromResponse(win, rail, jobId, leg, responseResult, receipts, feeRefused);
   }
 
   window.FAUsdcWallet = { discover: discover, pay: pay, check: check, transferCallData: transferCallData };
