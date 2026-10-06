@@ -30,8 +30,11 @@
    date, never a countdown (ruling 4); LAPSE_AT_STAGED_AFTER_DAYS and
    REDO_LAPSE_EXTENSION_DAYS are browser constants pinned by a test
    against the domain's own. Pays the REMAINDER, never the deposit
-   (ruling 5 of P8j), in the job's own price.rail: ABT at .../abt/start,
-   USDC through usdc-pay.js (USDC-WEBb). The ABT sheet shows the ABT/USD
+   (ruling 5 of P8j), in the job's own price.rail: ABT on ArcBlock at
+   .../abt/start, USDC and ABT on Ethereum through usdc-pay.js (USDC-WEBb;
+   rail "abt_eth" for the second, whose sheet shows the lock its start
+   answered before the wallet is asked to switch networks). The ABT on
+   ArcBlock sheet shows the ABT/USD
    rate that press locked, when the lock ends and when CoinGecko last
    updated the price (FIX-B70b, FAApi.drawAbtQuote); a start answer with
    no usable lock opens no sheet. The pay path never claims settlement
@@ -282,9 +285,14 @@
 
   // Ruling 5 of P8j: remainderUsd(priceUsd, depositPercent), fee at the
   // job's own currency's rate on the remainder, half-up per payment.ts.
-  function isUsdc(job_) {
-    return job_ !== null && job_.price && typeof job_.price === "object" && job_.price.rail === "usdc";
+  // A hire's currency is price.rail: "abt" (ABT on ArcBlock), "abt_eth"
+  // (ABT on Ethereum) or "usdc" (USDC on Arbitrum). Both ABT rails take
+  // the ABT fee; ABT on Ethereum and USDC pay through the wallet sheet.
+  function railOf(job_) {
+    return job_ !== null && job_.price && typeof job_.price === "object" ? job_.price.rail : null;
   }
+  function isUsdc(job_) { return railOf(job_) === "usdc"; }
+  function isAbtEth(job_) { return railOf(job_) === "abt_eth"; }
   function feePercentOf(job_) { return isUsdc(job_) ? USDC_FEE_RATE_PERCENT : ABT_FEE_RATE_PERCENT; }
   function remainderAndFee(price) {
     var priceUsd = parseFloat(price.priceUsd);
@@ -342,8 +350,10 @@
       if (figures !== null) { payBtn.textContent = "Pay the balance, " + money(figures.total); payBtn.disabled = paying; }
       else { payBtn.textContent = "No agreed price to pay against"; payBtn.disabled = true; }
     }
-    // USDC-WEBb Make 3: before the press, only on a USDC hire.
+    // USDC-WEBb Make 3: before the press, the gas line of the hire's own
+    // network, and only on a hire whose currency needs one.
     A.showById("usdc-gas-note", figures !== null && isUsdc(job_));
+    A.showById("abt-eth-gas-note", figures !== null && isAbtEth(job_));
   }
 
   // Ruling 6: the redo control renders only when a
@@ -560,13 +570,15 @@
   });
 
   // Ruling 1 (P8j): the one control that card shipped. Posts to the
-  // REMAINDER leg only, never deposit. A USDC hire's press pays in USDC.
+  // REMAINDER leg only, never deposit. A USDC hire's press pays in USDC,
+  // an ABT-on-Ethereum hire's in ABT on Ethereum, both through the wallet
+  // sheet; only an ABT-on-ArcBlock hire's goes to .../abt/start.
   var payBtn = A.el("pay-btn");
   if (payBtn) {
     payBtn.addEventListener("click", function () {
       if (currentFigures === null) return;
       A.showById("pay-error", false);
-      if (isUsdc(job)) { openUsdc(); return; }
+      if (isUsdc(job) || isAbtEth(job)) { openWallet(); return; }
       payBtn.disabled = true;
       A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments/remainder/abt/start", token, {}).then(function (result) {
         payBtn.disabled = false;
@@ -603,13 +615,17 @@
     A.setTextById("scan-fee", money(currentFigures.fee));
     A.setTextById("scan-total-2", money(currentFigures.total));
   }
-  // One sheet, three modes: "abt" (address, its locked rate and status
-  // line), "usdc" (usdc-pay.js, then the same status line on paid) and
-  // "paid". #abt-rate sits inside #scan-abt, so only "abt" shows it.
+  // One sheet, four modes: "abt" (address, its locked rate and status
+  // line), "usdc" and "abt_eth" (usdc-pay.js, then the same status line on
+  // paid) and "paid". #abt-rate sits inside #scan-abt with the address row
+  // (#scan-abt-address): "abt" shows both, "abt_eth" shows the rate alone,
+  // once the engine hands over the lock its start answered (onQuote).
   function scanMode(mode) {
-    A.showById("scan-abt", mode === "abt");
+    var wallet = mode === "usdc" || mode === "abt_eth";
+    A.showById("scan-abt", mode === "abt" || mode === "abt_eth");
+    A.showById("scan-abt-address", mode === "abt");
     A.showById("scan-status", mode === "abt");
-    A.showById("scan-approvals-line", mode === "usdc");
+    A.showById("scan-approvals-line", wallet);
     A.showById("scan-pr-wrap", false);
     if (usdcPay !== null) usdcPay.reset();
   }
@@ -626,11 +642,14 @@
     openDialog("scan");
   }
 
-  // Make 4: the deposit page's wallet choice, outcomes and presses.
-  function openUsdc() {
+  // Make 4: the deposit page's wallet choice, outcomes and presses, on the
+  // hire's own currency. ABT on Ethereum's sheet empties the rate block an
+  // earlier press drew; this press's own lock fills it (onQuote).
+  function openWallet() {
     if (paying) return;
     fillScanTotals();
-    scanMode("usdc");
+    scanMode(isAbtEth(job) ? "abt_eth" : "usdc");
+    if (isAbtEth(job)) A.drawAbtQuote(null);
     A.setTextById("scan-approvals-line", "Two approvals, " + money(currentFigures.remainder) + " then " + money(currentFigures.fee) + ". Both are part of this one payment.");
     var dialog = A.el("scan");
     if (!dialog || !dialog.open) openDialog("scan");
@@ -640,6 +659,10 @@
     get jobId() { return jobId; },
     get token() { return token; },
     leg: "remainder",
+    // Read at each press: undefined (USDC, the engine's default) unless
+    // the hire's currency is ABT on Ethereum.
+    get rail() { return isAbtEth(job) ? "abt_eth" : undefined; },
+    onQuote: function (quoteLock) { A.drawAbtQuote(quoteLock); },
     onBusy: function (on) { paying = on; if (payBtn) payBtn.disabled = on || currentFigures === null; },
     onPaid: function () {
       A.showById("scan-approvals-line", false);

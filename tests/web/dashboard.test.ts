@@ -1816,7 +1816,7 @@ describe('the Dashboard entry (P8u ruling 7, moved into the account menu by NAV1
 });
 
 // FIX-SW12g (SW3-10): the dashboard tells the owner of at least one agent
-// whose account names no payout address on either rail that hirers cannot
+// whose account names no payout address on any of the three that hirers cannot
 // pay them (P8d). The line sits above the grid and is not one of
 // the four sections. Every account here is its own row in its own app
 // (tests/helpers/payout-accounts.ts).
@@ -1865,6 +1865,7 @@ describe('the payout notice on /dashboard (SW3-10)', () => {
   it.each([
     ['only the EVM (USDC) address set', 'evmOnly'],
     ['only the ABT address set', 'abtOnly'],
+    ['only the ABT-on-Ethereum address set', 'abtEthOnly'],
   ] as const)('%s shows neither the sentence nor the link', async (_label, key) => {
     const page = await renderDashboard(world.baseUrl, world[key].session);
     try {

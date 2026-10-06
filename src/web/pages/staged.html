@@ -278,8 +278,11 @@
           <button class="btn" type="button" id="decline-btn" hidden>Decline the work</button>
         </div>
         <ul class="fixed pane pane-pad reveal" style="margin-top:22px" id="choices"></ul>
-        <!-- USDC-WEBb: USDC hires only; no figure (deposit.html says why). -->
+        <!-- USDC-WEBb: USDC hires only; no figure (deposit.html says why).
+             The second line is for a hire paid in ABT on Ethereum; staged.js
+             shows at most one, the hire's own network's. -->
         <p class="sub" id="usdc-gas-note" hidden style="margin-top:12px">You need a little Arbitrum ETH for gas.</p>
+        <p class="sub" id="abt-eth-gas-note" hidden style="margin-top:12px">You need a little ETH on Ethereum for gas.</p>
         <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
         <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
         <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>
@@ -348,9 +351,13 @@
          and when CoinGecko last updated the price, with "CoinGecko" linked
          to their site in a new tab. staged.js fills it through
          FAApi.drawAbtQuote before the sheet opens, and a USDC hire never
-         sees it because #scan-abt is hidden. -->
+         sees it because #scan-abt is hidden. A hire paid in ABT on Ethereum
+         sees #scan-abt with only #abt-rate in it (#scan-abt-address, the
+         ArcBlock address row, hidden): the lock its start answered, drawn
+         from the wallet engine's onQuote before the wallet is asked to
+         switch to Ethereum. -->
     <div id="scan-abt">
-      <div class="urlcopy">
+      <div class="urlcopy" id="scan-abt-address">
         <input class="input mono" id="scan-url" type="text" readonly aria-label="Wallet payment address">
         <button class="btn btn-sm" type="button" id="scan-url-copy" data-copy="">Copy</button>
       </div>

@@ -66,6 +66,8 @@ describe('Make 1: the chooser offers only what payableRails allows', () => {
     try {
       expect(shown(page.document, 'railopt-abt')).toBe(true);
       expect(shown(page.document, 'railopt-usdc')).toBe(true);
+      // This owner set no ABT-on-Ethereum address, so that option is not offered.
+      expect(shown(page.document, 'railopt-abt-eth')).toBe(false);
       expect((page.document.getElementById('rail-abt') as HTMLInputElement).checked).toBe(true);
       expect(shown(page.document, 'pay-btn')).toBe(true);
       expect(shown(page.document, 'no-rails')).toBe(false);

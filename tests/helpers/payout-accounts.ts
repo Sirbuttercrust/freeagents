@@ -3,7 +3,7 @@
 // own session, with its roster and payout addresses set through the real
 // repositories. One app, one session adapter whose GitHub login is switched
 // before each mint, so every account below is a distinct row rather than
-// the same person signed in four times.
+// the same person signed in five times.
 import type { Server } from 'node:http';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -39,6 +39,8 @@ export interface PayoutWorld {
   readonly evmOnly: PayoutAccount;
   // One agent, only the ABT address set.
   readonly abtOnly: PayoutAccount;
+  // One agent, only the ABT-on-Ethereum address set.
+  readonly abtEthOnly: PayoutAccount;
   // Both addresses null and no agents: a person who only hires.
   readonly noAgents: PayoutAccount;
   // A second server in front of the real one that answers any request
@@ -97,6 +99,8 @@ export async function startPayoutWorld(prefix: string): Promise<PayoutWorld> {
   await accountRepo.setOperatorAddressEvm(evmOnly.did, `0x${'ab'.repeat(20)}`);
   const abtOnly = await account('abt', 9903, 1);
   await accountRepo.setOperatorAddressAbt(abtOnly.did, 'zPayoutNoticeAbtAddress');
+  const abtEthOnly = await account('abt-eth', 9905, 1);
+  await accountRepo.setOperatorAddressAbtEth(abtEthOnly.did, `0x${'cd'.repeat(20)}`);
   const noAgents = await account('hirer', 9904, 0);
 
   async function failing(fails: (path: string) => boolean): Promise<{ baseUrl: string; close: () => Promise<void> }> {
@@ -127,6 +131,7 @@ export async function startPayoutWorld(prefix: string): Promise<PayoutWorld> {
     noAddress,
     evmOnly,
     abtOnly,
+    abtEthOnly,
     noAgents,
     failing,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),

@@ -1,11 +1,14 @@
-/* USDC-WEBb: the USDC block the deposit and balance #scan sheets share,
-   driving window.FAUsdcWallet. It owns #usdc-pick and #usdc-wallets,
+/* USDC-WEBb: the wallet block the deposit and balance #scan sheets share,
+   driving window.FAUsdcWallet. It pays in USDC, or in ABT on Ethereum when
+   the page passes rail "abt_eth" (a page that passes none pays in USDC,
+   exactly as before). It owns #usdc-pick and #usdc-wallets,
    #scan-waiting, the #usdc-status live region and four footer presses
    (#usdc-retry, #usdc-resend, #usdc-check, #usdc-reload), at most one
    shown, none while a payment runs. Sentences are the engine's, word for
-   word, first letter raised. The page decides what follows paid and
-   already_paid, and may show a server refusal its own way (onRefused).
-   No timers. textContent only (api.js rule 3); an icon is
+   word, first letter raised, except the ABT-on-Ethereum not-configured
+   refusal, which reads in this file's own words. The page decides what
+   follows paid and already_paid, and may show a server refusal its own way
+   (onRefused). No timers. textContent only (api.js rule 3); an icon is
    drawn only when it is a data:image URI, and only as an <img src>. */
 (function () {
   "use strict";
@@ -18,12 +21,19 @@
   // SW2-11: a server refusal offers Try again only when pressing it can
   // get a different answer: the service was unreachable, it said slow
   // down (429), or it failed on its side (5xx) for a reason that can
-  // pass, like a storage 503. The rail-not-configured 503 cannot pass on
+  // pass, like a storage 503. A rail-not-configured 503 cannot pass on
   // this deployment, told apart by its own words the way deposit.js
-  // tells the ABT price 503 apart. Any other 4xx, and a refusal with no
-  // status (the start answer named fewer than two transfers, or there
-  // is nothing stored to check), says a retry would get the same answer.
-  var RAIL_MISSING_PHRASE = "usdc payment rail is not configured";
+  // tells the ABT price 503 apart; the phrase is the part both wallet
+  // rails' sentences share ("the usdc payment rail is not configured ...",
+  // "the abt_eth payment rail is not configured ..."). Any other 4xx, and
+  // a refusal with no status (the start answer named fewer than two
+  // transfers, or there is nothing stored to check), says a retry would
+  // get the same answer.
+  var RAIL_MISSING_PHRASE = "payment rail is not configured";
+  // The ABT-on-Ethereum one reads in plain words; the USDC one keeps the
+  // server's own, as it always has.
+  var ABT_ETH_MISSING_PHRASE = "abt_eth payment rail is not configured";
+  var ABT_ETH_MISSING_SENTENCE = "Paying in ABT on Ethereum is not available on this site right now. Nothing was charged.";
   function retryable(result) {
     if (result.unreachable === true) return true;
     var code = result.status;
@@ -31,26 +41,42 @@
     if (typeof code !== "number" || code < 500) return false;
     return !(code === 503 && String(result.message).toLowerCase().indexOf(RAIL_MISSING_PHRASE) !== -1);
   }
-  // opts: { jobId, token, leg, onBusy(bool), onPaid(), onAlreadyPaid(),
-  // onRefused(message) }. onRefused answers true when the page shows a
-  // server refusal its own way; the sheet then stays empty.
+  function refusalText(result) {
+    var lower = String(result.message).toLowerCase();
+    return result.status === 503 && lower.indexOf(ABT_ETH_MISSING_PHRASE) !== -1 ? ABT_ETH_MISSING_SENTENCE : result.message;
+  }
+  // opts: { jobId, token, leg, rail, onBusy(bool), onPaid(), onAlreadyPaid(),
+  // onRefused(message), onQuote(quoteLock) }. rail is read at each press
+  // (a page may pass a getter) and handed to the engine only when it is a
+  // string; onQuote goes to the engine as is. onRefused answers true when
+  // the page shows a server refusal its own way; the sheet then stays empty.
   function create(opts) {
-    var engine = window.FAUsdcWallet, wallet = null, resendLeg = null;
-    function setBusy(on) { A.showById("scan-waiting", on); if (opts.onBusy) opts.onBusy(on); }
+    var engine = window.FAUsdcWallet, wallet = null, resendLeg = null, settled = false;
+    // Once a leg reads short, nothing more is sent from this device for it:
+    // the page is told it is busy from then on, so Pay stays disabled
+    // until the page is loaded again.
+    function setBusy(on) { A.showById("scan-waiting", on); if (opts.onBusy) opts.onBusy(on || settled); }
     function showOnly(id) { PRESSES.forEach(function (p) { A.showById(p, p === id); }); }
     function status(text) { A.setTextById("usdc-status", sentence(text)); }
     function clear() { A.showById("usdc-pick", false); showOnly(null); status(""); }
+    function withRail(base) {
+      if (typeof opts.rail === "string") base.rail = opts.rail;
+      return base;
+    }
     // Each outcome keeps its own sentence; the press shown is the one
     // thing that sentence says to do. mismatched says to send nothing
-    // else, so it offers nothing. no_wallet, cancelled, wallet_error and
-    // fee_due retry (the engine reuses a sent price). server_refused
+    // else, so it offers nothing; short says the owner decides, so it
+    // offers nothing and is never paid. no_wallet, cancelled, wallet_error
+    // and fee_due retry (the engine reuses a sent price). server_refused
     // retries only where a retry can change the answer (retryable).
     function settle(result) {
       var outcome = result.outcome;
+      if (outcome === "short") settled = true;
       setBusy(false);
       if (outcome === "server_refused" && opts.onRefused && opts.onRefused(result.message)) { clear(); return; }
-      status(result.message);
+      status(outcome === "server_refused" ? refusalText(result) : result.message);
       resendLeg = outcome === "price_due" ? "price" : result.leg;
+      if (outcome === "short") { showOnly(null); return; }
       if (outcome === "paid") { showOnly(null); if (opts.onPaid) opts.onPaid(); return; }
       if (outcome === "already_paid") { showOnly("usdc-reload"); if (opts.onAlreadyPaid) opts.onAlreadyPaid(); return; }
       if (outcome === "transfer_failed" || outcome === "price_due") { showOnly("usdc-resend"); return; }
@@ -62,7 +88,7 @@
       wallet = chosen;
       clear();
       setBusy(true);
-      var payOpts = { wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token };
+      var payOpts = withRail({ wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token, onQuote: opts.onQuote });
       if (resend) payOpts.resend = resend;
       engine.pay(payOpts).then(settle);
     }
@@ -108,7 +134,7 @@
     press("usdc-check", function () {
       clear();
       setBusy(true);
-      engine.check({ wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token }).then(settle);
+      engine.check(withRail({ wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token })).then(settle);
     });
     // The already-paid sentence says to reload: this page, this hire.
     var reloadLink = A.el("usdc-reload");

@@ -763,7 +763,7 @@ describe('the My agents screen, driven end to end against the real app', () => {
 });
 
 // FIX-SW12g (SW3-10): an owner whose account names no payout address on
-// either rail cannot be paid (P8d), and this page is where the
+// any of the three cannot be paid (P8d), and this page is where the
 // owner of at least one agent is told so. Every account here is its own
 // row in its own app (tests/helpers/payout-accounts.ts).
 describe('the payout notice on /myagents (SW3-10)', () => {
@@ -805,6 +805,7 @@ describe('the payout notice on /myagents (SW3-10)', () => {
   it.each([
     ['only the EVM (USDC) address set', 'evmOnly'],
     ['only the ABT address set', 'abtOnly'],
+    ['only the ABT-on-Ethereum address set', 'abtEthOnly'],
   ] as const)('%s shows neither the sentence nor the link', async (_label, key) => {
     const page = await renderMyAgents(world.baseUrl, world[key].session);
     try {

@@ -174,6 +174,21 @@ describe('the deposit screen, driven end to end against the real app', () => {
       }),
     );
 
+    // No currency pinned, so the page offers every one the owner set up:
+    // all three, once the operator's other two addresses are set below.
+    await jobRepo.create(
+      jobFixture({
+        id: 'job-three-rails',
+        status: 'proposed',
+        criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+        priceUsd: '300.00',
+        rail: null,
+        depositPercent: 25,
+        priceAcceptedByBuyer: true,
+        priceAcceptedByAgent: true,
+      }),
+    );
+
     // Half-signed: not ready for a deposit yet.
     await jobRepo.create(
       jobFixture({
@@ -265,6 +280,11 @@ describe('the deposit screen, driven end to end against the real app', () => {
     // below started failing the door's own new address gate.
     await accountRepo.register({ did: 'did:abt:deposit-page-operator', githubLogin: 'deposit-page-operator' });
     await accountRepo.setOperatorAddressAbt('did:abt:deposit-page-operator', didSuffix(AGENT_DID));
+    // The other two payout addresses, so job-three-rails is offered all
+    // three. Every other job here pins its currency to ABT on ArcBlock, and
+    // a pinned job is offered only that one, so none of them changes.
+    await accountRepo.setOperatorAddressEvm('did:abt:deposit-page-operator', `0x${'cd'.repeat(20)}`);
+    await accountRepo.setOperatorAddressAbtEth('did:abt:deposit-page-operator', `0x${'ef'.repeat(20)}`);
     const platformWallet = fromRandom();
     const port = await reservePort();
     baseUrl = `http://127.0.0.1:${port}`;
@@ -889,10 +909,12 @@ describe('the deposit screen, driven end to end against the real app', () => {
     });
 
     it('the rail option labels and the totals rows keep their real layout, not a wrapper-crushed block (D2)', async () => {
-      const page = await renderDeposit(baseUrl, 'job-fully-agreed', { token: buyerToken });
+      // A hire offered all three currencies: every option's label is shown
+      // and keeps the layout.
+      const page = await renderDeposit(baseUrl, 'job-three-rails', { token: buyerToken });
       try {
-        const labels = page.document.querySelectorAll('.railopt label');
-        expect(labels.length).toBe(2);
+        const labels = Array.from(page.document.querySelectorAll('.railopt label')).filter((label) => label.closest('[hidden]') === null);
+        expect(labels.length).toBe(3);
         labels.forEach((label) => {
           const style = page.window.getComputedStyle(label as Element);
           expect(style.display).toBe('grid');

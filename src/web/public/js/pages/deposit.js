@@ -1,14 +1,21 @@
 /* P8i deposit (P-12): a fully-agreed buyer pays the deposit and the
    agreement locks. No route in src/api/app.ts changes. Reads
-   GET /jobs/:jobId and offers only its payableRails (USDC-WEBb). ABT
+   GET /jobs/:jobId and offers only its payableRails (USDC-WEBb), in the
+   page's own order: ABT on ArcBlock, ABT on Ethereum, USDC on Arbitrum,
+   with the first one offered chosen. ABT on ArcBlock
    starts at .../payments/deposit/abt/start and "I approved in my wallet"
    calls POST /jobs/:jobId/confirm, once per press. The sheet that start
    opens shows the ABT/USD rate that press locked, when the lock ends and
    when CoinGecko last updated the price (FIX-B70b, FAApi.drawAbtQuote);
-   a start answer with no usable lock opens no sheet. USDC pays in the
-   browser (usdc-pay.js), and on paid that same press confirms.
+   a start answer with no usable lock opens no sheet. USDC and ABT on
+   Ethereum pay in the browser (usdc-pay.js, rail "abt_eth" for the
+   second), and on paid that same press confirms. ABT on Ethereum's sheet
+   draws the lock its start answered (the engine's onQuote) before the
+   wallet is asked to switch networks, and a payment that reads short
+   never confirms.
    RAIL_*_FEE_PERCENT are venue constants (ruling 3), pinned by a test
-   against src/domain/payment.ts's fee-rate constants. No simulated
+   against src/domain/payment.ts's fee-rate constants; both ABT rails
+   take the ABT one. No simulated
    settlement, ever: a 402 from confirm is the expected waiting state,
    never an error, no timer polls it. Everything through textContent
    (api.js rule 3), with one named exception: the avatar, which is an SVG
@@ -18,6 +25,9 @@
   "use strict";
   var A = window.FAApi;
   var RAIL_ABT_FEE_PERCENT = 3, RAIL_USDC_FEE_PERCENT = 6;
+  // The options in page order, each with the suffix its element ids carry
+  // (#railopt-<id>, #rail-<id>, #rail-<id>-amt).
+  var RAILS = [{ rail: "abt", id: "abt" }, { rail: "abt_eth", id: "abt-eth" }, { rail: "usdc", id: "usdc" }];
   var ALREADY_PAID_PHRASE = "already been paid";
   var jobId = "", token = "", job = null, chosenRail = "abt", confirmInFlight = false, usdcPay = null, paying = false;
   function start() {
@@ -79,27 +89,27 @@
     var back = A.el("back-to-agreement");
     if (back) back.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
   }
-  // Make 1: one option per payable currency, ABT chosen when both; none
-  // hides Pay and the total and points at the hire's conversation.
+  // Make 1: one option per payable currency; none hides Pay and the total
+  // and points at the hire's conversation. The chosen one is always the
+  // first offered in page order, so a hidden option is never checked or
+  // chosen (the markup's own checked on #rail-abt included).
   function offerPayableRails() {
-    var rails = Array.isArray(job.payableRails)
-      ? job.payableRails.filter(function (r) { return r === "abt" || r === "usdc"; })
-      : ["abt", "usdc"];
-    A.showById("railopt-abt", rails.indexOf("abt") !== -1);
-    A.showById("railopt-usdc", rails.indexOf("usdc") !== -1);
-    if (rails.length === 0) {
-      ["rails-heading", "rails", "total-pane", "pay-btn", "usdc-gas-note"].forEach(function (id) { A.showById(id, false); });
+    var payable = Array.isArray(job.payableRails) ? job.payableRails : ["abt", "usdc"];
+    var offered = RAILS.filter(function (r) { return payable.indexOf(r.rail) !== -1; });
+    RAILS.forEach(function (r) { A.showById("railopt-" + r.id, offered.indexOf(r) !== -1); });
+    if (offered.length === 0) {
+      ["rails-heading", "rails", "total-pane", "pay-btn", "usdc-gas-note", "abt-eth-gas-note"].forEach(function (id) { A.showById(id, false); });
       var link = A.el("no-rails-link");
       if (link) link.setAttribute("href", "/messages?job=" + encodeURIComponent(job.id));
       A.showById("no-rails", true);
       return;
     }
-    if (rails.length === 1) {
-      var only = A.el("rail-" + rails[0]);
-      if (only) only.checked = true;
-      chosenRail = rails[0];
-      applyRailTotals(job.price);
-    }
+    RAILS.forEach(function (r) {
+      var radio = A.el("rail-" + r.id);
+      if (radio) radio.checked = r === offered[0];
+    });
+    chosenRail = offered[0].rail;
+    applyRailTotals(job.price);
   }
   function showNotReady(title, detail, href) {
     A.setTextById("not-ready-title", title);
@@ -133,10 +143,10 @@
     var fee = roundHalfUpCents(deposit * (feePercent / 100));
     return { deposit: deposit, fee: fee, total: roundHalfUpCents(deposit + fee) };
   }
+  function feePercentOf(rail) { return rail === "usdc" ? RAIL_USDC_FEE_PERCENT : RAIL_ABT_FEE_PERCENT; }
   function renderTotals(price) {
-    var abt = depositAndFee(price, RAIL_ABT_FEE_PERCENT), usdc = depositAndFee(price, RAIL_USDC_FEE_PERCENT), priceUsd = parseFloat(price.priceUsd);
-    A.setTextById("rail-abt-amt", money(abt.total) + " today");
-    A.setTextById("rail-usdc-amt", money(usdc.total) + " today");
+    var abt = depositAndFee(price, RAIL_ABT_FEE_PERCENT), priceUsd = parseFloat(price.priceUsd);
+    RAILS.forEach(function (r) { A.setTextById("rail-" + r.id + "-amt", money(depositAndFee(price, feePercentOf(r.rail)).total) + " today"); });
     var depositPct = typeof price.depositPercent === "number" ? price.depositPercent : 25;
     A.setTextById("counts-toward-line",
       "This counts toward the " + money(priceUsd) + " price. " +
@@ -145,7 +155,7 @@
     applyRailTotals(price);
   }
   function applyRailTotals(price) {
-    var feePercent = chosenRail === "usdc" ? RAIL_USDC_FEE_PERCENT : RAIL_ABT_FEE_PERCENT;
+    var feePercent = feePercentOf(chosenRail);
     var figures = depositAndFee(price, feePercent);
     A.setTextById("total-amount", money(figures.total));
     A.setTextById("deposit-amount", money(figures.deposit));
@@ -157,12 +167,16 @@
       payBtn.textContent = "Pay " + money(figures.total) + " with your wallet";
       payBtn.disabled = paying;
     }
-    A.showById("usdc-gas-note", chosenRail === "usdc"); // Make 3, before the press
+    // Before the press, the gas line of the chosen option's network only.
+    A.showById("usdc-gas-note", chosenRail === "usdc");
+    A.showById("abt-eth-gas-note", chosenRail === "abt_eth");
   }
   function wireRailChooser() {
-    var abtRadio = A.el("rail-abt"), usdcRadio = A.el("rail-usdc"), price = job.price;
-    if (abtRadio) abtRadio.addEventListener("change", function () { if (abtRadio.checked) { chosenRail = "abt"; applyRailTotals(price); } });
-    if (usdcRadio) usdcRadio.addEventListener("change", function () { if (usdcRadio.checked) { chosenRail = "usdc"; applyRailTotals(price); } });
+    var price = job.price;
+    RAILS.forEach(function (r) {
+      var radio = A.el("rail-" + r.id);
+      if (radio) radio.addEventListener("change", function () { if (radio.checked) { chosenRail = r.rail; applyRailTotals(price); } });
+    });
   }
   function getRow(n, text) {
     var li = document.createElement("li"), num = document.createElement("span"), span = document.createElement("span");
@@ -264,7 +278,7 @@
     if (!payBtn) return;
     payBtn.addEventListener("click", function () {
       A.showById("pay-error", false);
-      if (chosenRail === "usdc") { openUsdc(); return; }
+      if (chosenRail === "usdc" || chosenRail === "abt_eth") { openWallet(); return; }
       payBtn.disabled = true;
       A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments/deposit/abt/start", token, {}).then(function (result) {
         payBtn.disabled = false;
@@ -294,15 +308,17 @@
       });
     });
   }
-  // One sheet, three modes: "abt" (address, its locked rate, one approval,
-  // "I approved"), "usdc" (usdc-pay.js draws the wallet choice and
-  // outcomes) and "paid". #abt-rate sits inside #scan-abt, so only "abt"
-  // shows it.
-  var SCAN_HEADINGS = { abt: "Open this in your wallet", usdc: "Approve in your wallet", paid: "Already paid" };
+  // One sheet, four modes: "abt" (address, its locked rate, one approval,
+  // "I approved"), "usdc" and "abt_eth" (usdc-pay.js draws the wallet
+  // choice and outcomes) and "paid". #abt-rate sits inside #scan-abt with
+  // the address row (#scan-abt-address): "abt" shows both, "abt_eth" shows
+  // the rate alone, once the engine hands over the lock (onQuote).
+  var SCAN_HEADINGS = { abt: "Open this in your wallet", usdc: "Approve in your wallet", abt_eth: "Approve in your wallet", paid: "Already paid" };
   function openSheet(mode, approvalsLine) {
     var dialog = A.el("scan");
     A.setTextById("scanh", SCAN_HEADINGS[mode]);
-    A.showById("scan-abt", mode === "abt");
+    A.showById("scan-abt", mode === "abt" || mode === "abt_eth");
+    A.showById("scan-abt-address", mode === "abt");
     A.showById("scan-waiting", mode === "abt");
     A.showById("approved-btn", mode === "abt");
     A.showById("confirm-error", false);
@@ -324,11 +340,14 @@
     if (copyBtn) copyBtn.setAttribute("data-copy", url);
     openSheet("abt", "Open your wallet with this address, and approve. One approval, for this whole payment.");
   }
-  // Make 2: the wireframe's two-approvals line (deposit.html:256).
-  function openUsdc() {
+  // Make 2: the wireframe's two-approvals line (deposit.html:256), at the
+  // chosen option's fee. ABT on Ethereum's sheet empties the rate block
+  // an earlier press drew; this press's own lock fills it (onQuote).
+  function openWallet() {
     if (paying) return;
-    var figures = depositAndFee(job.price, RAIL_USDC_FEE_PERCENT);
-    openSheet("usdc", "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
+    var figures = depositAndFee(job.price, feePercentOf(chosenRail));
+    openSheet(chosenRail, "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
+    if (chosenRail === "abt_eth") A.drawAbtQuote(null);
     usdcPay.start();
   }
   // Paid: the same press carries on into ONE press of "I approved in my
@@ -350,9 +369,13 @@
     A.showById("approved-btn", true);
     A.showById("usdc-reload", true);
   }
+  // The rail is read at each press: undefined (USDC, the engine's default)
+  // unless ABT on Ethereum is the chosen option.
   function wireUsdc() {
     usdcPay = window.FAUsdcPay.create({
       jobId: jobId, token: token, leg: "deposit",
+      get rail() { return chosenRail === "abt_eth" ? "abt_eth" : undefined; },
+      onQuote: function (quoteLock) { A.drawAbtQuote(quoteLock); },
       onBusy: function (on) { paying = on; var payBtn = A.el("pay-btn"); if (payBtn) payBtn.disabled = on; },
       onPaid: confirmNow,
       onAlreadyPaid: showAlreadyPaidPresses,

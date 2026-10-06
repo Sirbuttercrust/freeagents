@@ -5,13 +5,18 @@
    the routes of the chosen rail: POST .../<rail>/start and
    POST .../<rail>/wallet-response, where <rail> is "usdc" (the default)
    or "abt_eth" (ABT on Ethereum, pay({ rail: "abt_eth" })).
-   The USDC checkout (pages/usdc-pay.js, loaded by the deposit and staged
-   pages) is the only page that loads this, and it pays in USDC. No page
-   passes "abt_eth" yet. Both rails are proven against the real routes by
-   tests/web/usdc-wallet.test.ts and tests/web/abt-eth-wallet.test.ts.
+   The wallet sheet (pages/usdc-pay.js, loaded by the deposit and staged
+   pages) is the only thing that loads this. It pays in USDC, or in ABT on
+   Ethereum when the page names that rail (the hirer chose it on /deposit,
+   or the hire's own currency is it on /staged). Both rails are proven
+   against the real routes by tests/web/usdc-wallet.test.ts and
+   tests/web/abt-eth-wallet.test.ts, and through the pages by
+   tests/web/abt-eth-checkout.test.ts.
    The ABT report also carries the id of the price lock the start answered
    (quoteLockId), and a transfer that arrived after the price hold and is
-   worth less now is the outcome "short", never "paid".
+   worth less now is the outcome "short", never "paid". On ABT on Ethereum
+   pay() hands that lock to opts.onQuote once, before the wallet is asked
+   to switch networks, so the page can show the rate it is held at.
    THE RULE: a refused or failed step never reports paid; paid is only
    ever set from the server's own { confirmed: true } answer with no
    "short", never guessed from a transaction id existing. No user-facing
@@ -267,10 +272,13 @@
     return { outcome: "waiting_network", message: "The network has not confirmed this payment yet. Check again shortly." };
   }
 
-  // pay({ wallet, jobId, leg, token, resend, rail }): wallet is one entry
-  // from discover(). leg is 'deposit' or 'remainder'. rail is 'usdc'
+  // pay({ wallet, jobId, leg, token, resend, rail, onQuote }): wallet is one
+  // entry from discover(). leg is 'deposit' or 'remainder'. rail is 'usdc'
   // (the default) or 'abt_eth'; anything else is refused with a sentence
-  // before any request or wallet call. resend is 'price' | 'fee', set
+  // before any request or wallet call. onQuote, given, is called once on
+  // ABT on Ethereum with the start answer's whole quoteLock, after the lock
+  // is found usable and before the network switch; never on USDC. resend
+  // is 'price' | 'fee', set
   // only on the buyer's own press after a transfer_failed outcome named
   // that leg; absent, a transfer already known (from this device's own
   // storage or the server's halfPaidRecord) is never sent again.
@@ -325,6 +333,7 @@
     if (rail.lock && lockId === null) {
       return { outcome: "server_refused", message: window.FAApi.ABT_PRICE_SENTENCE };
     }
+    if (rail.lock && typeof opts.onQuote === "function") opts.onQuote(quoteLock);
 
     var chainResult = await ensureChain(provider, startBody.chainId);
     if (!chainResult.ok) {
