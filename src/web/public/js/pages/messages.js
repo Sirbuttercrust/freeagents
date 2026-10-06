@@ -67,7 +67,7 @@
     submitted: "done", completed: "done", deemed_completed: "done",
     stale: "done", closed_unmerged: "done", cited_closed: "done",
     declined: null, withdrawn: null, expired_unstaged: null,
-    staged_declined: null, closed_unpaid: null
+    staged_declined: null, closed_unpaid: null, paid_undelivered: null
   };
   var TERMINAL = {
     completed: 1, declined: 1, closed_unmerged: 1, withdrawn: 1, staged_declined: 1,
