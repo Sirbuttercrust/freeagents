@@ -227,6 +227,8 @@ describe('the pull-request screen, driven end to end against the real app', () =
     await jobRepo.create(jobFixture({ id: 'job-completed', agentDid: TERMINAL_AGENT_DID, status: 'completed', criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '400.00', priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, submittedAt: RECENT, mergeCommit: 'commit-merged', mergedAt: RECENT }));
     await jobRepo.create(jobFixture({ id: 'job-deemed-completed', status: 'deemed_completed', criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '400.00', priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, submittedAt: RECENT, deemedCompletedAt: RECENT }));
     await jobRepo.create(jobFixture({ id: 'job-cited-closed', status: 'cited_closed', criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '400.00', priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, submittedAt: RECENT, citedCloseCriterionIndex: 0, citedCloseReasonText: 'Missed the mark', citedCloseAuthorDid: BUYER_ACCOUNT_DID, citedCloseAt: RECENT }));
+    // Paid in full, and the pull request never opened within seven days. On TERMINAL_AGENT_DID too, so this ending does not land on pr-page-scout's own record.
+    await jobRepo.create(jobFixture({ id: 'job-paid-undelivered', agentDid: TERMINAL_AGENT_DID, status: 'paid_undelivered', criteria: [{ text: 'Done', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '400.00', rail: 'abt', priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, stagedCommit: 'commit-paid-undelivered' }));
     // A stranger's 403 fixture.
     await jobRepo.create(jobFixture({ id: 'job-for-403', status: 'submitted', criteria: [{ text: 'x', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }], priceUsd: '100.00', priceAcceptedByBuyer: true, priceAcceptedByAgent: true, stagedAt: RECENT, stagedCommit: 'commit-for-403', pullRequestUrl: 'https://github.com/buyer/pr-repo/pull/2', submittedAt: RECENT }));
     await storeAttestation(
@@ -379,13 +381,14 @@ describe('the pull-request screen, driven end to end against the real app', () =
       }
     });
   });
-  describe('the three terminal statuses this page can reach by reloading (ruling 7, mutation proof 7)', () => {
-    it('completed, deemed_completed and cited_closed each name what already happened, with a link back and no control', async () => {
+  describe('the four terminal statuses this page can reach by reloading (ruling 7, mutation proof 7)', () => {
+    it('completed, deemed_completed, cited_closed and paid_undelivered each name what already happened, with a link back and no control', async () => {
       const completed = await renderPr(baseUrl, 'job-completed', buyerSession);
       const deemed = await renderPr(baseUrl, 'job-deemed-completed', buyerSession);
       const cited = await renderPr(baseUrl, 'job-cited-closed', buyerSession);
+      const undelivered = await renderPr(baseUrl, 'job-paid-undelivered', buyerSession);
       try {
-        [completed, deemed, cited].forEach((page) => {
+        [completed, deemed, cited, undelivered].forEach((page) => {
           const panel = page.document.getElementById('terminal-panel');
           expect(panel).not.toBeNull();
           expect(panel!.hidden).toBe(false);
@@ -395,12 +398,18 @@ describe('the pull-request screen, driven end to end against the real app', () =
         expect(completed.document.getElementById('terminal-title')?.textContent ?? '').toContain('merged');
         expect(deemed.document.getElementById('terminal-title')?.textContent ?? '').toContain('deemed complete');
         expect(cited.document.getElementById('terminal-title')?.textContent ?? '').toContain('closed');
-        const titles = [completed, deemed, cited].map((p) => p.document.getElementById('terminal-title')?.textContent ?? '');
-        expect(new Set(titles).size).toBe(3);
+        expect(undelivered.document.getElementById('terminal-title')?.textContent).toBe(
+          'This hire ended. It was paid in full and the pull request never opened, so there is nothing to merge.',
+        );
+        expect(undelivered.document.getElementById('terminal-detail')?.textContent).toBe('Nothing more to do here.');
+        expect(undelivered.document.getElementById('terminal-link')?.getAttribute('href')).toBe('/jobs/job-paid-undelivered');
+        const titles = [completed, deemed, cited, undelivered].map((p) => p.document.getElementById('terminal-title')?.textContent ?? '');
+        expect(new Set(titles).size).toBe(4);
       } finally {
         completed.close();
         deemed.close();
         cited.close();
+        undelivered.close();
       }
     });
   });

@@ -56,8 +56,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { Session } from '../../src/adapters/identity/session.js';
 import { createSystemMessage } from '../../src/domain/message.js';
+import { createJob, isTerminal, type JobStatus } from '../../src/domain/job.js';
 import {
-  AGENT_GITHUB_LOGIN, AGENT_NAME, AGREED, BUYER_DID, BUYER_LOGIN, DONE, IDENTITIES, INVITED, INVITE_LIVE, INVITE_REFUSED, INVITE_URL,
+  AGENT_DID, AGENT_GITHUB_LOGIN, AGENT_NAME, AGREED, BUYER_DID, BUYER_LOGIN, DONE, IDENTITIES, INVITED, INVITE_LIVE, INVITE_REFUSED, INVITE_URL,
   LONG_BRIEF, OPEN, OWNER_DID, OWNER_LOGIN, REFUSED_URLS, STAGED, SUBMITTED,
   asParty, buildMessagesWorld, type World,
 } from '../helpers/messages-world.js';
@@ -916,6 +917,48 @@ describe('(f) a finished hire is read only', () => {
 });
 
 // ------------------------------------------------------------------ (g)
+
+describe('(f2) a hire paid in full that ended with no pull request', () => {
+  const PAID_UNDELIVERED = 'msg-job-paid-undelivered';
+  beforeAll(async () => {
+    const recent = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const base = createJob({ id: PAID_UNDELIVERED, buyerDid: BUYER_DID, agentDid: AGENT_DID, repository: 'buyer/msg-repo', brief: 'Move the backups to the new host.' }, recent);
+    await world.jobs.create({
+      ...base, status: 'paid_undelivered', priceUsd: '500.00', rail: 'abt',
+      priceAcceptedByBuyer: true, priceAcceptedByAgent: true, confirmedAt: recent, confirmedSpecHash: 'sha256:msg-paid-undelivered-spec',
+      stagedAt: recent, stagedCommit: 'msgpaidundeliveredcommit',
+    });
+  });
+
+  it.each([['the hirer', 'buyer'], ['the owner', 'owner']] as const)('%s reads it as ended: the strip in words, no next step, and the read-only line', async (_label, who) => {
+    const page = await render(thread(PAID_UNDELIVERED), who === 'buyer' ? world.buyer : world.owner);
+    try {
+      expect(page.text('.closedline')).toBe('This hire has ended, so the conversation is read only. It stays here for both of you.');
+      expect(page.$('#cmp')).toBeNull();
+      expect(page.text('.a-pin .pin-now')).toBe('Paid in full, never delivered');
+      expect(page.$('#pin-next')).toBeNull();
+      expect(page.$$('.a-pin .pip-row')).toHaveLength(0);
+    } finally { page.close(); }
+  });
+
+  // The page's own list of endings, read from its source the way
+  // tests/web/operatorjob-polished.test.ts reads that page's list, held
+  // equal to src/domain/job.ts's isTerminal over every JobStatus.
+  it('the page\u2019s TERMINAL names exactly the statuses the domain calls terminal', () => {
+    const source = readFileSync(join(repoRoot, 'src/web/public/js/pages/messages.js'), 'utf8');
+    const block = /var TERMINAL = \{([\s\S]*?)\};/.exec(source)?.[1] ?? '';
+    const pageKeys = [...block.matchAll(/([a-z_]+):\s*1/g)].map((m) => m[1] as JobStatus);
+    expect(pageKeys.length, 'no keys parsed out of messages.js TERMINAL').toBeGreaterThan(5);
+    const every: JobStatus[] = [
+      'draft', 'proposed', 'confirmed', 'staged', 'redo_requested', 'submitted',
+      'completed', 'declined', 'closed_unmerged', 'stale', 'withdrawn',
+      'staged_declined', 'closed_unpaid', 'expired_unstaged', 'deemed_completed', 'cited_closed',
+      'paid_undelivered',
+    ];
+    expect(every, 'the hand list must name all seventeen JobStatus values').toHaveLength(17);
+    expect(every.filter((s) => isTerminal(s) !== pageKeys.includes(s)), 'statuses where messages.js and src/domain/job.ts disagree about "finished"').toEqual([]);
+  });
+});
 
 describe('(g) files', () => {
   it('an image with no words sends as a message of its own', async () => {

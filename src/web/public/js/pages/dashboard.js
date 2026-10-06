@@ -295,8 +295,8 @@
   // Section 4 (ruling 5): only shipped/notShipped rows whose date is
   // known and within 14 days of now, newest first, capped at five. A
   // dateless closed job (declined, closed_unmerged, stale, withdrawn,
-  // staged_declined, closed_unpaid, expired_unstaged) is never guessed
-  // into a window (unverified-state-claim).
+  // staged_declined, closed_unpaid, expired_unstaged, paid_undelivered)
+  // is never guessed into a window (unverified-state-claim).
   function buildRecentlyCompleted(jobs) {
     if (jobs === null) return { failed: true, rows: [] };
     var now = Date.now();

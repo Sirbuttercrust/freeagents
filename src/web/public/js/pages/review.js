@@ -42,7 +42,8 @@
 
   var TERMINAL_UNREVIEWABLE = [
     "declined", "closed_unmerged", "withdrawn", "staged_declined",
-    "closed_unpaid", "expired_unstaged", "deemed_completed", "cited_closed"
+    "closed_unpaid", "expired_unstaged", "deemed_completed", "cited_closed",
+    "paid_undelivered"
   ];
 
   var SENTENCES = {
