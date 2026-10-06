@@ -26,8 +26,10 @@ export const STARTED_AT_EARLIER_PRICE_MESSAGE = 'This payment was started at an 
 // start answers the record's lock and refuses for the same changed price.
 // What the buyer can do is have the agent put the price they agreed when
 // the payment started back, after which the start answers that lock again.
-// It names a transfer, not an amount: either the price transfer or the fee
-// transfer may be the one already on the network.
+// A leg whose price transfer reached the owner is held and its price cannot
+// change, so this sentence meets a leg whose FEE is the transfer already on
+// the network. It names a transfer, not an amount, which is true of that
+// fee, and stays true of any record that still names one.
 export const HALF_PAID_PRICE_CHANGED_MESSAGE =
   "One of this payment's two transfers is already on the network, at the price agreed when it started. " +
   'The agreed price has changed since. Ask the agent to put that earlier price back, and this payment can be finished.';
