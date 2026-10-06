@@ -45,6 +45,7 @@ import { depositUsd, remainderUsd } from '../../domain/payment.js';
 import type { AccountRepository, AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
+import type { Rail } from './types.js';
 import {
   checkAgentGithubVerified,
   checkAgreementReady,
@@ -96,6 +97,11 @@ export interface AttachAbtPaymentHandlersOptions {
   // exact silent binding this card exists to stop).
   readonly accountRepo: AccountRepository;
   readonly settlementRepo: SettlementRepository;
+  // B88: the rail whose price transfer already reached the owner on this
+  // leg while it has not settled, null when none holds it. Required, so a
+  // wiring that forgets it does not compile. A throw is answered by onAuth
+  // as the storage sentence, and nothing is broadcast or recorded.
+  readonly heldRailFor: (jobId: string, leg: RouteLeg) => Promise<Rail | null>;
   readonly platformSk: string;
   readonly chainHost: string;
   readonly baseUrl: string;
@@ -466,17 +472,27 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       }
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
-      // currency, the settled deposit's currency, then the operator
-      // address for this rail. operatorAddressOk here makes its OWN
+      // currency, the settled deposit's currency, the rail a
+      // half-paid leg is held on, then the operator address for this
+      // rail. operatorAddressOk here makes its OWN
       // call to operatorAddressForJob (a second, separate call from the
       // one a few lines below that resolves the actual recipient
       // address): the two calls answer different questions (a boolean
       // eligibility check here, the address value itself there), so one
       // result cannot stand in for the other.
+      let heldRail: Rail | null;
+      try {
+        heldRail = await options.heldRailFor(jobId, leg);
+      } catch (err) {
+        console.error('onAuth: half-paid read failed', err);
+        return { confirmed: false, error: 'storage unavailable' };
+      }
       const eligibility = await checkRailDoorEligible({
         jobId,
+        leg,
         routeRail: 'abt',
         jobRail: job.rail,
+        heldRail,
         settlementRepo: options.settlementRepo,
         operatorAddressOk: (await operatorAddressForJob(options.jobRepo, options.agentRepo, options.accountRepo, jobId)).ok,
       });
