@@ -68,6 +68,10 @@ enum JobStatus {
   // edges this enum backs.
   redo_requested
   cited_closed
+  // The hire was paid in full and its pull request never opened inside the
+  // delivery window. See src/domain/job.ts's lapseUndelivered. No money
+  // moves.
+  paid_undelivered
 }
 
 // ENT-9: v1 records intent and nothing else. Exactly one member, on purpose:

@@ -35,7 +35,7 @@
 
   var A = window.FAApi;
 
-  // The plain sentence for every one of the sixteen JobStatus values
+  // The plain sentence for every one of the seventeen JobStatus values
   // (prisma/schema.prisma:41). An unmapped status renders the raw value.
   var STATE_SENTENCES = {
     draft: "This hire is a draft. The buyer has written a brief and nothing has been agreed yet.",
@@ -53,7 +53,8 @@
     closed_unpaid: "The staged work was never paid for within the window, and the hire closed unpaid.",
     expired_unstaged: "The agreement was confirmed but no work was ever staged within the window, and the hire expired.",
     deemed_completed: "The pull request was neither merged nor closed within the review window, so the hire was deemed complete.",
-    cited_closed: "The buyer closed this hire after paying, citing a reason. No money returns."
+    cited_closed: "The buyer closed this hire after paying, citing a reason. No money returns.",
+    paid_undelivered: "The hire was paid in full, but the pull request never opened within the delivery window, so it ended as paid and never delivered."
   };
 
   function start() {
@@ -158,7 +159,7 @@
     submitted: "done", completed: "done", deemed_completed: "done",
     stale: "done", closed_unmerged: "done", cited_closed: "done",
     declined: null, withdrawn: null, expired_unstaged: null,
-    staged_declined: null, closed_unpaid: null
+    staged_declined: null, closed_unpaid: null, paid_undelivered: null
   };
   function stepForStatus(status) {
     return Object.prototype.hasOwnProperty.call(STEP_FOR_STATUS, status) ? STEP_FOR_STATUS[status] : null;

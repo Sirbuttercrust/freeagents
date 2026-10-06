@@ -11,18 +11,19 @@
 // reverse" rule every other domain file in this directory keeps.
 //
 // TOTAL OVER THE ENUM. A switch with no default, plus the exhaustiveness
-// check at the bottom, is what turns a seventeenth JobStatus into a
+// check at the bottom, is what turns an eighteenth JobStatus into a
 // compile error here rather than a status that silently never appears in
 // anyone's list (the brief's own words: "a switch with no default plus
 // an exhaustiveness check is what makes a sixteenth status a typecheck
-// failure rather than a silently missing row" -- job.ts:31-47 already
-// declares sixteen values today, not the fifteen the brief's prose
+// failure rather than a silently missing row" -- job.ts declares
+// seventeen values today, not the fifteen the brief's prose
 // counts; the code is ground truth, named here as a handoff departure).
 import type { JobStatus } from './job.js';
 
 export type JobListBucket = 'waitingOnYou' | 'inProgress' | 'shipped' | 'notShipped' | 'notReal';
 
-// Every JobStatus the domain declares (src/domain/job.ts:31-47), listed
+// Every JobStatus the domain declares (the JobStatus union in
+// src/domain/job.ts), listed
 // once here so a test can assert this bucketing function is actually
 // total over the real enum rather than over a hand-copied guess of it.
 // Kept as a value (not derived from the type, which TypeScript erases at
@@ -45,6 +46,7 @@ export const ALL_JOB_STATUSES: readonly JobStatus[] = [
   'expired_unstaged',
   'deemed_completed',
   'cited_closed',
+  'paid_undelivered',
 ];
 
 function assertNever(status: never): never {
@@ -86,6 +88,7 @@ export function jobListBucketOf(status: JobStatus): JobListBucket {
     case 'closed_unpaid':
     case 'expired_unstaged':
     case 'cited_closed':
+    case 'paid_undelivered':
       return 'notShipped';
     default:
       return assertNever(status);
@@ -96,7 +99,8 @@ export function jobListBucketOf(status: JobStatus): JobListBucket {
 // domain's own one-writer field for that status was written, never a
 // borrowed field from an unrelated transition. null when a status
 // carries no dedicated timestamp of its own (declined, closed_unmerged,
-// stale, withdrawn, staged_declined, closed_unpaid, expired_unstaged all
+// stale, withdrawn, staged_declined, closed_unpaid, expired_unstaged and
+// paid_undelivered all
 // have no field job.ts writes specifically for reaching them): the page
 // renders nothing rather than a guessed or reused date
 // (unverified-state-claim, the defect line this brief names).
@@ -136,6 +140,7 @@ export function jobListDateOf(job: JobListDateFacts): Date | null {
     case 'staged_declined':
     case 'closed_unpaid':
     case 'expired_unstaged':
+    case 'paid_undelivered':
       return null;
     default:
       return assertNever(job.status);
