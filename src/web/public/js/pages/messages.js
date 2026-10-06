@@ -71,7 +71,7 @@
   };
   var TERMINAL = {
     completed: 1, declined: 1, closed_unmerged: 1, withdrawn: 1, staged_declined: 1,
-    closed_unpaid: 1, expired_unstaged: 1, deemed_completed: 1, cited_closed: 1
+    closed_unpaid: 1, expired_unstaged: 1, deemed_completed: 1, cited_closed: 1, paid_undelivered: 1
   };
   var EVENT_WORDS = {
     quote_sent: "Sent a quote",
@@ -632,6 +632,7 @@
       case "staged_declined": return "Work declined";
       case "closed_unpaid": return "Closed unpaid";
       case "expired_unstaged": return "Ended with no work staged";
+      case "paid_undelivered": return "Paid in full, never delivered";
       default: return "";
     }
   }

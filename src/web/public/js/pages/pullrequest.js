@@ -72,12 +72,16 @@
   function padNum(n) { return n < 10 ? "0" + n : String(n); }
   var PANEL_IDS = ["load-error", "signin-required", "party-error", "not-ready-error", "fault-error", "terminal-panel", "pr-body"];
   function hideAllPanels() { PANEL_IDS.forEach(function (id) { A.showById(id, false); }); }
-  // Terminal outcomes a buyer is most likely to reach by reloading name
-  // what already happened, not a generic sentence.
+  // The four endings a buyer is most likely to reach by reloading this
+  // page (completed, deemed_completed, cited_closed, and paid_undelivered,
+  // where the balance was paid and the pull request never opened) name
+  // what already happened, not a generic sentence. Every other status that
+  // is not submitted gets the not-ready panel.
   var TERMINAL_SENTENCES = {
     completed: "This hire is complete. The pull request merged.",
     deemed_completed: "This hire was deemed complete. The review window closed with no merge and no close recorded, so the job completed anyway.",
     cited_closed: "This hire was closed. The buyer cited a reason and no money returns.",
+    paid_undelivered: "This hire ended. It was paid in full and the pull request never opened, so there is nothing to merge.",
   };
   function onLoaded(results) {
     var jobResult = results[0], gate = results[1];

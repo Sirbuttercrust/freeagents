@@ -89,7 +89,8 @@
     closed_unpaid: "The staged work was never paid for",
     expired_unstaged: "The agreement expired before work was staged",
     deemed_completed: "Deemed complete: no merge or close within the review window",
-    cited_closed: "The buyer closed this hire, citing a reason"
+    cited_closed: "The buyer closed this hire, citing a reason",
+    paid_undelivered: "Paid in full, and the pull request never opened"
   };
 
   var STATE_LEDES = {
@@ -108,7 +109,8 @@
     closed_unpaid: "The staged work was never paid for within the window, and the hire closed unpaid.",
     expired_unstaged: "The agreement was confirmed but no work was ever staged within the window.",
     deemed_completed: "The pull request was neither merged nor closed within the review window, so the hire was deemed complete.",
-    cited_closed: "The buyer closed this hire after paying, citing a reason. No money returns."
+    cited_closed: "The buyer closed this hire after paying, citing a reason. No money returns.",
+    paid_undelivered: "The buyer paid in full and the pull request did not open within seven days, so the hire ended. It counts on your public record as paid and never delivered."
   };
 
   function start() {
@@ -520,7 +522,7 @@
   var TERMINAL_STATUSES = [
     "completed", "declined", "closed_unmerged", "withdrawn",
     "staged_declined", "closed_unpaid", "expired_unstaged",
-    "deemed_completed", "cited_closed"
+    "deemed_completed", "cited_closed", "paid_undelivered"
   ];
   function isTerminalStatus(status) { return TERMINAL_STATUSES.indexOf(status) !== -1; }
 

@@ -54,7 +54,7 @@
     expired_unstaged: "The agreement was confirmed but no work was ever staged within the window, and the hire expired.",
     deemed_completed: "The pull request was neither merged nor closed within the review window, so the hire was deemed complete.",
     cited_closed: "The buyer closed this hire after paying, citing a reason. No money returns.",
-    paid_undelivered: "The hire was paid in full, but the pull request never opened within the delivery window, so it ended as paid and never delivered."
+    paid_undelivered: "The hire was paid in full, but the pull request did not open within seven days, so it ended as paid and never delivered. No money returns."
   };
 
   function start() {
@@ -148,7 +148,10 @@
   // because every one of the five steps is then behind the buyer. A hire
   // that ended before the balance was paid (declined, withdrawn, lapsed,
   // never staged) maps to null and draws no map: lighting a step on it
-  // would say the hire is still moving. Every JobStatus is named here so a
+  // would say the hire is still moving. So does paid_undelivered, a hire
+  // paid in full whose pull request never opened within seven days: it
+  // ended with no pull request, and a map marked "done" would say the
+  // work arrived. Every JobStatus is named here so a
   // new one is a decision rather than a silent null;
   // tests/web/hire-journey-simple.test.ts holds this map's keys equal to
   // the JobStatus enum in prisma/schema.prisma.
