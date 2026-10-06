@@ -15,7 +15,7 @@ import { createJob } from '../../src/domain/job.js';
 
 const JOB_ID = 'capabilities-hire-loop-job';
 
-// The 19 routes of a hire after it opens (17 POST, 2 GET), as `method path`,
+// The 21 routes of a hire after it opens (19 POST, 2 GET), as `method path`,
 // in the order the document lists them.
 const HIRE_LOOP_ROUTES: readonly string[] = [
   'GET /jobs/:jobId',
@@ -30,6 +30,8 @@ const HIRE_LOOP_ROUTES: readonly string[] = [
   'POST /jobs/:jobId/payments/:leg/abt/start',
   'POST /jobs/:jobId/payments/:leg/usdc/start',
   'POST /jobs/:jobId/payments/:leg/usdc/wallet-response',
+  'POST /jobs/:jobId/payments/:leg/abt_eth/start',
+  'POST /jobs/:jobId/payments/:leg/abt_eth/wallet-response',
   'POST /jobs/:jobId/stage',
   'POST /jobs/:jobId/staged-decline',
   'POST /jobs/:jobId/redo',
@@ -90,12 +92,12 @@ describe('SW1-04: GET /capabilities names every step of a hire after it opens', 
     expect(unregistered, 'a capability whose method and path no route is registered under').toEqual([]);
   });
 
-  it('the served document names the 17 POST routes and the 2 GET routes, read from the body', async () => {
+  it('the served document names the 19 POST routes and the 2 GET routes, read from the body', async () => {
     const res = await fetch(`${baseUrl}/capabilities`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { capabilities: Array<{ method: string; path: string }> };
     const named = body.capabilities.map((c) => `${c.method} ${c.path}`);
-    expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('POST '))).toHaveLength(17);
+    expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('POST '))).toHaveLength(19);
     expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('GET '))).toHaveLength(2);
     expect(named.filter((route) => HIRE_LOOP_ROUTES.includes(route))).toEqual(HIRE_LOOP_ROUTES);
   });

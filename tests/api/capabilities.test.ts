@@ -106,7 +106,8 @@ describe('GET /capabilities', () => {
     // job.payments.read, the party-only read of which payments settled,
     // moved it from 28 to 29. account.incoming.read, the read that leads an
     // agent signing with its own key to the briefs sent to it, made it 30.
-    expect(body.capabilities).toHaveLength(30);
+    // The two ABT-on-Ethereum payment routes made it 32.
+    expect(body.capabilities).toHaveLength(32);
   });
 
   it('every declared public GET answers a caller with no identity', async () => {

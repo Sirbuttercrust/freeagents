@@ -81,6 +81,8 @@ describe('CAPABILITIES', () => {
       { id: 'job.payment.abt', method: 'POST', path: '/jobs/:jobId/payments/:leg/abt/start', access: 'identified', identityField: null },
       { id: 'job.payment.usdc', method: 'POST', path: '/jobs/:jobId/payments/:leg/usdc/start', access: 'identified', identityField: null },
       { id: 'job.payment.usdc.report', method: 'POST', path: '/jobs/:jobId/payments/:leg/usdc/wallet-response', access: 'identified', identityField: null },
+      { id: 'job.payment.abt_eth', method: 'POST', path: '/jobs/:jobId/payments/:leg/abt_eth/start', access: 'identified', identityField: null },
+      { id: 'job.payment.abt_eth.report', method: 'POST', path: '/jobs/:jobId/payments/:leg/abt_eth/wallet-response', access: 'identified', identityField: null },
       { id: 'job.stage', method: 'POST', path: '/jobs/:jobId/stage', access: 'identified', identityField: null },
       { id: 'job.staged.decline', method: 'POST', path: '/jobs/:jobId/staged-decline', access: 'identified', identityField: null },
       { id: 'job.redo', method: 'POST', path: '/jobs/:jobId/redo', access: 'identified', identityField: null },

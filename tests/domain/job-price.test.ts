@@ -253,9 +253,9 @@ describe('proposeCriteria: the ABT-on-Ethereum rail value', () => {
     expect(proposed.priceUsd).toBe('500.00');
   });
 
-  it('still refuses an unknown rail with the same sentence', () => {
+  it('refuses an unknown rail with a sentence that names all three', () => {
     expect(() =>
       proposeCriteria(draftJob(), criteriaProposal, { priceUsd: '500.00', rail: 'eth' as never }),
-    ).toThrow(new JobError('rail must be "abt" or "usdc"'));
+    ).toThrow(new JobError('rail must be "abt", "usdc" or "abt_eth"'));
   });
 });

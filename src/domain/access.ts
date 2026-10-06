@@ -261,6 +261,22 @@ export const CAPABILITIES: readonly Capability[] = [
     reason: 'Only the buyer may report what the wallet answered for a USDC payment; the party comes from your session or signature, never the body.',
   },
   {
+    id: 'job.payment.abt_eth',
+    method: 'POST',
+    path: '/jobs/:jobId/payments/:leg/abt_eth/start',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may start an ABT-on-Ethereum payment for the deposit or remainder; the party comes from your session or signature, never the body.',
+  },
+  {
+    id: 'job.payment.abt_eth.report',
+    method: 'POST',
+    path: '/jobs/:jobId/payments/:leg/abt_eth/wallet-response',
+    access: 'identified',
+    identityField: null,
+    reason: 'Only the buyer may report what the wallet answered for an ABT-on-Ethereum payment; the party comes from your session or signature, never the body.',
+  },
+  {
     id: 'job.stage',
     method: 'POST',
     path: '/jobs/:jobId/stage',

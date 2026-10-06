@@ -1302,7 +1302,7 @@ export function proposeCriteria(
       throw new JobError('priceUsd must be a decimal string with exactly two places, e.g. "500.00"');
     }
     if (price.rail !== undefined && price.rail !== 'abt' && price.rail !== 'usdc' && price.rail !== 'abt_eth') {
-      throw new JobError('rail must be "abt" or "usdc"');
+      throw new JobError('rail must be "abt", "usdc" or "abt_eth"');
     }
     // FIX-B39, rule 1: a proposal that names a rail pins the job to it; one
     // that omits it leaves whatever the job already carries untouched (null
