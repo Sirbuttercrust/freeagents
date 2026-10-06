@@ -66,10 +66,12 @@
   .check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--action); color-scheme: dark; }
   /* A message that takes focus is not a control, so it draws no ring. */
   .save-msg:focus { outline: none; }
-  /* The warning's sentence, then its button, which wraps under the
-     sentence on a phone rather than pushing the row wide. */
-  #save-warning { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
-  #save-warning-detail { color: var(--fg); margin: 0; }
+  /* The warning and a refusal read as what they are: the error token's
+     rule, as the form's own refusals take on /listagent and
+     /agentsettings. The warning's button sits on its own line under the
+     sentence, so a phone never has to fit both on one row. */
+  #save-error, #save-warning { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
+  #save-error-detail, #save-warning-detail { color: var(--fg); margin: 0; }
   #save-anyway { min-height: 44px; margin-top: 12px; }
   /* A button with a save in flight ignores presses (settings.js) and says
      so to assistive tech through aria-disabled. It keeps its colours, so
