@@ -391,24 +391,24 @@ describe('operatorConductRecord', () => {
   });
 
   it('empty input gives all-zero counts', () => {
-    expect(operatorConductRecord([])).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+    expect(operatorConductRecord([])).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
   });
 
-  it('exports exactly the three documented counts, never merged with a buyer field', () => {
+  it('exports exactly the four documented counts, never merged with a buyer field', () => {
     const result = operatorConductRecord([operatorJob()]);
-    expect(Object.keys(result).sort()).toEqual(['deliveredNeverPaid', 'redosRefused', 'walkedAfterDeposit'].sort());
+    expect(Object.keys(result).sort()).toEqual(['deliveredNeverPaid', 'redosRefused', 'walkedAfterDeposit', 'paidNeverDelivered'].sort());
   });
 
   it('is total: a non-array input is treated as no jobs, not thrown', () => {
     const notAnArray = { length: 3 } as unknown as readonly OperatorJobFacts[];
     expect(() => operatorConductRecord(notAnArray)).not.toThrow();
-    expect(operatorConductRecord(notAnArray)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+    expect(operatorConductRecord(notAnArray)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
   });
 
   it('is total: a null or undefined row does not throw and contributes nothing', () => {
     const malformed = [null, undefined] as unknown as readonly OperatorJobFacts[];
     expect(() => operatorConductRecord(malformed)).not.toThrow();
-    expect(operatorConductRecord(malformed)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+    expect(operatorConductRecord(malformed)).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
   });
 
   it('is total: a row missing status contributes nothing to deliveredNeverPaid, never throws', () => {

@@ -46,7 +46,12 @@ export type JobStatus =
   | 'closed_unpaid'
   | 'expired_unstaged'
   | 'deemed_completed'
-  | 'cited_closed';
+  | 'cited_closed'
+  // The hire was paid in full and its pull request never opened inside the
+  // delivery window (UNDELIVERED_AFTER_PAID_DAYS after the remainder
+  // settled). Terminal. The owner's public record counts it as paid and
+  // never delivered. No money moves: the platform never holds any.
+  | 'paid_undelivered';
 
 const TERMINAL_STATUSES: readonly JobStatus[] = [
   'completed',
@@ -64,6 +69,9 @@ const TERMINAL_STATUSES: readonly JobStatus[] = [
   // P6: the buyer's deliberate, reasoned close after paying. Terminal like
   // every other closed outcome above -- once made, it cannot be walked back.
   'cited_closed',
+  // A paid hire whose pull request never opened inside the delivery window
+  // (lapseUndelivered). Terminal, like every other closed outcome above.
+  'paid_undelivered',
 ];
 
 // A party to the hire loop: whoever is doing the accepting. Named apart
@@ -412,7 +420,9 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // P6: staged gains one edge, to redo_requested (requestRedo, design
     // record row 2). staged -> withdrawn and staged -> declined stay
     // absent for the same reasons the P4 comment above already names.
-    staged: ['submitted', 'staged_declined', 'closed_unpaid', 'redo_requested'],
+    // paid_undelivered is lapseUndelivered's own edge: the remainder
+    // settled and the pull request never opened inside the delivery window.
+    staged: ['submitted', 'staged_declined', 'closed_unpaid', 'redo_requested', 'paid_undelivered'],
     // P6: redo_requested has three edges out. Accepting the redo is NOT a
     // transition of its own -- stageWork repeats the confirmed -> staged
     // edge (its own header comment), which this table therefore also has
@@ -425,7 +435,10 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     // own entry already does. Named here for documentation only --
     // lapseAtStaged writes the status directly, the same way it already
     // does from `staged`, rather than calling this validator.
-    redo_requested: ['staged', 'closed_unpaid'],
+    // paid_undelivered is lapseUndelivered's own edge here too, written
+    // directly like closed_unpaid: a job paid in full with a redo still
+    // pending is a paid job whose pull request has not opened.
+    redo_requested: ['staged', 'closed_unpaid', 'paid_undelivered'],
     // R-12 (ENT-7.2): non-merge outcomes are recorded, not hidden. The
     // stale -> closed_unmerged edge is legal (R-31): an outcome update
     // after stale, not a new state. P4: deemed_completed joins the same
@@ -462,6 +475,8 @@ export function validateJobTransition(fromStatus: JobStatus, toStatus: JobStatus
     deemed_completed: [],
     // P6 terminal outcome: no edge back out, once made.
     cited_closed: [],
+    // Terminal: no edge out, once made.
+    paid_undelivered: [],
   };
   
   const allowedTransitions = validTransitions[fromStatus];
@@ -754,7 +769,8 @@ export function recordStagedDeclined(job: Job): Job {
   return { ...job, status: 'staged_declined' };
 }
 
-// P4: the two clocks and applyLapses (brief section 4). Each is a pure
+// P4: the clocks and applyLapses (brief section 4): four clocks today,
+// expireUnstaged, lapseAtStaged, lapseUndelivered and deemCompleted. Each is a pure
 // function of stored timestamps and an injected `now` -- no timers, no
 // cron, no background process, nothing that wakes up on its own. Each
 // refuses on any other starting status by returning the job UNCHANGED
@@ -771,6 +787,10 @@ export function recordStagedDeclined(job: Job): Job {
 export const EXPIRE_UNSTAGED_AFTER_DAYS = 30;
 export const LAPSE_AT_STAGED_AFTER_DAYS = 7;
 export const DEEM_COMPLETED_AFTER_DAYS = 7;
+// Days from the moment the remainder settles to the end of the delivery
+// window: a staged or redo_requested job whose pull request is still not
+// open after it ends paid_undelivered (lapseUndelivered).
+export const UNDELIVERED_AFTER_PAID_DAYS = 7;
 
 // B14a scope item 5: staging repos are deleted 30 days after a terminal
 // state -- RECORDED here, not built. This function computes the value a
@@ -797,9 +817,12 @@ export function expireUnstaged(job: Job, now: Date): Job {
   return { ...job, status: 'expired_unstaged' };
 }
 
-// staged (or redo_requested) with no balance settled,
+// staged (or redo_requested) with no remainder settled,
 // LAPSE_AT_STAGED_AFTER_DAYS after stagedAt, becomes closed_unpaid
-// (terminal). "The code never leaves staging": nothing here touches
+// (terminal). This is the UNPAID half of a pair: once the remainder has
+// settled this clock never fires, and the delivery clock
+// (lapseUndelivered, below) takes over from the settlement instant.
+// "The code never leaves staging": nothing here touches
 // stagedCommit or stagedAt, so a lapsed row still carries exactly what was
 // staged, for whatever the attestation card eventually shows against a
 // closed_unpaid job.
@@ -830,15 +853,18 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // gets the safe answer, a lapse, not a silent skip that could mask a real
 // non-payment. src/api/app.ts is the only call site with an actual
 // SettlementGate to ask; it passes the real answer explicitly rather
-// than relying on this default.
-// The statuses lapseAtStaged treats as "still staged, clock running":
+// than relying on this default. applyLapses also treats a known settled
+// time (its remainderSettledAt) as settled, so a job with a settled time
+// is never closed unpaid; that time is lapseUndelivered's input.
+// The statuses lapseAtStaged and lapseUndelivered treat as "still
+// staged, clock running":
 // staged itself, and redo_requested (a pending redo sits between staged
 // and staged again, per job.ts's own header comment on the status). A
 // named, exported set rather than an inline check in two places, so the
 // API layer's applyLiveLapses (the one caller with a live settlement
 // gate to ask) can derive which statuses need that live fact instead of
-// repeating a second literal that can fall out of sync with this
-// function's own starting statuses.
+// repeating a second literal that can fall out of sync with these
+// functions' own starting statuses.
 export const LAPSE_AT_STAGED_STATUSES: ReadonlySet<JobStatus> = new Set(['staged', 'redo_requested']);
 
 export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): Job {
@@ -858,6 +884,28 @@ export function lapseAtStaged(job: Job, now: Date, remainderIsSettled = false): 
     job.stagedAt.getTime() + (LAPSE_AT_STAGED_AFTER_DAYS + job.stagedLapseExtensionDays) * 86_400_000;
   if (now.getTime() <= deadline) return job;
   return { ...job, status: 'closed_unpaid' };
+}
+
+// The delivery clock: a staged (or redo_requested) job whose remainder
+// settled, UNDELIVERED_AFTER_PAID_DAYS ago, with the pull request still
+// not open, becomes paid_undelivered (terminal). The hire was paid in
+// full and the agent never delivered; the owner's public record counts it
+// (operatorConductRecord's paidNeverDelivered). No money moves: the
+// platform never holds any, so this writes only the status.
+//
+// remainderSettledAt is the instant the remainder settled, or null when
+// the caller has no settled time (an unpaid job, or a caller that has not
+// looked it up): null means no clock, and the job comes back unchanged.
+// The deadline counts from that instant alone. stagedLapseExtensionDays
+// does not move it: that extension protects an unpaid job from the unpaid
+// clock, and a redo after paying is already refused. Exactly at the end
+// is still inside, as in every clock in this file. A submitted job has
+// its pull request open, so it is never touched here.
+export function lapseUndelivered(job: Job, now: Date, remainderSettledAt: Date | null): Job {
+  if (!LAPSE_AT_STAGED_STATUSES.has(job.status) || remainderSettledAt === null) return job;
+  const deadline = remainderSettledAt.getTime() + UNDELIVERED_AFTER_PAID_DAYS * 86_400_000;
+  if (now.getTime() <= deadline) return job;
+  return { ...job, status: 'paid_undelivered' };
 }
 
 // submitted, neither merged nor closed with a cited reason,
@@ -911,11 +959,21 @@ export function mergedInsideWindow(job: Job, mergedAt: Date): boolean {
   return end !== null && mergedAt.getTime() <= end.getTime();
 }
 
-// Runs the three clocks in order and returns the job unchanged when none
-// applies. remainderIsSettled answers the ONE live fact lapseAtStaged
-// needs (see its own header comment); the two other clocks ignore it.
-// Defaults to false (fail closed), matching lapseAtStaged's own default
-// -- a caller that has not looked up settlement gets the safe answer.
+// Runs the four clocks in order (expireUnstaged, lapseAtStaged,
+// lapseUndelivered, deemCompleted) and returns the job unchanged when
+// none applies. remainderIsSettled answers the live fact lapseAtStaged
+// needs (see its own header comment), and remainderSettledAt is the
+// instant the remainder settled, the one input lapseUndelivered needs.
+// A settled time is itself a settlement, so lapseAtStaged is told the job
+// is settled when remainderIsSettled is true OR remainderSettledAt is not
+// null: a job with a settled time is never closed unpaid. The other two
+// clocks ignore both.
+// remainderIsSettled defaults to false (fail closed), matching
+// lapseAtStaged's own default -- a caller that has not looked up
+// settlement gets the safe answer. remainderSettledAt defaults to null,
+// which leaves the delivery clock idle, so a caller that passes neither
+// behaves exactly as before the delivery clock existed; the one caller
+// today passes only remainderIsSettled.
 // deemCompleted needs no live fact, but its caller has one to ask first
 // (whether GitHub saw a merge inside the window); see its header comment.
 //
@@ -931,8 +989,17 @@ export function mergedInsideWindow(job: Job, mergedAt: Date): boolean {
 // the job first). Nothing here schedules a re-check: a status that only
 // changes when someone looks is honest, and a scheduler (cron, a worker)
 // is a separate decision this card does not make.
-export function applyLapses(job: Job, now: Date, remainderIsSettled = false): Job {
-  return deemCompleted(lapseAtStaged(expireUnstaged(job, now), now, remainderIsSettled), now);
+export function applyLapses(
+  job: Job,
+  now: Date,
+  remainderIsSettled = false,
+  remainderSettledAt: Date | null = null,
+): Job {
+  const settled = remainderIsSettled || remainderSettledAt !== null;
+  return deemCompleted(
+    lapseUndelivered(lapseAtStaged(expireUnstaged(job, now), now, settled), now, remainderSettledAt),
+    now,
+  );
 }
 
 // STG2: the pull-request template a staged job's projection carries, so

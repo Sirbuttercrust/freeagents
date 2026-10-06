@@ -631,3 +631,34 @@ describe('prisma, the ABT-on-Ethereum quote lock table is a row per start and is
     ]);
   });
 });
+
+// The delivery clock's ending: the JobStatus value must be in the migration
+// Postgres actually runs, in a migration of its own, because Postgres cannot
+// use a new enum value in the transaction that adds it.
+describe("prisma, the JobStatus value 'paid_undelivered' is declared and migrated", () => {
+  const migrationsRoot = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
+  const migrationName = readdirSync(migrationsRoot).find((name) => name.endsWith('_fix_b73a_paid_undelivered'));
+  const sql = migrationName === undefined ? '' : readFileSync(join(migrationsRoot, migrationName, 'migration.sql'), 'utf8');
+  const statements = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter((statement) => statement !== '');
+
+  it('the JobStatus enum lists paid_undelivered', () => {
+    const start = schema.indexOf('enum JobStatus {');
+    const body = schema.slice(schema.indexOf('{', start) + 1, schema.indexOf('\n}', start));
+    const members = body
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'));
+    expect(members).toContain('paid_undelivered');
+  });
+
+  it("the migration adds 'paid_undelivered' to \"JobStatus\" in its one statement and does nothing else", () => {
+    expect(migrationName, 'no migration named *_fix_b73a_paid_undelivered').toBeDefined();
+    expect(statements).toEqual(['ALTER TYPE "JobStatus" ADD VALUE \'paid_undelivered\'']);
+  });
+});

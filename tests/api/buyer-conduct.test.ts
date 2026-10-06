@@ -575,7 +575,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
     } finally {
       server.close();
     }
@@ -642,7 +642,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
       expect((body.counts as Record<string, unknown>).merged).toBe(1);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 1, redosRefused: 0, walkedAfterDeposit: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 1, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
       // The two sides are never summed and never share a field: neither
       // object carries a key that belongs to the other.
       expect(Object.keys(body.counts as Record<string, unknown>).sort()).toEqual(
@@ -876,7 +876,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
     } finally {
       server.close();
     }
@@ -927,7 +927,7 @@ describe('GET /buyers/:githubLogin/conduct (P7)', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.keyed).toBe(true);
-      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+      expect(body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
     } finally {
       server.close();
     }

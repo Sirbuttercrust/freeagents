@@ -408,7 +408,7 @@ describe('(c) the public conduct record runs the clocks', () => {
         redosRequested: 0,
         walkedAway: 1,
       },
-      operatorCounts: { deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 },
+      operatorCounts: { deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 },
     });
   });
 
@@ -436,7 +436,7 @@ describe('(c) the public conduct record runs the clocks', () => {
         redosRequested: 0,
         walkedAway: 0,
       },
-      operatorCounts: { deliveredNeverPaid: 1, redosRefused: 0, walkedAfterDeposit: 1 },
+      operatorCounts: { deliveredNeverPaid: 1, redosRefused: 0, walkedAfterDeposit: 1, paidNeverDelivered: 0 },
     });
   });
 });
@@ -601,7 +601,7 @@ describe('(g) a job not past any deadline reads its stored status on every one o
       walkedAway: 0,
     });
     const ownerConduct = await readConduct(rig, OWNER_LOGIN);
-    expect(ownerConduct.body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0 });
+    expect(ownerConduct.body.operatorCounts).toEqual({ deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 });
     expect(rig.fixture.calls.getPullRequest).toEqual([]);
     expect(await rig.credentialRepo.findByDocumentId('j-clk-g-submitted')).toBeNull();
   });

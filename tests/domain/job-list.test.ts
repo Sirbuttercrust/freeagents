@@ -43,13 +43,13 @@ describe('jobListBucketOf: total over every JobStatus, five buckets', () => {
   it('is total over every status in the domain enum, with no status left unmapped', () => {
     // ALL_JOB_STATUSES is the fixture list this test and the route share;
     // its own test below pins it against job.ts's real union so it can
-    // never quietly drift shorter than the real enum. job.ts:31-47
-    // actually declares sixteen values, not the fifteen the brief's own
+    // never quietly drift shorter than the real enum. job.ts
+    // actually declares seventeen values, not the fifteen the brief's own
     // prose counts (handoff departure: the code is ground truth here).
     ALL_JOB_STATUSES.forEach((status) => {
       expect(() => jobListBucketOf(status)).not.toThrow();
     });
-    expect(ALL_JOB_STATUSES.length).toBe(16);
+    expect(ALL_JOB_STATUSES.length).toBe(17);
   });
 });
 

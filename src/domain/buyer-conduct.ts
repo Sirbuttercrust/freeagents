@@ -82,7 +82,8 @@ export interface BuyerConduct {
 // exactly what the confirmedAt fact (not the status) settles for those two.
 // P8r: cited_closed joins this set. It is the buyer's close after
 // paying (src/domain/job.ts), so it is downstream of confirmed by the
-// same definition as every other terminal status here.
+// same definition as every other terminal status here. paid_undelivered
+// joins it too: a hire paid in full was confirmed first.
 const DOWNSTREAM_OF_CONFIRMED = new Set([
   'confirmed',
   'staged',
@@ -95,6 +96,7 @@ const DOWNSTREAM_OF_CONFIRMED = new Set([
   'completed',
   'closed_unmerged',
   'cited_closed',
+  'paid_undelivered',
 ]);
 
 function wasConfirmed(job: BuyerJobFacts): boolean {
@@ -269,6 +271,13 @@ export interface OperatorConduct {
   // operator's chair. A plain count, the same stance deliveredNeverPaid
   // and redosRefused already take.
   readonly walkedAfterDeposit: number;
+  // FIX-B73 ruling (2026-10-01): the operator's own jobs that ended
+  // paid_undelivered -- the hire was paid in full and the agent's pull
+  // request never opened inside the delivery window (lapseUndelivered,
+  // src/domain/job.ts). Counted the way walkedAfterDeposit is: a plain
+  // count of the owner's own jobs by final status, never added to
+  // deliveredNeverPaid or walkedAfterDeposit. No money moves.
+  readonly paidNeverDelivered: number;
 }
 
 // Total: any input in, one OperatorConduct out, the same totality stance
@@ -280,6 +289,7 @@ export function operatorConductRecord(jobs: readonly OperatorJobFacts[]): Operat
   let deliveredNeverPaid = 0;
   let redosRefused = 0;
   let walkedAfterDeposit = 0;
+  let paidNeverDelivered = 0;
 
   for (const raw of rows) {
     const job: OperatorJobFacts = raw ?? { status: '' };
@@ -298,7 +308,12 @@ export function operatorConductRecord(jobs: readonly OperatorJobFacts[]): Operat
     // buyer's walkedAfterConfirm (buyerConductRecord above) onto this
     // field, since staging is the agent's move, not the buyer's.
     if (status === 'expired_unstaged') walkedAfterDeposit += 1;
+
+    // FIX-B73 ruling: a hire paid in full whose pull request never
+    // opened. Its own count, apart from deliveredNeverPaid (work staged,
+    // never paid for) and walkedAfterDeposit (never staged at all).
+    if (status === 'paid_undelivered') paidNeverDelivered += 1;
   }
 
-  return { deliveredNeverPaid, redosRefused, walkedAfterDeposit };
+  return { deliveredNeverPaid, redosRefused, walkedAfterDeposit, paidNeverDelivered };
 }
