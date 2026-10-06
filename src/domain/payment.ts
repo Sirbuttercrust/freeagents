@@ -224,8 +224,8 @@ export function remainderUsd(priceUsd: string, depositPercent: number): string {
 // agreed 0.87 calls a covering payment short.
 //
 // Rounding: the amount and the rate are read exactly, at every digit they
-// carry (parseDecimalScaled would round a long rate half-up, which can only
-// ever raise a worth), and the product is FLOORED to WORTH_PRECISION places.
+// carry (parseDecimalScaled would round a long rate half-up, which can move a
+// worth either way), and the product is FLOORED to WORTH_PRECISION places.
 // A value is therefore never reported higher than it is. coversAgreedUsd
 // compares the exact product with the agreed dollars, with no rounding at
 // all, so a worth that only rounds up to the agreed price does not cover it.

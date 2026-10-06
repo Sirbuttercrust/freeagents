@@ -40,7 +40,8 @@ export async function judgeAbtEthLateTransfer(input: {
   // chain, or a value that is not a date) cannot be placed before or after
   // the hold. It is judged as recorded after it: calling it held would
   // count it at a price nobody can show the transfer was inside, while
-  // judging it by the price now can only ask the owner to look at it.
+  // judging it by the price now counts it only if it is still worth the
+  // agreed price, and otherwise sends it to the owner as short.
   const placed = recordedAt !== null && !Number.isNaN(recordedAt.getTime());
   if (placed && !abtEthQuoteLockExpired(lock, recordedAt)) {
     return { kind: 'held' };
