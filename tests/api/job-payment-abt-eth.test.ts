@@ -12,7 +12,7 @@ import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
-import { createAbtEthPaymentRail, type AbtEthPaymentRail } from '../../src/adapters/payment/abt-eth.js';
+import { createAbtEthPaymentRail, type AbtEthHalfPaidStorage, type AbtEthPaymentRail } from '../../src/adapters/payment/abt-eth.js';
 import { createMemoryAbtEthQuoteLockStorage } from '../../src/adapters/payment/abt-eth-quote-lock-memory.js';
 import type { AbtEthQuoteLock, AbtEthQuoteLockStorage } from '../../src/adapters/payment/abt-eth-quote-lock.js';
 import { createMemoryAbtEthShortPaymentStorage } from '../../src/adapters/payment/abt-eth-short-payment-memory.js';
@@ -103,7 +103,7 @@ function memorySpent(): UsdcSpentTransferStorage {
   return { record: async (row) => void rows.set(row.hash, { ...row }), findByHash: async (hash) => rows.get(hash) ?? null };
 }
 
-function buildRail(chain: Chain, feed: { reading: RateReading | null }): AbtEthPaymentRail {
+function buildRail(chain: Chain, feed: { reading: RateReading | null }, halfPaid: AbtEthHalfPaidStorage): AbtEthPaymentRail {
   const env: Record<string, string> = {
     FREEAGENTS_ABT_ETH_RPC_URL: 'https://rpc.example.test',
     FREEAGENTS_ABT_ETH_TOKEN_CONTRACT: ABT_TOKEN,
@@ -120,7 +120,7 @@ function buildRail(chain: Chain, feed: { reading: RateReading | null }): AbtEthP
       chainClient: chainClient(chain),
       rateSource: async () => feed.reading,
       spentTransferStorage: memorySpent(),
-      halfPaidStorage: fakeHalfPaidStorage(),
+      halfPaidStorage: halfPaid,
     });
   } finally {
     for (const key of Object.keys(original)) {
@@ -139,6 +139,7 @@ interface Rig {
   readonly feed: { reading: RateReading | null };
   readonly locks: AbtEthQuoteLock[];
   readonly shorts: AbtEthShortPaymentStorage;
+  readonly halfPaid: AbtEthHalfPaidStorage;
   readonly settlementRepo: MemorySettlementRepository;
   readonly messageRepo: MemoryMessageRepository;
   readonly fixture: StagingLifecycleFixture;
@@ -149,6 +150,10 @@ interface RigOptions {
   readonly ownerEth?: string | null;
   readonly ownerUsdc?: string | null;
   readonly agentVerified?: boolean;
+  // A lock store that finds a row whatever the case of the id it is asked
+  // for, so a report can name a real lock in a spelling that is not the
+  // stored one.
+  readonly lockIdsIgnoreCase?: boolean;
 }
 
 async function boot(options: RigOptions = {}): Promise<Rig> {
@@ -179,10 +184,11 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
       locks.push(stored);
       return stored;
     },
-    read: (id) => inner.read(id),
+    read: (id) => inner.read(options.lockIdsIgnoreCase === true ? id.toLowerCase() : id),
   };
   const shorts = createMemoryAbtEthShortPaymentStorage();
-  const rail = options.railConfigured === false ? null : buildRail(chain, feed);
+  const halfPaid: AbtEthHalfPaidStorage = fakeHalfPaidStorage();
+  const rail = options.railConfigured === false ? null : buildRail(chain, feed, halfPaid);
 
   const app = createApp(
     accounts,
@@ -209,6 +215,7 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
     feed,
     locks,
     shorts,
+    halfPaid,
     settlementRepo,
     messageRepo,
     fixture,
@@ -952,15 +959,16 @@ describe('(m) a half-paid leg', () => {
 
     const restart = await startLeg(rig, jobId, 'deposit');
 
+    // The restart finishes the payment at the lock its first transfer was
+    // confirmed against: the same lock with its own hold end (12:15, not a
+    // new 12:25), and no second lock row.
     expect(restart.status).toBe(200);
-    const second = rig.locks[1];
-    if (second === undefined) throw new Error('expected a second lock row');
     expect(await restart.json()).toEqual({
-      ...depositStartBody(second.id),
+      ...depositStartBody(lockId),
       jobId,
-      quoteLock: { id: second.id, usdPerAbt: '0.25', rateUpdatedAt: FEED_TIME.toISOString(), expiresAt: '2026-10-06T12:25:00.000Z' },
       halfPaidRecord: { priceTxHash: DEP_PRICE, priceStatus: 'confirmed', feeTxHash: DEP_FEE, feeStatus: 'not_confirmed' },
     });
+    expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
   });
 });
 
@@ -1077,5 +1085,359 @@ describe('(o) the remainder leg settles on its own', () => {
     expect(atSeven.status).toBe('staged');
     expect(pastSeven.status).toBe('paid_undelivered');
     expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE, REMAINDER_PAID_LINE]);
+  });
+});
+
+// A leg whose first transfer the network recorded at one lock's amounts is
+// finished at that lock: the same amounts and the same hold. A later start
+// never re-prices it, and a report that names a newer lock for a transfer
+// already on record is refused without touching the record.
+describe('(p) a half-paid leg is finished at the lock its first transfer was confirmed against', () => {
+  const EARLIER_PRICE_SENTENCE = 'This payment was started at an earlier price. Reload the page to finish it.';
+  const RESENT_PRICE = '0xaaaa000000000000000000000000000000000000000000000000000000000005';
+  const FEED_LATER = new Date('2026-10-06T12:39:00.000Z');
+  const AFTER_HOLD_REPORT = '2026-10-06T12:21:00.000Z';
+  const PRICE_ONLY_RECORD = { priceTxHash: DEP_PRICE, priceStatus: 'confirmed', feeTxHash: DEP_FEE, feeStatus: 'not_confirmed' } as const;
+
+  function landPrice(rig: Rig, hash: string, recordedAt: string): void {
+    rig.chain.receipts.set(hash, { status: 1, transfer: transfer(OWNER_ETH, DEP_PRICE_UNITS) });
+    rig.chain.recorded.set(hash, new Date(recordedAt));
+  }
+
+  function landFee(rig: Rig): void {
+    rig.chain.receipts.set(DEP_FEE, { status: 1, transfer: transfer(FEE_ADDRESS, DEP_FEE_UNITS) });
+  }
+
+  // The deposit started at lock1 (500 ABT plus 15 at 0.25), the price
+  // transfer recorded at `recordedAt` and reported at `reportedAt`, the fee
+  // not on the network yet. Answers the job and lock1's id.
+  async function halfPaidAtLock1(rig: Rig, recordedAt: string, reportedAt: string): Promise<{ jobId: string; lockId: string }> {
+    const jobId = await walkToProposedAndPriced(rig);
+    landPrice(rig, DEP_PRICE, recordedAt);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(reportedAt);
+    const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      rail: 'abt_eth',
+      hash: DEP_PRICE,
+      confirmed: false,
+      legs: { price: { status: 'confirmed', hash: DEP_PRICE }, fee: { status: 'not_confirmed', hash: DEP_FEE } },
+      halfPaid: true,
+      priceRecordedAt: recordedAt,
+    });
+    return { jobId, lockId };
+  }
+
+  // ABT is worth 0.20 now, and the clock is past the hold.
+  function priceMovesAndHoldPasses(rig: Rig): void {
+    setTime(REPORTED_AT);
+    rig.feed.reading = { usdPerToken: '0.2', updatedAt: FEED_LATER };
+  }
+
+  // What a start answers for a leg half-paid at lock1: lock1's own amounts,
+  // lock1 with its own hold end, and the record.
+  function lock1Restart(jobId: string, lockId: string, halfPaidRecord: Record<string, unknown>): Record<string, unknown> {
+    return { ...depositStartBody(lockId), jobId, halfPaidRecord };
+  }
+
+  it('(a) answers lock1 after the price moved and the hold passed, writes no lock, and settles at lock1 when the fee lands', async () => {
+    const rig = await boot();
+    const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+    priceMovesAndHoldPasses(rig);
+
+    const restart = await startLeg(rig, jobId, 'deposit');
+
+    expect(restart.status).toBe(200);
+    expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
+    expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
+
+    landFee(rig);
+    const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
+    expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+    expect(await rig.halfPaid.read(jobId, 'deposit')).toBeNull();
+  });
+
+  it('(a2) answers lock1 on a restart while the feed has no reading, and makes no quote', async () => {
+    const rig = await boot();
+    const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+    setTime(REPORTED_AT);
+    rig.feed.reading = null;
+
+    const restart = await startLeg(rig, jobId, 'deposit');
+
+    expect(restart.status).toBe(200);
+    expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
+    expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
+  });
+
+  it('(b) answers the fee amount of lock1 when the fee was refused, and the fee sent at that amount settles the leg with lock1', async () => {
+    const rig = await boot();
+    const jobId = await walkToProposedAndPriced(rig);
+    landPrice(rig, DEP_PRICE, INSIDE_HOLD);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(INSIDE_HOLD);
+    const refused = await report(rig, jobId, 'deposit', { priceTxHash: DEP_PRICE, feeTx: { signed: false }, quoteLockId: lockId });
+    expect(refused.status).toBe(200);
+    expect(await refused.json()).toEqual({
+      rail: 'abt_eth',
+      hash: DEP_PRICE,
+      confirmed: false,
+      legs: { price: { status: 'confirmed', hash: DEP_PRICE }, fee: { status: 'not_signed' } },
+      halfPaid: true,
+      priceRecordedAt: INSIDE_HOLD,
+    });
+    priceMovesAndHoldPasses(rig);
+
+    const restart = await startLeg(rig, jobId, 'deposit');
+
+    // The fee is lock1's 15 ABT, not 18.75 at the 0.20 the feed reads now.
+    expect(restart.status).toBe(200);
+    expect(await restart.json()).toEqual(
+      lock1Restart(jobId, lockId, { priceTxHash: DEP_PRICE, priceStatus: 'confirmed', feeTxHash: null, feeStatus: 'not_signed' }),
+    );
+    expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
+
+    landFee(rig);
+    const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
+    expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+  });
+
+  it('(c) refuses a report that names another lock for the recorded price hash, in capitals, and loses nothing', async () => {
+    const rig = await boot();
+    const jobId = await walkToProposedAndPriced(rig);
+    landPrice(rig, DEP_PRICE, INSIDE_HOLD);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    const otherLockId = await startOk(rig, jobId, 'deposit');
+    expect(otherLockId).not.toBe(lockId);
+    setTime(INSIDE_HOLD);
+    const first = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+    expect((await first.json()) as { halfPaid: boolean }).toMatchObject({ halfPaid: true });
+    landFee(rig);
+    const capitals = { price: DEP_PRICE.toUpperCase().replace('0X', '0x'), fee: DEP_FEE.toUpperCase().replace('0X', '0x') };
+
+    const res = await report(rig, jobId, 'deposit', reportBody(capitals, otherLockId));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: EARLIER_PRICE_SENTENCE });
+    await expectNothingSettled(rig, jobId);
+    expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([]);
+    expect(await rig.halfPaid.read(jobId, 'deposit')).toEqual({
+      jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId,
+    });
+    const restart = await startLeg(rig, jobId, 'deposit');
+    expect(restart.status).toBe(200);
+    expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
+    expect(rig.locks).toHaveLength(2);
+  });
+
+  it('(d) settles at the held price when the price was recorded inside lock1\'s hold and the fee landed after it', async () => {
+    const rig = await boot();
+    const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+    priceMovesAndHoldPasses(rig);
+    landFee(rig);
+
+    const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
+    expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+    expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([]);
+  });
+
+  it('(d2) stores the leg as short, judged against lock1, when the price was recorded after lock1\'s hold and ABT is worth less now', async () => {
+    const rig = await boot();
+    const { jobId, lockId } = await halfPaidAtLock1(rig, AFTER_HOLD, AFTER_HOLD_REPORT);
+    priceMovesAndHoldPasses(rig);
+    landFee(rig);
+
+    const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({
+      ...confirmationBody(DEPOSIT_PAIR, AFTER_HOLD),
+      short: { recordedAt: AFTER_HOLD, agreedUsd: '125.00', worthUsd: '100' },
+    });
+    await expectNothingSettled(rig, jobId);
+    expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
+      shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: AFTER_HOLD, readAt: REPORTED_AT }),
+    ]);
+  });
+
+  it('(e) keeps today\'s start for a half-paid record that names no lock: a new lock at the current price', async () => {
+    const rig = await boot();
+    const jobId = await walkToProposedAndPriced(rig);
+    await rig.halfPaid.record({ jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId: null });
+    priceMovesAndHoldPasses(rig);
+
+    const restart = await startLeg(rig, jobId, 'deposit');
+
+    expect(restart.status).toBe(200);
+    const created = rig.locks[0];
+    if (created === undefined) throw new Error('expected a new lock row');
+    expect(await restart.json()).toEqual({
+      rail: 'abt_eth',
+      jobId,
+      leg: 'deposit',
+      chainId: CHAIN_ID,
+      transfers: [
+        { recipient: OWNER_ETH, amountBaseUnits: '625000000000000000000', tokenContract: ABT_TOKEN },
+        { recipient: FEE_ADDRESS, amountBaseUnits: '18750000000000000000', tokenContract: ABT_TOKEN },
+      ],
+      quoteLock: { id: created.id, usdPerAbt: '0.2', rateUpdatedAt: FEED_LATER.toISOString(), expiresAt: '2026-10-06T12:55:00.000Z' },
+      halfPaidRecord: PRICE_ONLY_RECORD,
+    });
+    expect(rig.locks).toEqual([
+      lockRow(jobId, created.id, {
+        usdPerToken: '0.2', rateUpdatedAt: FEED_LATER, amountToken: '625', feeToken: '18.75',
+        lockedAt: new Date(REPORTED_AT), expiresAt: new Date('2026-10-06T12:55:00.000Z'),
+      }),
+    ]);
+  });
+
+  it('(f) answers lock1 when the price transfer failed on the network and the fee confirmed, and a resent price transfer settles with lock1', async () => {
+    const rig = await boot();
+    const jobId = await walkToProposedAndPriced(rig);
+    rig.chain.receipts.set(DEP_PRICE, { status: 0, transfer: null });
+    landFee(rig);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(INSIDE_HOLD);
+    const failed = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+    expect(failed.status).toBe(200);
+    expect(await failed.json()).toEqual({
+      rail: 'abt_eth',
+      hash: DEP_PRICE,
+      confirmed: false,
+      legs: { price: { status: 'not_confirmed', hash: DEP_PRICE }, fee: { status: 'confirmed', hash: DEP_FEE } },
+      halfPaid: true,
+      priceRecordedAt: null,
+    });
+    priceMovesAndHoldPasses(rig);
+
+    const restart = await startLeg(rig, jobId, 'deposit');
+
+    expect(restart.status).toBe(200);
+    expect(await restart.json()).toEqual(
+      lock1Restart(jobId, lockId, { priceTxHash: DEP_PRICE, priceStatus: 'not_confirmed', feeTxHash: DEP_FEE, feeStatus: 'confirmed' }),
+    );
+    expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
+
+    landPrice(rig, RESENT_PRICE, INSIDE_HOLD);
+    const done = await report(rig, jobId, 'deposit', reportBody({ price: RESENT_PRICE, fee: DEP_FEE }, lockId));
+
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual(confirmationBody({ price: RESENT_PRICE, fee: DEP_FEE }, INSIDE_HOLD));
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual({
+      ...settlementRow(jobId, 'deposit', REPORTED_AT),
+      hash: RESENT_PRICE,
+    });
+    expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+  });
+
+  it('(g) writes the id of the lock it checked into the record, whatever spelling the report used', async () => {
+    const rig = await boot({ lockIdsIgnoreCase: true });
+    const jobId = await walkToProposedAndPriced(rig);
+    landPrice(rig, DEP_PRICE, INSIDE_HOLD);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(INSIDE_HOLD);
+
+    const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId.toUpperCase()));
+
+    expect(res.status).toBe(200);
+    expect(await rig.halfPaid.read(jobId, 'deposit')).toEqual({ jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId });
+  });
+
+  it('(h) refuses a start whose half-paid record names a lock that fails its check, with the lock sentence, and writes nothing', async () => {
+    const rig = await boot();
+    const jobId = await walkToProposedAndPriced(rig);
+    await rig.halfPaid.record({ jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId: 'no-such-lock' });
+
+    const res = await startLeg(rig, jobId, 'deposit');
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: NO_LOCK });
+    expect(rig.locks).toEqual([]);
+  });
+
+  describe('(i) the agreed price changes while the leg is half paid', () => {
+    const HALF_PAID_REPRICED_SENTENCE =
+      "One of this payment's two transfers is already on the network, at the price agreed when it started. " +
+      'The agreed price has changed since. Ask the agent to put that earlier price back, and this payment can be finished.';
+
+    async function reprice(rig: Rig, jobId: string, priceUsd: string): Promise<void> {
+      await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd }, rig.agent);
+      for (const index of [0, 1]) {
+        expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, rig.buyer)).status).toBe(200);
+        expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, rig.agent)).status).toBe(200);
+      }
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/price/accept`, {}, rig.buyer)).status).toBe(200);
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/price/accept`, {}, rig.agent)).status).toBe(200);
+    }
+
+    it('refuses a start with the sentence that names what the buyer can do, and writes no lock', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      await reprice(rig, jobId, '600.00');
+
+      const res = await startLeg(rig, jobId, 'deposit');
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HALF_PAID_REPRICED_SENTENCE });
+      expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
+    });
+
+    it('refuses a report naming lock1 with the same sentence, settles nothing, and keeps the record', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      await reprice(rig, jobId, '600.00');
+      landFee(rig);
+
+      const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HALF_PAID_REPRICED_SENTENCE });
+      await expectNothingSettled(rig, jobId);
+      expect(await rig.halfPaid.read(jobId, 'deposit')).toEqual({ jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId });
+    });
+
+    it('finishes the leg at lock1 once the earlier price is put back', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      await reprice(rig, jobId, '600.00');
+      await reprice(rig, jobId, '500.00');
+      priceMovesAndHoldPasses(rig);
+
+      const restart = await startLeg(rig, jobId, 'deposit');
+
+      expect(restart.status).toBe(200);
+      expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
+      landFee(rig);
+      const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+      expect(done.status).toBe(200);
+      expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+      expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+    });
+
+    it('keeps the lock sentence for a leg that is not half paid', async () => {
+      const rig = await boot();
+      const jobId = await walkToProposedAndPriced(rig);
+      landPair(rig, 'deposit', INSIDE_HOLD);
+      const lockId = await startOk(rig, jobId, 'deposit');
+      await reprice(rig, jobId, '600.00');
+
+      const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: PRICE_CHANGED });
+    });
   });
 });

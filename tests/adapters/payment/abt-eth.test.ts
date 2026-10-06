@@ -191,6 +191,7 @@ const walletInput = {
   feeTx: { signed: true as const, hash: FEE_HASH },
   amountToken: LOCKED_AMOUNT,
   feeToken: LOCKED_FEE,
+  quoteLockId: 'lock_1',
 };
 
 describe('readAbtEthEnvConfig: fails closed before any network call', () => {
@@ -372,6 +373,7 @@ describe('onWalletResponse: binds confirm to the amounts that were locked, never
       feeTxHash: FEE_HASH,
       expectedPriceBaseUnits: PRICE_UNITS,
       expectedFeeBaseUnits: FEE_UNITS,
+      quoteLockId: 'lock_1',
     });
   });
 
@@ -626,6 +628,7 @@ describe('confirm: only an ABT transfer on chain 1 to the right recipient', () =
       priceStatus: 'confirmed',
       feeTxHash: FEE_HASH,
       feeStatus: 'not_confirmed',
+      lockId: 'lock_1',
     });
 
     const both = build({
@@ -687,10 +690,13 @@ describe('default storage: this rail writes its own tables and never the USDC on
       create: { hash: PRICE_HASH, jobId: 'job_1', leg: 'deposit', role: 'price' },
       update: { jobId: 'job_1', leg: 'deposit', role: 'price' },
     });
+    // The upsert now carries the id of the lock the ref names (lock_1): the
+    // row is how a later start and report find the lock the first transfer
+    // was confirmed against.
     expect(db.abtEthHalfPaidSettlement.upsert).toHaveBeenCalledWith({
       where: { jobId_leg: { jobId: 'job_1', leg: 'deposit' } },
-      create: { jobId: 'job_1', leg: 'deposit', priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed' },
-      update: { priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed' },
+      create: { jobId: 'job_1', leg: 'deposit', priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed', lockId: 'lock_1' },
+      update: { priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed', lockId: 'lock_1' },
     });
     expectNoUsdcTableTouched();
   });
@@ -710,7 +716,7 @@ describe('default storage: this rail writes its own tables and never the USDC on
     expectNoUsdcTableTouched();
   });
 
-  it('readHalfPaidRecord reads AbtEthHalfPaidSettlement by job and leg and returns the stored row', async () => {
+  it('readHalfPaidRecord reads AbtEthHalfPaidSettlement by job and leg and returns the stored row with its lock id', async () => {
     db.abtEthHalfPaidSettlement.findUnique.mockResolvedValue({
       jobId: 'job_1',
       leg: 'deposit',
@@ -718,6 +724,7 @@ describe('default storage: this rail writes its own tables and never the USDC on
       priceStatus: 'confirmed',
       feeTxHash: FEE_HASH,
       feeStatus: 'not_confirmed',
+      lockId: 'lock_1',
     });
     const record = await defaultRail({}).readHalfPaidRecord('job_1', 'deposit');
 
@@ -730,8 +737,42 @@ describe('default storage: this rail writes its own tables and never the USDC on
       priceStatus: 'confirmed',
       feeTxHash: FEE_HASH,
       feeStatus: 'not_confirmed',
+      lockId: 'lock_1',
     });
     expectNoUsdcTableTouched();
+  });
+
+  it('readHalfPaidRecord answers lockId null for a row written before the column existed', async () => {
+    db.abtEthHalfPaidSettlement.findUnique.mockResolvedValue({
+      jobId: 'job_1',
+      leg: 'deposit',
+      priceTxHash: PRICE_HASH,
+      priceStatus: 'confirmed',
+      feeTxHash: FEE_HASH,
+      feeStatus: 'not_confirmed',
+      lockId: null,
+    });
+
+    expect(await defaultRail({}).readHalfPaidRecord('job_1', 'deposit')).toEqual({
+      priceTxHash: PRICE_HASH,
+      priceStatus: 'confirmed',
+      feeTxHash: FEE_HASH,
+      feeStatus: 'not_confirmed',
+      lockId: null,
+    });
+  });
+
+  it('readHalfPaidRecord answers lockId null for a store whose row carries no lock id at all', async () => {
+    const halfPaid = memoryHalfPaid();
+    await halfPaid.record({ jobId: 'job_1', leg: 'deposit', priceTxHash: PRICE_HASH, priceStatus: 'confirmed', feeTxHash: FEE_HASH, feeStatus: 'not_confirmed' });
+
+    expect(await build({ halfPaid }).rail.readHalfPaidRecord('job_1', 'deposit')).toEqual({
+      priceTxHash: PRICE_HASH,
+      priceStatus: 'confirmed',
+      feeTxHash: FEE_HASH,
+      feeStatus: 'not_confirmed',
+      lockId: null,
+    });
   });
 
   it('readHalfPaidRecord answers null when AbtEthHalfPaidSettlement has no row, and reads no USDC table', async () => {

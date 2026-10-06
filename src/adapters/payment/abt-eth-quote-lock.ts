@@ -14,6 +14,30 @@ import type { RouteLeg } from './route-support.js';
 
 export type { AbtEthQuoteLock, AbtEthQuoteLockStorage, NewAbtEthQuoteLock } from './abt-eth-quote-lock-types.js';
 
+// Answered when a report names a lock other than the one the leg's
+// half-paid record names, for the price transfer already on record. The
+// buyer can do the one thing that finishes the payment: reload, and the
+// start answers the lock the first transfer was confirmed against.
+export const STARTED_AT_EARLIER_PRICE_MESSAGE = 'This payment was started at an earlier price. Reload the page to finish it.';
+
+// Answered in place of PRICE_CHANGED_MESSAGE when the leg has a half-paid
+// record that names a lock (a record without one takes the lock module's
+// sentence): "start the payment again" is no remedy there, because the
+// start answers the record's lock and refuses for the same changed price.
+// What the buyer can do is have the agent put the price they agreed when
+// the payment started back, after which the start answers that lock again.
+// It names a transfer, not an amount: either the price transfer or the fee
+// transfer may be the one already on the network.
+export const HALF_PAID_PRICE_CHANGED_MESSAGE =
+  "One of this payment's two transfers is already on the network, at the price agreed when it started. " +
+  'The agreed price has changed since. Ask the agent to put that earlier price back, and this payment can be finished.';
+
+// The sentence a refusal of a half-paid leg's lock carries: the half-paid
+// one for a changed price, the lock module's own sentence for the rest.
+export function abtEthHalfPaidRefusal(message: string): string {
+  return message === PRICE_CHANGED_MESSAGE ? HALF_PAID_PRICE_CHANGED_MESSAGE : message;
+}
+
 // Prisma when DATABASE_URL is configured, in-memory otherwise, with the
 // same restart-does-not-survive warning as session-storage.ts.
 export function createAbtEthQuoteLockStorage(): AbtEthQuoteLockStorage {
