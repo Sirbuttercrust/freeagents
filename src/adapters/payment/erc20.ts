@@ -50,11 +50,23 @@ export interface Erc20ChainClient {
   ): Promise<{ readonly status: number | null; readonly transfer: Erc20ObservedTransfer | null } | null>;
 }
 
+// The chain client the ABT-on-Ethereum rail takes: the shared client plus the
+// time the network recorded a transaction. Its price moves, so a transfer
+// the wallet sent inside the price hold can be reported after it, and the
+// decision between the two needs the block's own time (abt-eth-late.ts).
+// `recordedAt` is the block time of the transaction's receipt, null when the
+// chain has no receipt for the hash or no block for the receipt. A node that
+// fails to answer rejects instead: "the network said nothing" and "the node
+// is down" are different facts. The USDC rail keeps the narrower type.
+export interface AbtEthChainClient extends Erc20ChainClient {
+  recordedAt(hash: string): Promise<Date | null>;
+}
+
 const ERC20_TRANSFER_EVENT_ABI = ['event Transfer(address indexed from, address indexed to, uint256 value)'];
 
 // The production chain client: ethers' JsonRpcProvider and a Contract for
 // `decimals()`.
-export function createErc20ChainClient(rpcUrl: string, tokenContract: string): Erc20ChainClient {
+export function createErc20ChainClient(rpcUrl: string, tokenContract: string): AbtEthChainClient {
   const provider = new JsonRpcProvider(rpcUrl);
   const erc20Abi = ['function decimals() view returns (uint8)'];
   const contract = new Contract(tokenContract, erc20Abi, provider);
@@ -90,6 +102,16 @@ export function createErc20ChainClient(rpcUrl: string, tokenContract: string): E
         break;
       }
       return { status: receipt.status, transfer };
+    },
+    recordedAt: async (hash) => {
+      const receipt = await provider.getTransactionReceipt(hash);
+      if (receipt === null) return null;
+      // The receipt's own block, by hash, so a reorg between the two reads
+      // cannot pair a receipt with another block's time. provider.getBlock
+      // answers null for a block it cannot find; receipt.getBlock() would
+      // throw instead. Block timestamps are in seconds.
+      const block = await provider.getBlock(receipt.blockHash);
+      return block === null ? null : new Date(block.timestamp * 1000);
     },
   };
 }
