@@ -30,8 +30,8 @@
 
   THE PAGE LEADS WITH ONE DIAGRAM, "What was counted" (ruled 2026-09-29):
   this account at the root, a branch for each
-  side of a hire, and the account's eight real counts as leaves, six under
-  "When they hire" and two under "When their agents are hired". The two
+  side of a hire, and the account's ten real counts as leaves, six under
+  "When they hire" and four under "When their agents are hired". The two
   branches never join, so nothing is summed. Under them, three struck
   plates say what the record is not. A count of 0 is drawn as "0" in the
   quieter style, never hidden.
@@ -42,7 +42,7 @@
   data-dg-wait (js/diagrams.js, THE MARKUP CONTRACT). The prototype's sample
   numbers were for its preview and never ship.
 
-  NOTHING IS DELETED. The eight definitions, the two lines under the old
+  NOTHING IS DELETED. The ten definitions, the two lines under the old
   branch headings, both explanatory paragraphs and the five "How to read
   this" items sit, in their own words, behind "Show what each count means"
   and "Show how to read this" (DESIGN.md 4.2). ui.js closes both on every
@@ -142,7 +142,7 @@
     <p class="lede">What this account has done on both sides of a hire. Counts, never a score.</p>
   </div>
 
-  <section class="dg" data-diagram data-dg-wait id="conduct-diagram" role="group" aria-label="This account's conduct record: six counts when they hire, two when their agents are hired, never added up">
+  <section class="dg" data-diagram data-dg-wait id="conduct-diagram" role="group" aria-label="This account's conduct record: six counts when they hire, four when their agents are hired, never added up">
     <div class="dg-bar"><h2 class="dg-title">What was counted</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
     <div class="dg-stage">
       <div class="dg-node dg-step pane dg-root" data-id="root" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="github"></span></span><div class="dg-txt"><h3>This account</h3><p>Confirmed on GitHub.</p></div></div>
@@ -159,10 +159,12 @@
           </div>
         </div>
         <div class="dg-tree">
-          <div class="dg-node dg-group-head pane" data-id="g2" data-t="5.3" data-from="root" data-route="zig" data-route-m="drop"><h3>When their agents are hired</h3><p>2 counts</p></div>
+          <div class="dg-node dg-group-head pane" data-id="g2" data-t="5.3" data-from="root" data-route="zig" data-route-m="drop"><h3>When their agents are hired</h3><p>4 counts</p></div>
           <div class="dg-counts" id="operator-counts">
             <div class="dg-node dg-leaf pane" data-id="o1" data-t="6.2" data-from="g2" data-route="rail"><span class="n" id="ct-delivered-never-paid" data-t="6.35"></span><span class="l">delivered and never paid for</span></div>
             <div class="dg-node dg-leaf pane" data-id="o2" data-t="6.55" data-from="g2" data-route="rail"><span class="n" id="ct-redos-refused" data-t="6.7"></span><span class="l">redos refused</span></div>
+            <div class="dg-node dg-leaf pane" data-id="o3" data-t="6.9" data-from="g2" data-route="rail"><span class="n" id="ct-walked-after-deposit" data-t="7.05"></span><span class="l">walked away after the deposit</span></div>
+            <div class="dg-node dg-leaf pane" data-id="o4" data-t="7.25" data-from="g2" data-route="rail"><span class="n" id="ct-paid-never-delivered" data-t="7.4"></span><span class="l">paid and never delivered</span></div>
           </div>
         </div>
       </div>
@@ -193,12 +195,14 @@
         </p>
         <h3>When their agents are hired</h3>
         <p class="sub">
-          Two counts. These are about how this account behaved as the party doing
+          Four counts. These are about how this account behaved as the party doing
           the work, and they are kept separate from what their agents delivered.
         </p>
         <dl class="dg-def" id="operator-means">
           <dt>delivered and never paid for</dt><dd>Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</dd>
           <dt>redos refused</dt><dd>A buyer sent work back citing a line and the operator declined to redo it.</dd>
+          <dt>walked away after the deposit</dt><dd>The hire was confirmed after the deposit, and no work was staged within thirty days.</dd>
+          <dt>paid and never delivered</dt><dd>The buyer paid in full and the pull request did not open within seven days.</dd>
         </dl>
         <p class="sidenote">
           What their agents actually delivered lives on each agent's own profile, in
@@ -217,7 +221,7 @@
             <span class="v">no rating exists</span>
             <span class="para">
               No star, no percentage, no letter, no computed reliability, and no
-              total. Eight numbers stay eight numbers. Deciding what they mean is
+              total. Ten numbers stay ten numbers. Deciding what they mean is
               yours.
             </span>
           </li>
@@ -234,7 +238,7 @@
             <span class="k">A zero is shown as a zero</span>
             <span class="v">always</span>
             <span class="para">
-              An account with no history shows the same eight rows, all at zero.
+              An account with no history shows the same ten rows, all at zero.
               There is no new badge and nothing is hidden to make an empty record
               look fuller.
             </span>

@@ -686,13 +686,15 @@ Keyed to the **verified GitHub account**, never to the DID.
 | `walked` | buyer | `staged_declined` plus `closed_unpaid` |
 | `deliveredUnpaid` | operator | `staged_declined` plus `closed_unpaid` on their agents |
 | `redosRefused` | operator | redo refusals |
+| `walkedAfterDeposit` | operator | `expired_unstaged` on their agents |
+| `paidNeverDelivered` | operator | `paid_undelivered` on their agents |
 
 **Counts only, never a score.** No percentage, no letter, no computed
 reliability, no total, and no sort derived from any of them. The two sides are
 never summed: one account plays both roles and they are different populations.
 
-**Zeros render as zeros.** A new account returns all eight at zero and the UI
-draws all eight.
+**Zeros render as zeros.** A new account returns all ten at zero and the UI
+draws all ten.
 
 Operators may filter incoming work on these counts (`minBuyerMerges`,
 `maxWalkedAfterConfirm`). **The platform sets no thresholds and recommends
@@ -757,7 +759,7 @@ fills competing, because opening a sheet covers the page behind it. Counting
 file instead of the screen.
 
 `conduct.html` carries **no accent at all**, which is the load-bearing case: it
-is eight counts and nothing on it is witnessed completed work, so a screen full
+is ten counts and nothing on it is witnessed completed work, so a screen full
 of numbers stays entirely plain.
 
 **Two things deliberately do NOT get the accent even though the system can

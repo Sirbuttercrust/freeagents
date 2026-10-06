@@ -13,7 +13,7 @@
 
    FOUR STATES, FOUR DISTINCT SENTENCES, NEVER A COUNT ROW ON ANY OF THEM
    BUT THE FIFTH: no account parameter (ruling 1), keyed: false (ruling 3,
-   its own sentence, never eight zeros -- the route's own comment states
+   its own sentence, never ten zeros -- the route's own comment states
    why), a failed read (network, malformed body, non-200), and the real
    render. The cold start (every count zero) is NOT a fifth state: it is
    the ordinary render path fed zeros, through the exact same selectors
@@ -104,7 +104,7 @@
 
   /* Ruling 3: keyed: false is its own state, distinct from the cold
      start -- it shares no copy and no DOM node with it, and it renders
-     no count rows at all. Eight zeros here would be exactly the lie the
+     no count rows at all. Ten zeros here would be exactly the lie the
      route was built to refuse. */
   function renderNotKeyed(githubLogin) {
     A.setTextById(
@@ -131,11 +131,13 @@
 
     setCount("ct-delivered-never-paid", operatorCounts.deliveredNeverPaid);
     setCount("ct-redos-refused", operatorCounts.redosRefused);
+    setCount("ct-walked-after-deposit", operatorCounts.walkedAfterDeposit);
+    setCount("ct-paid-never-delivered", operatorCounts.paidNeverDelivered);
 
     A.showById("conduct-body", true);
 
     /* DIAG1c: the diagram starts here and nowhere else, once, after all
-       eight numbers are written and the body is shown, so it measures the
+       ten numbers are written and the body is shown, so it measures the
        layout a reader sees and counts up to the numbers this read gave.
        The other three states never reach this line, and they leave the
        body, and the diagram in it, hidden. */

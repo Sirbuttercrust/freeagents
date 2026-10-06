@@ -230,10 +230,15 @@ describe('the conduct record page, driven end to end against the real app', () =
 
     // The operator side: BUYER_DID also operates OWN_AGENT_DID
     // (registered above with operatorDid: BUYER_DID), so its own jobs as
-    // an agent feed operatorCounts. One delivered-never-paid, one redo
-    // refused.
+    // an agent feed operatorCounts. Two delivered-never-paid (the redo
+    // refusal below also ended staged_declined), one redo refused, four
+    // walked away after the deposit and five paid and never delivered. The
+    // last two are counts nothing else on the page holds, so a leaf bound
+    // to the wrong field shows a number its own field does not.
     await jobRepo.create(jobFixture('job-op-delivered-never-paid', 'did:abt:conduct-page-other-buyer', OWN_AGENT_DID, { status: 'staged_declined', confirmedAt: new Date('2026-08-02T00:00:00Z') }));
     await jobRepo.create(jobFixture('job-op-redo-refused', 'did:abt:conduct-page-other-buyer', OWN_AGENT_DID, { status: 'staged_declined', confirmedAt: new Date('2026-08-02T00:00:00Z'), redoRequestedAt: new Date('2026-08-03T00:00:00Z'), redoRefusedAt: new Date('2026-08-04T00:00:00Z') }));
+    for (let i = 0; i < 4; i++) await jobRepo.create(jobFixture(`job-op-walked-after-deposit-${i}`, 'did:abt:conduct-page-other-buyer', OWN_AGENT_DID, { status: 'expired_unstaged', confirmedAt: new Date('2026-08-02T00:00:00Z') }));
+    for (let i = 0; i < 5; i++) await jobRepo.create(jobFixture(`job-op-paid-never-delivered-${i}`, 'did:abt:conduct-page-other-buyer', OWN_AGENT_DID, { status: 'paid_undelivered', confirmedAt: new Date('2026-08-02T00:00:00Z') }));
 
     // A second, cold-start account: keyed, but no jobs on either side.
     await accountRepo.register({ did: 'did:abt:conduct-page-cold', githubLogin: 'conduct-page-cold-account' });
@@ -357,12 +362,12 @@ describe('the conduct record page, driven end to end against the real app', () =
         expect(page.document.getElementById('conduct-body')?.hidden).toBe(false);
         expect(page.document.getElementById('load-error')?.hidden).toBe(true);
         expect(page.document.getElementById('not-keyed')?.hidden).toBe(true);
-        const ids = ['ct-confirmed', 'ct-merged', 'ct-deemed', 'ct-cited-closes', 'ct-redos-requested', 'ct-walked-away', 'ct-delivered-never-paid', 'ct-redos-refused'];
+        const ids = ['ct-confirmed', 'ct-merged', 'ct-deemed', 'ct-cited-closes', 'ct-redos-requested', 'ct-walked-away', 'ct-delivered-never-paid', 'ct-redos-refused', 'ct-walked-after-deposit', 'ct-paid-never-delivered'];
         ids.forEach((id) => {
           expect(page.document.getElementById(id)?.textContent, `${id} did not coerce to "0"`).toBe('0');
         });
         expect(page.document.querySelectorAll('#buyer-counts .dg-leaf').length).toBe(6);
-        expect(page.document.querySelectorAll('#operator-counts .dg-leaf').length).toBe(2);
+        expect(page.document.querySelectorAll('#operator-counts .dg-leaf').length).toBe(4);
         const bodyText = page.document.body.textContent ?? '';
         expect(bodyText.toLowerCase()).not.toContain('new account');
         expect(bodyText.toLowerCase()).not.toContain('encourag');
@@ -373,17 +378,17 @@ describe('the conduct record page, driven end to end against the real app', () =
   });
 
   describe('the cold start (ruling 4, mutation proof 3): same render path, same selectors, zeros', () => {
-    it('a keyed account with no history renders all eight rows at zero, through the exact same selectors as a populated account', async () => {
+    it('a keyed account with no history renders all ten rows at zero, through the exact same selectors as a populated account', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-cold-account');
       try {
         expect(page.document.getElementById('conduct-body')?.hidden).toBe(false);
         expect(page.document.getElementById('load-error')?.hidden).toBe(true);
         expect(page.document.getElementById('not-keyed')?.hidden).toBe(true);
-        const ids = ['ct-confirmed', 'ct-merged', 'ct-deemed', 'ct-cited-closes', 'ct-redos-requested', 'ct-walked-away', 'ct-delivered-never-paid', 'ct-redos-refused'];
+        const ids = ['ct-confirmed', 'ct-merged', 'ct-deemed', 'ct-cited-closes', 'ct-redos-requested', 'ct-walked-away', 'ct-delivered-never-paid', 'ct-redos-refused', 'ct-walked-after-deposit', 'ct-paid-never-delivered'];
         ids.forEach((id) => {
           expect(page.document.getElementById(id)?.textContent).toBe('0');
         });
-        expect(page.document.querySelectorAll('.dg-leaf').length).toBe(8);
+        expect(page.document.querySelectorAll('.dg-leaf').length).toBe(10);
         // Mutation proof 3: the zero case renders through the exact same
         // selectors as the populated case, never a second branch with its
         // own marker.
@@ -391,7 +396,7 @@ describe('the conduct record page, driven end to end against the real app', () =
         // DIAG1c: a zero leaf is drawn, in the quieter .is-zero style, and
         // never hidden (ruling 4).
         const leaves = Array.from(page.document.querySelectorAll('.dg-leaf'));
-        expect(leaves.filter((l) => l.classList.contains('is-zero')).length, 'every leaf of the cold start takes the zero style').toBe(8);
+        expect(leaves.filter((l) => l.classList.contains('is-zero')).length, 'every leaf of the cold start takes the zero style').toBe(10);
         expect(leaves.filter((l) => (l as HTMLElement).hidden || l.closest('[hidden]') !== null).length, 'no leaf is hidden').toBe(0);
       } finally {
         page.close();
@@ -425,30 +430,38 @@ describe('the conduct record page, driven end to end against the real app', () =
       }
     });
 
-    it('renders the two operator rows bound to operatorCounts, under their own heading', async () => {
+    it('renders the four operator rows bound to operatorCounts, in page order, under their own heading', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        expect(page.document.getElementById('ct-delivered-never-paid')?.textContent).toBe('2');
-        expect(page.document.getElementById('ct-redos-refused')?.textContent).toBe('1');
-        expect(page.document.getElementById('ct-delivered-never-paid')?.getAttribute('data-n')).toBe('2');
-        expect(page.document.getElementById('ct-redos-refused')?.getAttribute('data-n')).toBe('1');
+        const owner = Array.from(page.document.querySelectorAll('#operator-counts .dg-leaf')).map((l) => {
+          const n = l.querySelector('.n');
+          return [n?.id, n?.textContent, n?.getAttribute('data-n'), l.querySelector('.l')?.textContent, l.classList.contains('is-zero')];
+        });
+        expect(owner, 'each owner row on its own field, text and data-n, none in the zero style').toEqual([
+          ['ct-delivered-never-paid', '2', '2', 'delivered and never paid for', false],
+          ['ct-redos-refused', '1', '1', 'redos refused', false],
+          ['ct-walked-after-deposit', '4', '4', 'walked away after the deposit', false],
+          ['ct-paid-never-delivered', '5', '5', 'paid and never delivered', false],
+        ]);
         // DIAG1c: the two headings are the diagram's branch heads now, and
         // each count hangs under its own.
         const heads = Array.from(page.document.querySelectorAll('.dg-group-head h3')).map((h) => h.textContent ?? '');
         expect(heads).toEqual(['When they hire', 'When their agents are hired']);
-        expect(page.document.getElementById('ct-redos-refused')?.closest('.dg-tree')?.querySelector('.dg-group-head h3')?.textContent).toBe('When their agents are hired');
+        for (const id of ['ct-delivered-never-paid', 'ct-redos-refused', 'ct-walked-after-deposit', 'ct-paid-never-delivered']) {
+          expect(page.document.getElementById(id)?.closest('.dg-tree')?.querySelector('.dg-group-head h3')?.textContent, `${id} hangs under the owner branch`).toBe('When their agents are hired');
+        }
       } finally {
         page.close();
       }
     });
 
-    it('renders exactly eight count rows: six buyer, two operator, no seventh or ninth', async () => {
+    it('renders exactly ten count rows: six buyer, four operator, no ninth or eleventh', async () => {
       const page = await renderConduct(baseUrl, 'conduct-page-buyer');
       try {
-        expect(page.document.querySelectorAll('.dg-leaf').length).toBe(8);
-        expect(page.document.querySelectorAll('.dg-leaf .n').length).toBe(8);
+        expect(page.document.querySelectorAll('.dg-leaf').length).toBe(10);
+        expect(page.document.querySelectorAll('.dg-leaf .n').length).toBe(10);
         expect(page.document.querySelectorAll('#buyer-counts .dg-leaf').length).toBe(6);
-        expect(page.document.querySelectorAll('#operator-counts .dg-leaf').length).toBe(2);
+        expect(page.document.querySelectorAll('#operator-counts .dg-leaf').length).toBe(4);
       } finally {
         page.close();
       }
@@ -487,8 +500,22 @@ describe('the conduct record page, driven end to end against the real app', () =
         const operatorDeliveredNeverPaid = Number(page.document.getElementById('ct-delivered-never-paid')?.textContent ?? '0');
         const bogusSum = buyerConfirmed + operatorDeliveredNeverPaid;
         const renderedNumbers = Array.from(page.document.querySelectorAll('.dg-leaf .n')).map((n) => n.textContent);
-        expect(renderedNumbers, 'the eight numbers are read').toHaveLength(8);
+        expect(renderedNumbers, 'the ten numbers are read').toHaveLength(10);
         expect(renderedNumbers).not.toContain(String(bogusSum));
+        // The owner's four are never added to each other or to the record
+        // as a whole: walkedAfterDeposit 4 + paidNeverDelivered 5 = 9, the
+        // owner's four together 12, all ten 26. None is a real count here,
+        // so any of them standing alone anywhere in the page is a sum.
+        const owner = ['ct-delivered-never-paid', 'ct-redos-refused', 'ct-walked-after-deposit', 'ct-paid-never-delivered']
+          .map((id) => Number(page.document.getElementById(id)?.textContent ?? 'NaN'));
+        expect(owner, 'the owner\u2019s four, read off the page').toEqual([2, 1, 4, 5]);
+        const all = renderedNumbers.map(Number);
+        const sums = [owner[2]! + owner[3]!, owner.reduce((a, b) => a + b, 0), all.reduce((a, b) => a + b, 0)];
+        expect(sums).toEqual([9, 12, 26]);
+        for (const sum of sums) {
+          expect(renderedNumbers, `${sum} is a sum, never a count`).not.toContain(String(sum));
+          expect(text, `${sum} is a sum and shows nowhere on the page`).not.toMatch(new RegExp(`(^|\\D)${sum}(\\D|$)`));
+        }
       } finally {
         page.close();
       }
