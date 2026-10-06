@@ -81,6 +81,7 @@ describe('Make 1: the chooser offers only what payableRails allows', () => {
       const total = (parseFloat(deposit) + parseFloat(calculateFee(deposit, USDC_FEE_RATE_PERCENT))).toFixed(2);
       expect(text(page.document, 'total-amount')).toBe(`$${total}`);
       expect(shown(page.document, 'gas-note')).toBe(true);
+      expect(text(page.document, 'gas-note')).toBe('You need a little ETH on Arbitrum for gas.');
     } finally { await page.close(); }
   });
   it('none: no pay control and no total, one sentence and the way into the conversation', async () => {
@@ -488,6 +489,7 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
       expect(text(page.document, 'pay-btn')).toBe(`Pay the balance, $${total}`);
       expect(page.document.querySelector('#choices .para')?.textContent).toContain(`plus the ${USDC_FEE_RATE_PERCENT} percent fee`);
       expect(shown(page.document, 'gas-note')).toBe(true);
+      expect(text(page.document, 'gas-note')).toBe('You need a little ETH on Arbitrum for gas.');
       press(page, 'pay-btn');
       expect(text(page.document, 'scan-fee-label')).toBe(`FreeAgents fee, ${USDC_FEE_RATE_PERCENT} percent`);
       expect(text(page.document, 'scan-fee')).toBe(money(fee));

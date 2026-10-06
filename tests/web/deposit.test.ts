@@ -460,6 +460,7 @@ describe('the deposit screen, driven end to end against the real app', () => {
         expect(usdcTotalText).toBe(`$${usdcTotal}`);
         // USDC-WEBb: the gas line replaced "Pay with ABT for now".
         expect(page.document.getElementById('gas-note')?.hidden).toBe(false);
+        expect(page.document.getElementById('gas-note')?.textContent).toBe('You need a little ETH on Arbitrum for gas.');
 
         const abtRadio = page.document.getElementById('rail-abt') as HTMLInputElement;
         abtRadio.checked = true;
