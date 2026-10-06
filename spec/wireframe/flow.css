@@ -712,7 +712,7 @@ body:has(#rail-usdc:checked) .amt-usdc { display: inline; }
 
    The number leads and the label follows, because the number is the fact and
    "redos requested" is only the word for it. Every count renders even at
-   zero: an account with no history shows the same eight rows as an account
+   zero: an account with no history shows the same ten rows as an account
    with fifty, which is the same rule that already governs the three evidence
    tiers. */
 .counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 22px; }

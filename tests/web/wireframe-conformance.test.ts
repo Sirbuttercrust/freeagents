@@ -238,12 +238,12 @@ const ALLOWED_ABSENT: Record<string, Record<string, string>> = {
   },
   conduct: {
     // The wireframe's cold-start block (line 203, "A new account") is the
-    // design seat showing the same eight rows with zeros in them, the same
+    // design seat showing the same ten rows with zeros in them, the same
     // shape as agent.html's "The same profile, brand new" (already excused
     // above under R-18). tests/web/conduct.test.ts's "the cold start"
     // describe block proves the built page renders through the identical
     // selectors with real zeros, not a second section.
-    'A new account': 'the cold-start variant is the same eight rows rendered with zeros through the same selectors, not a second section (tests/web/conduct.test.ts, "the cold start" describe block; the setCount coercion in src/web/public/js/pages/conduct.js)',
+    'A new account': 'the cold-start variant is the same ten rows rendered with zeros through the same selectors, not a second section (tests/web/conduct.test.ts, "the cold start" describe block; the setCount coercion in src/web/public/js/pages/conduct.js)',
     // conduct.js's "No \"Their agents\" button" departure names this a
     // deliberate one and app.ts:2576-2590 confirms it: GET /buyers/
     // :githubLogin/conduct's two response shapes (keyed: false and
