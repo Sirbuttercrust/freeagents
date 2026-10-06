@@ -19,7 +19,7 @@ import { createMemoryAbtEthShortPaymentStorage } from '../../src/adapters/paymen
 import type { AbtEthShortPaymentStorage } from '../../src/adapters/payment/abt-eth-short-payment.js';
 import type { AbtEthChainClient, Erc20ObservedTransfer } from '../../src/adapters/payment/erc20.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
-import { legAlreadySettledMessage, legRailMismatchMessage, legStatusConflictMessage, operatorAddressNotSetMessage } from '../../src/adapters/payment/route-support.js';
+import { agentGithubLoginUnverifiedMessage, legAlreadySettledMessage, legRailMismatchMessage, legStatusConflictMessage, operatorAddressNotSetMessage } from '../../src/adapters/payment/route-support.js';
 import type { RateReading } from '../../src/adapters/payment/types.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository, MemoryMessageRepository, MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
@@ -215,14 +215,18 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
   };
 }
 
-async function walkToProposedAndPriced(rig: Rig, rail?: 'abt' | 'usdc' | 'abt_eth'): Promise<string> {
+async function createJob(rig: Rig): Promise<string> {
   const created = await postSigned(rig.baseUrl, '/jobs', {
     buyerDid: rig.buyer.did,
     agentDid: rig.agent.did,
     repository: 'buyer/target-repo',
     brief: 'Fix the login bug',
   }, rig.buyer);
-  const jobId = String(((await created.json()) as Record<string, unknown>).id);
+  return String(((await created.json()) as Record<string, unknown>).id);
+}
+
+async function walkToProposedAndPriced(rig: Rig, rail?: 'abt' | 'usdc' | 'abt_eth'): Promise<string> {
+  const jobId = await createJob(rig);
   await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, {
     criteria,
     priceUsd: '500.00',
@@ -249,6 +253,15 @@ async function startOk(rig: Rig, jobId: string, leg: 'deposit' | 'remainder'): P
   const res = await startLeg(rig, jobId, leg);
   expect(res.status).toBe(200);
   return String(((await res.json()) as { quoteLock: { id: string } }).quoteLock.id);
+}
+
+// The whole lock row a start leaves; `over` is what a case moved (the feed
+// reading, the clock, the amounts).
+function lockRow(jobId: string, id: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id, jobId, leg: 'deposit', amountUsd: '125.00', usdPerToken: '0.25', rateUpdatedAt: FEED_TIME,
+    amountToken: '500', feeToken: '15', lockedAt: NOW, expiresAt: new Date(HOLD_ENDS), ...over,
+  };
 }
 
 interface Pair {
@@ -421,20 +434,23 @@ describe('(d) the start', () => {
     const lock = rig.locks[0];
     if (lock === undefined) throw new Error('expected one lock row');
     expect(await res.json()).toEqual({ ...depositStartBody(lock.id), jobId });
-    expect(rig.locks).toEqual([
-      {
-        id: lock.id,
-        jobId,
-        leg: 'deposit',
-        amountUsd: '125.00',
-        usdPerToken: '0.25',
-        rateUpdatedAt: FEED_TIME,
-        amountToken: '500',
-        feeToken: '15',
-        lockedAt: NOW,
-        expiresAt: new Date(HOLD_ENDS),
-      },
-    ]);
+    expect(rig.locks).toEqual([lockRow(jobId, lock.id)]);
+  });
+
+  it('builds the request from the lock it wrote, not from a second reading of the feed', async () => {
+    const rig = await boot();
+    const jobId = await walkToProposedAndPriced(rig);
+    // The feed answers 0.25 to its first reading and 0.5 to every later one.
+    let reads = 0;
+    Object.defineProperty(rig.feed, 'reading', {
+      get: () => ({ usdPerToken: reads++ === 0 ? '0.25' : '0.5', updatedAt: FEED_TIME }),
+    });
+
+    const res = await startLeg(rig, jobId, 'deposit');
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...depositStartBody(rig.locks[0]?.id ?? 'no lock written'), jobId });
+    expect(reads).toBe(1);
   });
 
   it('writes a second lock with its own id on a second start', async () => {
@@ -447,9 +463,12 @@ describe('(d) the start', () => {
     const second = await startOk(rig, jobId, 'deposit');
 
     expect(second).not.toBe(first);
-    expect(rig.locks.map((row) => ({ id: row.id, usdPerToken: row.usdPerToken, amountToken: row.amountToken, feeToken: row.feeToken }))).toEqual([
-      { id: first, usdPerToken: '0.25', amountToken: '500', feeToken: '15' },
-      { id: second, usdPerToken: '0.5', amountToken: '250', feeToken: '7.5' },
+    expect(rig.locks).toEqual([
+      lockRow(jobId, first),
+      lockRow(jobId, second, {
+        usdPerToken: '0.5', rateUpdatedAt: new Date('2026-10-06T12:04:00.000Z'), amountToken: '250', feeToken: '7.5',
+        lockedAt: new Date('2026-10-06T12:05:00.000Z'), expiresAt: new Date('2026-10-06T12:20:00.000Z'),
+      }),
     ]);
   });
 
@@ -499,13 +518,7 @@ describe('the gates the USDC routes make, made on both ABT-on-Ethereum routes', 
 
   it('refuses a job with no agreed price on the start with 409 and writes no lock', async () => {
     const rig = await boot();
-    const created = await postSigned(rig.baseUrl, '/jobs', {
-      buyerDid: rig.buyer.did,
-      agentDid: rig.agent.did,
-      repository: 'buyer/target-repo',
-      brief: 'Fix the login bug',
-    }, rig.buyer);
-    const jobId = String(((await created.json()) as Record<string, unknown>).id);
+    const jobId = await createJob(rig);
 
     const start = await startLeg(rig, jobId, 'deposit');
 
@@ -597,7 +610,10 @@ describe('the gates the USDC routes make, made on both ABT-on-Ethereum routes', 
     const rig = await boot({ agentVerified: false });
     const jobId = await walkToProposedAndPriced(rig);
 
-    expect((await startLeg(rig, jobId, 'deposit')).status).toBe(409);
+    const res = await startLeg(rig, jobId, 'deposit');
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: agentGithubLoginUnverifiedMessage() });
     expect(rig.locks).toEqual([]);
   });
 
@@ -757,7 +773,7 @@ describe('the late-transfer rule', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(confirmationBody(DEPOSIT_PAIR, AFTER_HOLD));
-    expect((await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit'))?.amountUsd).toBe('125.00');
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
     expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([]);
   });
@@ -833,40 +849,54 @@ describe('the late-transfer rule', () => {
 });
 
 describe('(l) a payment reported twice', () => {
-  it('answers a settled leg as the first call did and leaves one settlement row with its first time and one paid line, even after the job moved on', async () => {
-    const rig = await boot();
+  // A deposit recorded and reported inside the hold, then the buyer's
+  // confirm, so the job has moved on when the report comes again.
+  async function settledDeposit(rig: Rig): Promise<{ jobId: string; lockId: string; firstBody: unknown }> {
     const jobId = await walkToProposedAndPriced(rig);
     landPair(rig, 'deposit', INSIDE_HOLD);
     const lockId = await startOk(rig, jobId, 'deposit');
     setTime(INSIDE_HOLD);
-    const first = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
-    const firstBody = await first.json();
-    const row = await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit');
+    const firstBody = await (await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId))).json();
     expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/confirm`, {}, rig.buyer)).status).toBe(200);
     setTime(REPORTED_AT);
+    return { jobId, lockId, firstBody };
+  }
+
+  it('answers a settled leg as the first call did and leaves one settlement row with its first time and one paid line, even after the job moved on', async () => {
+    const rig = await boot();
+    const { jobId, lockId, firstBody } = await settledDeposit(rig);
 
     const again = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
 
     expect(again.status).toBe(200);
     expect(await again.json()).toEqual(firstBody);
     expect(firstBody).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual({ ...row, observedAt: new Date(INSIDE_HOLD) });
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', INSIDE_HOLD));
+    expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+  });
+
+  it('recognises the replay when both hashes come back in capitals, and writes nothing again', async () => {
+    const rig = await boot();
+    const { jobId, lockId, firstBody } = await settledDeposit(rig);
+    const capitals = { price: DEP_PRICE.toUpperCase().replace('0X', '0x'), fee: DEP_FEE.toUpperCase().replace('0X', '0x') };
+
+    const again = await report(rig, jobId, 'deposit', reportBody(capitals, lockId));
+
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual(firstBody);
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', INSIDE_HOLD));
     expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
   });
 
   it('refuses the recorded price hash with a different fee hash instead of treating it as a replay', async () => {
     const rig = await boot();
-    const jobId = await walkToProposedAndPriced(rig);
-    landPair(rig, 'deposit', INSIDE_HOLD);
-    const lockId = await startOk(rig, jobId, 'deposit');
-    setTime(INSIDE_HOLD);
-    await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+    const { jobId, lockId } = await settledDeposit(rig);
     const row = await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit');
-    expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/confirm`, {}, rig.buyer)).status).toBe(200);
 
     const res = await report(rig, jobId, 'deposit', reportBody({ price: DEP_PRICE, fee: REM_FEE }, lockId));
 
     expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: legStatusConflictMessage('deposit', 'confirmed') });
     expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(row);
     expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
   });
@@ -988,13 +1018,7 @@ describe('(n) the rail is offered only when the owner set it up', () => {
 
   it('answers a quote naming a rail that is not one of the three with 400 naming all three', async () => {
     const rig = await boot();
-    const created = await postSigned(rig.baseUrl, '/jobs', {
-      buyerDid: rig.buyer.did,
-      agentDid: rig.agent.did,
-      repository: 'buyer/target-repo',
-      brief: 'Fix the login bug',
-    }, rig.buyer);
-    const jobId = String(((await created.json()) as Record<string, unknown>).id);
+    const jobId = await createJob(rig);
 
     const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '500.00', rail: 'paypal' }, rig.agent);
 
@@ -1057,7 +1081,7 @@ describe('(o) the remainder leg settles on its own', () => {
     // A replay five days on. It must not move the row the clock counts from.
     vi.setSystemTime(new Date(remainderAt + 5 * DAY_MS));
     expect((await report(rig, jobId, 'remainder', reportBody(REMAINDER_PAIR, lockId))).status).toBe(200);
-    expect((await rig.settlementRepo.findByJobAndLeg(jobId, 'remainder'))?.observedAt).toEqual(new Date(remainderAt));
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'remainder')).toEqual(settlementRow(jobId, 'remainder', INSIDE_HOLD));
 
     vi.setSystemTime(new Date(remainderAt + 7 * DAY_MS));
     const atSeven = (await (await fetch(`${rig.baseUrl}/jobs/${jobId}`)).json()) as { status: string };
