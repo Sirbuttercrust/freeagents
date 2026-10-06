@@ -159,9 +159,11 @@ import { createSettlementGate, remainderSettled, type SettlementGate } from '../
 import type { AbtPaymentRail } from '../adapters/payment/abt.js';
 import type { AbtEthPaymentRail } from '../adapters/payment/abt-eth.js';
 import {
+  abtEthHalfPaidRefusal,
   checkAbtEthQuoteLock,
   createAbtEthQuoteLockStorage,
   lockAbtEthQuote,
+  STARTED_AT_EARLIER_PRICE_MESSAGE,
   type AbtEthQuoteLockStorage,
 } from '../adapters/payment/abt-eth-quote-lock.js';
 import { createAbtEthShortPaymentStorage, type AbtEthShortPaymentStorage } from '../adapters/payment/abt-eth-short-payment.js';
@@ -9240,7 +9242,14 @@ export function createApp(
   // wallet-response route checks the report against: the buyer's wallet
   // broadcasts the two transfers itself and the platform hears of them
   // afterwards, so the amounts the buyer was asked to sign are kept here,
-  // per start, and never read again from the price feed.
+  // per start, and never read again from the price feed. The exception is a
+  // leg that is already half-paid: its record names the lock its confirmed
+  // transfer was checked against, and the start answers that lock (its own
+  // amounts and hold end) instead of quoting again, so the payment is
+  // finished at the price the buyer approved. If the agreed price has
+  // changed since, the start refuses with a sentence asking for the earlier
+  // price back (abtEthHalfPaidRefusal), because quoting again is exactly
+  // what a half-paid leg must not do.
   //
   // Invariant 12: the answer is an intent for the buyer's own wallet. The
   // platform builds, signs and holds nothing.
@@ -9318,24 +9327,41 @@ export function createApp(
       }
       // The amount comes from the job's signed price, never a body field.
       const amountUsd = legAmountUsdFromJob(gate.job, leg);
-      let quote;
-      try {
-        quote = await abtEthPaymentRail.quote({ priceUsd: amountUsd });
-      } catch (err) {
-        if (err instanceof RateUnavailableError) {
-          res.status(503).json({ error: 'The ABT price is not available right now. Try again in a minute.' });
+      // A leg with one transfer already confirmed is finished at the lock
+      // that transfer was confirmed against: the same amounts and the same
+      // hold, however the price reads now and however late the page asks.
+      // Nothing is quoted and no lock is written for it. A record that
+      // names no lock (written before the lock id was kept) and a leg with
+      // no record take the ordinary path below.
+      const storedHalfPaid = await abtEthHalfPaidRecordFor(abtEthPaymentRail, gate.job.id, leg);
+      let lock;
+      if (storedHalfPaid !== null && storedHalfPaid.lockId !== null) {
+        const held = await checkAbtEthQuoteLock(abtEthLocks, { lockId: storedHalfPaid.lockId, jobId: gate.job.id, leg, amountUsd });
+        if (!held.ok) {
+          res.status(409).json({ error: abtEthHalfPaidRefusal(held.message) });
           return;
         }
-        console.error(`${label}: rail failed`, err);
-        res.status(503).json({ error: 'the abt_eth payment rail is unavailable' });
-        return;
+        lock = held.lock;
+      } else {
+        let quote;
+        try {
+          quote = await abtEthPaymentRail.quote({ priceUsd: amountUsd });
+        } catch (err) {
+          if (err instanceof RateUnavailableError) {
+            res.status(503).json({ error: 'The ABT price is not available right now. Try again in a minute.' });
+            return;
+          }
+          console.error(`${label}: rail failed`, err);
+          res.status(503).json({ error: 'the abt_eth payment rail is unavailable' });
+          return;
+        }
+        lock = await lockAbtEthQuote(abtEthLocks, { jobId: gate.job.id, leg, amountUsd, quote, now: new Date() });
       }
-      const lock = await lockAbtEthQuote(abtEthLocks, { jobId: gate.job.id, leg, amountUsd, quote, now: new Date() });
       // The request is built from the lock's own amounts, never a second
       // quote: what the buyer is asked to sign is what the report is checked
       // against. A failure here (the node not answering for the token's
-      // decimals) leaves the lock row behind, which no buyer holds the id of
-      // and no report can name.
+      // decimals) leaves a freshly written lock row behind, which no buyer
+      // holds the id of and no report can name.
       let request: PaymentRequest;
       try {
         request = await requestPayment(abtEthPaymentRail, {
@@ -9357,8 +9383,17 @@ export function createApp(
         expiresAt: lock.expiresAt.toISOString(),
       };
       // The leg's half-paid record rides beside the request when the leg has
-      // one, so a device can finish the payment by sending only what is missing.
-      const halfPaidRecord = await abtEthHalfPaidRecordFor(abtEthPaymentRail, gate.job.id, leg);
+      // one, so a device can finish the payment by sending only what is
+      // missing. Its four keys only: the lock rides in quoteLock.id.
+      const halfPaidRecord =
+        storedHalfPaid === null
+          ? null
+          : {
+              priceTxHash: storedHalfPaid.priceTxHash,
+              priceStatus: storedHalfPaid.priceStatus,
+              feeTxHash: storedHalfPaid.feeTxHash,
+              feeStatus: storedHalfPaid.feeStatus,
+            };
       res.status(200).json(halfPaidRecord === null ? { ...request, quoteLock } : { ...request, quoteLock, halfPaidRecord });
     }),
   );
@@ -9367,7 +9402,12 @@ export function createApp(
   // hash and the fee outcome, with the id of the lock the start answered.
   // The rail is handed the lock's amounts, never the body's and never a new
   // quote, so a price that moved since the start cannot change what the
-  // network is checked against.
+  // network is checked against. On a half-paid leg the lock must be the one
+  // the leg's record names, when the report is about the price transfer on
+  // that record; the rail writes the id of the lock it was handed into the
+  // record it keeps. A changed agreed price is refused with the lock
+  // module's sentence, except on a half-paid leg that names a lock, where
+  // the sentence asks for the earlier price back instead of a new start.
   //
   // The late-transfer rule. The buyer's wallet broadcast the transfers, so the
   // time that counts is the block time the rail read (priceRecordedAt), never
@@ -9490,6 +9530,22 @@ export function createApp(
         return;
       }
       const amountUsd = legAmountUsdFromJob(gate.job, leg);
+      // A report for the price transfer a half-paid leg already has on
+      // record must name the lock that transfer was confirmed against. A
+      // report naming a newer lock is refused here, before anything is
+      // checked or written, so the record that lets the payment finish stays
+      // as it was. A report with a new price hash (the resend after a price
+      // transfer failed on the network) is not about that transfer.
+      const storedHalfPaid = await abtEthHalfPaidRecordFor(abtEthPaymentRail, gate.job.id, leg);
+      if (
+        storedHalfPaid !== null &&
+        storedHalfPaid.lockId !== null &&
+        storedHalfPaid.priceTxHash.toLowerCase() === body.priceTxHash.toLowerCase() &&
+        storedHalfPaid.lockId !== body.quoteLockId
+      ) {
+        res.status(409).json({ error: STARTED_AT_EARLIER_PRICE_MESSAGE });
+        return;
+      }
       const lockCheck = await checkAbtEthQuoteLock(abtEthLocks, {
         lockId: body.quoteLockId,
         jobId: gate.job.id,
@@ -9497,7 +9553,11 @@ export function createApp(
         amountUsd,
       });
       if (!lockCheck.ok) {
-        res.status(409).json({ error: lockCheck.message });
+        // On a half-paid leg that names a lock, "start the payment again"
+        // would send the buyer to a start that refuses for the same reason,
+        // so a changed price gets the sentence that says what finishes it.
+        const onHalfPaidLeg = storedHalfPaid !== null && storedHalfPaid.lockId !== null;
+        res.status(409).json({ error: onHalfPaidLeg ? abtEthHalfPaidRefusal(lockCheck.message) : lockCheck.message });
         return;
       }
       const lock = lockCheck.lock;
@@ -9513,6 +9573,7 @@ export function createApp(
           feeTx,
           amountToken: lock.amountToken,
           feeToken: lock.feeToken,
+          quoteLockId: lock.id,
         });
         if (processed.rail !== 'abt_eth') throw new Error('the abt_eth rail answered a reference for another rail');
         ref = processed;

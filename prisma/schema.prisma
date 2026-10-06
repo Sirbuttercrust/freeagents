@@ -585,9 +585,10 @@ model AbtEthSpentTransfer {
   @@index([jobId, leg])
 }
 
-// The half-paid record for the ABT-on-Ethereum rail a later change adds,
-// beside UsdcHalfPaidSettlement and with the same columns and the same
-// one-row-per-leg key.
+// The half-paid record for the ABT-on-Ethereum rail, beside
+// UsdcHalfPaidSettlement with the same columns and the same one-row-per-leg
+// key, plus the id of the quote lock the confirmed transfer was checked
+// against. lockId is null on a row written before that column existed.
 model AbtEthHalfPaidSettlement {
   id          String             @id @default(cuid())
   jobId       String
@@ -597,6 +598,7 @@ model AbtEthHalfPaidSettlement {
   feeTxHash   String?
   feeStatus   UsdcTransferStatus
   recordedAt  DateTime           @default(now())
+  lockId      String?
 
   @@unique([jobId, leg])
 }
