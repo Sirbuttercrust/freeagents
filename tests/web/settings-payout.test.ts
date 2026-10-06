@@ -365,6 +365,26 @@ describe('/settings, the three payout boxes', () => {
     }
   });
 
+  it('(e) unticking the confirmation after the warning hides it and its button, and a press of "Save it anyway" then sends nothing and saves nothing', async () => {
+    const w = await startWorld(true);
+    const page = await render(w);
+    try {
+      page.type('payout-abt-eth', ETH);
+      page.tick('payout-abt-eth-confirm');
+      page.save();
+      await until(() => page.shown('save-warning'));
+      page.tick('payout-abt-eth-confirm');
+      expect([page.input('payout-abt-eth-confirm').checked, page.shown('save-warning'), page.shown('save-anyway')]).toEqual([false, false, false]);
+      (page.document.getElementById('save-anyway') as HTMLButtonElement).click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(page.patches()).toEqual([{ operatorAddressAbtEth: ETH }]);
+      expect(page.shown('save-success')).toBe(false);
+      expect(await stored(w)).toEqual({ evm: null, abtEth: null, abt: null });
+    } finally {
+      page.close();
+    }
+  });
+
   it('(e) a box edited while the save is out gets the warning sentence with no "Save it anyway", since the warned address is no longer on screen', async () => {
     const w = await startWorld(true);
     let release: () => void = () => undefined;

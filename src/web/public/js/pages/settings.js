@@ -275,18 +275,25 @@
   // that is new and not empty. Any edit to a box unticks its confirmation,
   // so the tick always answers for the address on screen, and any edit to
   // any box hides the contract warning, so "Save it anyway" can only ever
-  // send an address the person saw warned.
+  // send an address the person saw warned. Unticking a confirmation hides
+  // the warning too: the warning only ever showed for a body whose every
+  // box was ticked, so without a tick there is nothing it may save.
   function wireBoxes() {
     BOXES.forEach(function (box) {
       var input = A.el(box.id);
       if (!input) return;
+      var tick = A.el(box.id + "-confirm");
       input.addEventListener("input", function () {
         edits += 1;
-        var tick = A.el(box.id + "-confirm");
         if (tick) tick.checked = false;
         syncConfirm(box);
         hideWarning();
       });
+      if (tick) {
+        tick.addEventListener("change", function () {
+          if (!tick.checked) hideWarning();
+        });
+      }
     });
   }
 
