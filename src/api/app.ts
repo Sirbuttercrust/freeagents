@@ -9246,7 +9246,10 @@ export function createApp(
   // leg that is already half-paid: its record names the lock its confirmed
   // transfer was checked against, and the start answers that lock (its own
   // amounts and hold end) instead of quoting again, so the payment is
-  // finished at the price the buyer approved.
+  // finished at the price the buyer approved. If the agreed price has
+  // changed since, the start refuses with a sentence asking for the earlier
+  // price back (abtEthHalfPaidRefusal), because quoting again is exactly
+  // what a half-paid leg must not do.
   //
   // Invariant 12: the answer is an intent for the buyer's own wallet. The
   // platform builds, signs and holds nothing.
@@ -9402,7 +9405,9 @@ export function createApp(
   // network is checked against. On a half-paid leg the lock must be the one
   // the leg's record names, when the report is about the price transfer on
   // that record; the rail writes the id of the lock it was handed into the
-  // record it keeps.
+  // record it keeps. A changed agreed price is refused with the lock
+  // module's sentence, except on a half-paid leg that names a lock, where
+  // the sentence asks for the earlier price back instead of a new start.
   //
   // The late-transfer rule. The buyer's wallet broadcast the transfers, so the
   // time that counts is the block time the rail read (priceRecordedAt), never
