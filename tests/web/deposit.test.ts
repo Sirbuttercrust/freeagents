@@ -459,14 +459,14 @@ describe('the deposit screen, driven end to end against the real app', () => {
         const usdcTotal = (parseFloat(usdcDeposit) + parseFloat(usdcFee)).toFixed(2);
         expect(usdcTotalText).toBe(`$${usdcTotal}`);
         // USDC-WEBb: the gas line replaced "Pay with ABT for now".
-        expect(page.document.getElementById('usdc-gas-note')?.hidden).toBe(false);
+        expect(page.document.getElementById('gas-note')?.hidden).toBe(false);
 
         const abtRadio = page.document.getElementById('rail-abt') as HTMLInputElement;
         abtRadio.checked = true;
         abtRadio.dispatchEvent(new page.window.Event('change', { bubbles: true }));
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(page.document.getElementById('total-amount')?.textContent).toBe(abtTotalText);
-        expect(page.document.getElementById('usdc-gas-note')?.hidden).toBe(true);
+        expect(page.document.getElementById('gas-note')?.hidden).toBe(true);
       } finally {
         page.close();
       }

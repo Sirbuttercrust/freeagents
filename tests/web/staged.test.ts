@@ -1862,7 +1862,7 @@ describe('the staged screen, driven end to end against the real app', () => {
         expect(doc.getElementById('balance-paid')?.hidden).toBe(false);
         expect(doc.getElementById('balance-paid-line')?.textContent).toBe(`Balance paid: $675.00 in USDC on ${readable(BALANCE_OBSERVED_AT)}.`);
         // Removed, not hidden or disabled.
-        for (const id of ['pay-btn', 'redo-btn', 'decline-btn', 'choices-section', 'choices', 'acts', 'usdc-gas-note']) {
+        for (const id of ['pay-btn', 'redo-btn', 'decline-btn', 'choices-section', 'choices', 'acts', 'gas-note']) {
           expect(doc.getElementById(id), `#${id} is still in the document`).toBeNull();
         }
         // A paid hire is not waiting on the buyer: no window to decide in,

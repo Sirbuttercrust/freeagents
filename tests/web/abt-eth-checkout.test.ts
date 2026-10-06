@@ -234,10 +234,8 @@ function options(page: RenderedPage): unknown[] {
     name: opt.querySelector('.rname')?.textContent, amount: opt.querySelector('.ramt')?.textContent, why: opt.querySelector('.rwhy')?.textContent,
   }));
 }
-const gasLines = (page: RenderedPage): unknown => ({
-  arbitrum: shown(page.document, 'usdc-gas-note') ? text(page.document, 'usdc-gas-note') : null,
-  ethereum: shown(page.document, 'abt-eth-gas-note') ? text(page.document, 'abt-eth-gas-note') : null,
-});
+// The page's one gas line as a person reads it: the whole sentence while shown, else null.
+const gasLine = (page: RenderedPage): string | null => (shown(page.document, 'gas-note') ? text(page.document, 'gas-note') : null);
 
 let h: Harness;
 let bare: Harness;
@@ -263,7 +261,7 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
         { id: 'railopt-abt-eth', shown: true, checked: false, name: 'ABT on Ethereum', amount: '$128.75 today', why: '3% fee, two approvals' },
         { id: 'railopt-usdc', shown: true, checked: false, name: 'USDC on Arbitrum', amount: '$132.50 today', why: '6% fee, two approvals' },
       ]);
-      expect(gasLines(page)).toEqual({ arbitrum: null, ethereum: null });
+      expect(gasLine(page)).toBeNull();
     } finally { await page.close(); }
   }, 30_000);
 
@@ -276,11 +274,11 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
         { id: 'railopt-usdc', shown: true, checked: false, name: 'USDC on Arbitrum', amount: '$132.50 today', why: '6% fee, two approvals' },
       ]);
       expect([text(page.document, 'total-amount'), text(page.document, 'fee-label'), text(page.document, 'pay-btn')]).toEqual(['$128.75', 'FreeAgents fee, 3 percent', 'Pay $128.75 with your wallet']);
-      expect(gasLines(page)).toEqual({ arbitrum: null, ethereum: 'You need a little ETH on Ethereum for gas.' });
+      expect(gasLine(page)).toBe('You need a little ETH on Ethereum for gas.');
       choose(page, 'usdc');
-      expect(gasLines(page)).toEqual({ arbitrum: 'You need a little Arbitrum ETH for gas.', ethereum: null });
+      expect(gasLine(page)).toBe('You need a little ETH on Arbitrum for gas.');
       choose(page, 'abt-eth');
-      expect(gasLines(page)).toEqual({ arbitrum: null, ethereum: 'You need a little ETH on Ethereum for gas.' });
+      expect(gasLine(page)).toBe('You need a little ETH on Ethereum for gas.');
     } finally { await page.close(); }
   }, 30_000);
 
@@ -359,7 +357,7 @@ describe('/staged pays a hire in ABT on Ethereum in its own currency', () => {
     const id = await job(h, { status: 'staged', rail: 'abt_eth', stagedAt: RECENT, stagedCommit: 'commit-abt-eth-checkout', confirmedAt: RECENT, confirmedSpecHash: 'sha256:abt-eth-checkout' });
     const page = await openStaged(h, id);
     try {
-      expect(gasLines(page)).toEqual({ arbitrum: null, ethereum: 'You need a little ETH on Ethereum for gas.' });
+      expect(gasLine(page)).toBe('You need a little ETH on Ethereum for gas.');
       expect(page.document.querySelector('#choices .para')?.textContent).toBe('$375.00 of the $500.00 price, plus the 3 percent fee. Then the pull request opens on your repository, and merging is up to you.');
       expect(text(page.document, 'pay-btn')).toBe('Pay the balance, $386.25');
       const wallet = buildWallet(h.chain);

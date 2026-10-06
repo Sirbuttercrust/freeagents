@@ -278,11 +278,10 @@
           <button class="btn" type="button" id="decline-btn" hidden>Decline the work</button>
         </div>
         <ul class="fixed pane pane-pad reveal" style="margin-top:22px" id="choices"></ul>
-        <!-- USDC-WEBb: USDC hires only; no figure (deposit.html says why).
-             The second line is for a hire paid in ABT on Ethereum; staged.js
-             shows at most one, the hire's own network's. -->
-        <p class="sub" id="usdc-gas-note" hidden style="margin-top:12px">You need a little Arbitrum ETH for gas.</p>
-        <p class="sub" id="abt-eth-gas-note" hidden style="margin-top:12px">You need a little ETH on Ethereum for gas.</p>
+        <!-- USDC-WEBb: no figure (deposit.html says why). Shown only for a
+             hire paid in USDC or in ABT on Ethereum; staged.js fills
+             #gas-network with the hire's own network. -->
+        <p class="sub" id="gas-note" hidden style="margin-top:12px">You need a little ETH on <span id="gas-network"></span> for gas.</p>
         <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
         <div class="empty warn" id="redo-error" hidden style="margin-top:16px"><p class="sub" id="redo-error-detail"></p></div>
         <div class="empty warn" id="decline-error" hidden style="margin-top:16px"><p class="sub" id="decline-error-detail"></p></div>

@@ -263,25 +263,23 @@
            on the surface: they are what the buyer is agreeing to by paying. -->
       <p class="oneline" id="redo-line" style="margin-top:34px"></p>
       <p class="oneline" id="finality-line" style="margin-top:12px"></p>
-      <!-- 8. THE PAYMENT. One primary button. The two gas lines name the
-           network the chosen option pays on, and only one shows at a time:
-           #usdc-gas-note for USDC on Arbitrum (Make 3), #abt-eth-gas-note for
-           ABT on Ethereum. Neither names a gas figure, unlike the wireframe
+      <!-- 8. THE PAYMENT. One primary button. One gas line, #gas-note, shown
+           only for the two options a browser wallet pays (Make 3): deposit.js
+           fills #gas-network with the chosen option's network, Arbitrum for
+           USDC and Ethereum for ABT on Ethereum. It names no gas figure,
+           unlike the wireframe
            (deposit.html:221): gas moves with the network, so a written number
            goes stale into a false claim. -->
       <div class="row" style="margin-top:32px">
         <button class="btn btn-primary" type="button" id="pay-btn" disabled></button>
         <a class="btn" id="back-to-agreement">Back to the agreement</a>
       </div>
-      <p class="sub" id="usdc-gas-note" hidden style="margin-top:10px">You need a little Arbitrum ETH for gas.</p>
-      <p class="sub" id="abt-eth-gas-note" hidden style="margin-top:10px">You need a little ETH on Ethereum for gas.</p>
+      <p class="sub" id="gas-note" hidden style="margin-top:10px">You need a little ETH on <span id="gas-network"></span> for gas.</p>
       <div class="empty warn" id="pay-error" hidden style="margin-top:16px"><p class="sub" id="pay-error-detail"></p></div>
       <p class="sf-mores"><a class="sf-more" href="/outcomes">What happens if the work is not right</a></p>
       <div>
         <button class="disclose" type="button" data-disclose="paytech" data-disclose-alt="Hide technical details">Show technical details</button>
         <div id="paytech" class="detail">
-          <div><dt>ABT</dt><dd>one payment, split in two.</dd></div>
-          <div><dt>USDC</dt><dd>two transfers, one each.</dd></div>
           <div><dt>specHash</dt><dd id="tech-spec-hash"></dd></div>
           <!-- The exact identities the surface names in words (DESIGN.md
                1.3: a did:abt string reads as a name on the surface and lives

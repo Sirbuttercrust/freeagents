@@ -98,7 +98,7 @@
     var offered = RAILS.filter(function (r) { return payable.indexOf(r.rail) !== -1; });
     RAILS.forEach(function (r) { A.showById("railopt-" + r.id, offered.indexOf(r) !== -1); });
     if (offered.length === 0) {
-      ["rails-heading", "rails", "total-pane", "pay-btn", "usdc-gas-note", "abt-eth-gas-note"].forEach(function (id) { A.showById(id, false); });
+      ["rails-heading", "rails", "total-pane", "pay-btn", "gas-note"].forEach(function (id) { A.showById(id, false); });
       var link = A.el("no-rails-link");
       if (link) link.setAttribute("href", "/messages?job=" + encodeURIComponent(job.id));
       A.showById("no-rails", true);
@@ -168,8 +168,8 @@
       payBtn.disabled = paying;
     }
     // Before the press, the gas line of the chosen option's network only.
-    A.showById("usdc-gas-note", chosenRail === "usdc");
-    A.showById("abt-eth-gas-note", chosenRail === "abt_eth");
+    A.setTextById("gas-network", chosenRail === "usdc" ? "Arbitrum" : "Ethereum");
+    A.showById("gas-note", chosenRail === "usdc" || chosenRail === "abt_eth");
   }
   function wireRailChooser() {
     var price = job.price;

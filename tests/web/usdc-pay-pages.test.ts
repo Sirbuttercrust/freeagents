@@ -80,7 +80,7 @@ describe('Make 1: the chooser offers only what payableRails allows', () => {
       const deposit = depositUsd(PRICE, 25);
       const total = (parseFloat(deposit) + parseFloat(calculateFee(deposit, USDC_FEE_RATE_PERCENT))).toFixed(2);
       expect(text(page.document, 'total-amount')).toBe(`$${total}`);
-      expect(shown(page.document, 'usdc-gas-note')).toBe(true);
+      expect(shown(page.document, 'gas-note')).toBe(true);
     } finally { await page.close(); }
   });
   it('none: no pay control and no total, one sentence and the way into the conversation', async () => {
@@ -101,10 +101,10 @@ describe('Make 2 and 3: a deposit paid in USDC from the page', () => {
     const id = await depositJob();
     const page = await openDeposit(id);
     try {
-      expect(shown(page.document, 'usdc-gas-note')).toBe(false);
+      expect(shown(page.document, 'gas-note')).toBe(false);
       choose(page, 'usdc');
-      expect(shown(page.document, 'usdc-gas-note')).toBe(true);
-      expect(text(page.document, 'usdc-gas-note')).toBe('You need a little Arbitrum ETH for gas.');
+      expect(shown(page.document, 'gas-note')).toBe(true);
+      expect(text(page.document, 'gas-note')).toBe('You need a little ETH on Arbitrum for gas.');
       const wallet = buildPageWallet(h.chain);
       announceWallets(page.window, [{ uuid: 'w-one', name: 'One Wallet', wallet }]);
       press(page, 'pay-btn');
@@ -476,7 +476,7 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
       const total = (parseFloat(remainder) + parseFloat(fee)).toFixed(2);
       expect(text(page.document, 'pay-btn')).toBe(`Pay the balance, $${total}`);
       expect(page.document.querySelector('#choices .para')?.textContent).toContain(`plus the ${ABT_FEE_RATE_PERCENT} percent fee`);
-      expect(shown(page.document, 'usdc-gas-note')).toBe(false);
+      expect(shown(page.document, 'gas-note')).toBe(false);
     } finally { await page.close(); }
   });
   it('a USDC job at 6 percent, from payment.ts: the choices row, the Pay label, and the sheet', async () => {
@@ -487,7 +487,7 @@ describe('Make 4: the balance page pays in the job\u2019s own currency', () => {
       const total = (parseFloat(remainder) + parseFloat(fee)).toFixed(2);
       expect(text(page.document, 'pay-btn')).toBe(`Pay the balance, $${total}`);
       expect(page.document.querySelector('#choices .para')?.textContent).toContain(`plus the ${USDC_FEE_RATE_PERCENT} percent fee`);
-      expect(shown(page.document, 'usdc-gas-note')).toBe(true);
+      expect(shown(page.document, 'gas-note')).toBe(true);
       press(page, 'pay-btn');
       expect(text(page.document, 'scan-fee-label')).toBe(`FreeAgents fee, ${USDC_FEE_RATE_PERCENT} percent`);
       expect(text(page.document, 'scan-fee')).toBe(money(fee));

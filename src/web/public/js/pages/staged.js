@@ -352,8 +352,8 @@
     }
     // USDC-WEBb Make 3: before the press, the gas line of the hire's own
     // network, and only on a hire whose currency needs one.
-    A.showById("usdc-gas-note", figures !== null && isUsdc(job_));
-    A.showById("abt-eth-gas-note", figures !== null && isAbtEth(job_));
+    A.setTextById("gas-network", isUsdc(job_) ? "Arbitrum" : "Ethereum");
+    A.showById("gas-note", figures !== null && (isUsdc(job_) || isAbtEth(job_)));
   }
 
   // Ruling 6: the redo control renders only when a
