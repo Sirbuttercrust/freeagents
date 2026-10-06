@@ -159,6 +159,7 @@ import { createSettlementGate, remainderSettled, type SettlementGate } from '../
 import type { AbtPaymentRail } from '../adapters/payment/abt.js';
 import type { AbtEthPaymentRail } from '../adapters/payment/abt-eth.js';
 import {
+  abtEthHalfPaidRefusal,
   checkAbtEthQuoteLock,
   createAbtEthQuoteLockStorage,
   lockAbtEthQuote,
@@ -9334,7 +9335,7 @@ export function createApp(
       if (storedHalfPaid !== null && storedHalfPaid.lockId !== null) {
         const held = await checkAbtEthQuoteLock(abtEthLocks, { lockId: storedHalfPaid.lockId, jobId: gate.job.id, leg, amountUsd });
         if (!held.ok) {
-          res.status(409).json({ error: held.message });
+          res.status(409).json({ error: abtEthHalfPaidRefusal(held.message) });
           return;
         }
         lock = held.lock;
@@ -9547,7 +9548,11 @@ export function createApp(
         amountUsd,
       });
       if (!lockCheck.ok) {
-        res.status(409).json({ error: lockCheck.message });
+        // On a half-paid leg that names a lock, "start the payment again"
+        // would send the buyer to a start that refuses for the same reason,
+        // so a changed price gets the sentence that says what finishes it.
+        const onHalfPaidLeg = storedHalfPaid !== null && storedHalfPaid.lockId !== null;
+        res.status(409).json({ error: onHalfPaidLeg ? abtEthHalfPaidRefusal(lockCheck.message) : lockCheck.message });
         return;
       }
       const lock = lockCheck.lock;

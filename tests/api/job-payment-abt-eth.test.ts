@@ -1367,4 +1367,77 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
     expect(await res.json()).toEqual({ error: NO_LOCK });
     expect(rig.locks).toEqual([]);
   });
+
+  describe('(i) the agreed price changes while the leg is half paid', () => {
+    const HALF_PAID_REPRICED_SENTENCE =
+      'Half of this payment is already on the network, at the price agreed when it started. ' +
+      'The agreed price has changed since. Ask the agent to put that earlier price back, and this payment can be finished.';
+
+    async function reprice(rig: Rig, jobId: string, priceUsd: string): Promise<void> {
+      await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd }, rig.agent);
+      for (const index of [0, 1]) {
+        expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, rig.buyer)).status).toBe(200);
+        expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, rig.agent)).status).toBe(200);
+      }
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/price/accept`, {}, rig.buyer)).status).toBe(200);
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/price/accept`, {}, rig.agent)).status).toBe(200);
+    }
+
+    it('refuses a start with the sentence that names what the buyer can do, and writes no lock', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      await reprice(rig, jobId, '600.00');
+
+      const res = await startLeg(rig, jobId, 'deposit');
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HALF_PAID_REPRICED_SENTENCE });
+      expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
+    });
+
+    it('refuses a report naming lock1 with the same sentence, settles nothing, and keeps the record', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      await reprice(rig, jobId, '600.00');
+      landFee(rig);
+
+      const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HALF_PAID_REPRICED_SENTENCE });
+      await expectNothingSettled(rig, jobId);
+      expect(await rig.halfPaid.read(jobId, 'deposit')).toEqual({ jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId });
+    });
+
+    it('finishes the leg at lock1 once the earlier price is put back', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      await reprice(rig, jobId, '600.00');
+      await reprice(rig, jobId, '500.00');
+      priceMovesAndHoldPasses(rig);
+
+      const restart = await startLeg(rig, jobId, 'deposit');
+
+      expect(restart.status).toBe(200);
+      expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
+      landFee(rig);
+      const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+      expect(done.status).toBe(200);
+      expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+      expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
+    });
+
+    it('keeps the lock sentence for a leg that is not half paid', async () => {
+      const rig = await boot();
+      const jobId = await walkToProposedAndPriced(rig);
+      landPair(rig, 'deposit', INSIDE_HOLD);
+      const lockId = await startOk(rig, jobId, 'deposit');
+      await reprice(rig, jobId, '600.00');
+
+      const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: PRICE_CHANGED });
+    });
+  });
 });
