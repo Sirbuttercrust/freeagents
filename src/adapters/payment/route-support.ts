@@ -83,6 +83,61 @@ export function depositRailMismatchMessage(routeRail: Rail, depositRail: Rail): 
   return `the deposit for this job was paid in "${depositRail}"; the "${routeRail}" payment routes refuse it`;
 }
 
+// B88: the same refusal for a leg that has not settled but whose price
+// transfer already reached the owner in `heldRail`. The buyer can act on
+// it: finish the leg in that currency.
+export function heldRailMismatchMessage(leg: RouteLeg, routeRail: Rail, heldRail: Rail): string {
+  return `part of the ${leg} for this job was paid in "${heldRail}"; finish it there, the "${routeRail}" payment routes refuse it`;
+}
+
+// B88: what a lifecycle door answers (409) while a leg's price transfer has
+// reached the owner and the leg has not settled. It holds the leg the way a
+// settled one is held: the terms take no change and neither side walks away.
+// Each sentence names the next step. The owner has the buyer's money for
+// part of the payment, so the way forward is to finish it.
+export type HeldLegAction = 'change terms' | 'withdraw' | 'decline' | 'staged-decline' | 'redo';
+
+const HELD_LEG_SENTENCES: Record<HeldLegAction, string> = {
+  'change terms':
+    "The deposit's price has already reached the owner, so the terms can no longer change. The buyer finishes the payment, then confirms the hire.",
+  withdraw:
+    "The deposit's price has already reached the owner, so this hire can no longer be withdrawn. Finish the payment, then confirm the hire.",
+  decline: "The deposit's price has already reached the owner, so this hire can no longer be declined.",
+  'staged-decline':
+    "The balance's price has already reached the owner, so the work can no longer be declined. Finish the payment, and the agent opens the pull request next.",
+  redo:
+    "The balance's price has already reached the owner, so a redo can no longer be requested. Finish the payment, and the agent opens the pull request next.",
+};
+
+export function heldLegMessage(action: HeldLegAction): string {
+  return HELD_LEG_SENTENCES[action];
+}
+
+// B88: the rail whose price transfer is recorded `confirmed` on a leg's
+// half-paid record, null when neither rail holds the leg. This is the one
+// read behind every refusal above and every door that checks the rail. A
+// rail that is not configured is skipped. A record whose price transfer is
+// not confirmed (fee only, mismatched, not yet on the network) holds
+// nothing: no money reached the owner for the price. A failed read throws,
+// and every caller answers it as unavailable, never as "nothing held". When
+// both rails somehow hold the leg, USDC is answered first.
+export async function railHoldingLeg(input: {
+  readonly jobId: string;
+  readonly leg: RouteLeg;
+  readonly usdcRail: Pick<UsdcPaymentRailShim, 'readHalfPaidRecord'> | null;
+  readonly abtEthRail: Pick<AbtEthPaymentRail, 'readHalfPaidRecord'> | null;
+}): Promise<Rail | null> {
+  if (input.usdcRail !== null) {
+    const record = await usdcHalfPaidRecordFor(input.usdcRail, input.jobId, input.leg);
+    if (record !== null && record.priceStatus === 'confirmed') return 'usdc';
+  }
+  if (input.abtEthRail !== null) {
+    const record = await abtEthHalfPaidRecordFor(input.abtEthRail, input.jobId, input.leg);
+    if (record !== null && record.priceStatus === 'confirmed') return 'abt_eth';
+  }
+  return null;
+}
+
 // FIX-B39, rule 5: the message every door answers when the hired agent's
 // operator has no payout address on record for this rail. Byte-identical
 // to the wording every existing per-rail 409 already used (S3/P8c), so
@@ -103,7 +158,7 @@ export function operatorAddressNotSetMessage(rail: Rail): string {
 
 // FIX-B39, rule 5: ONE shared eligibility check, in place of B25's
 // job-rail-only check, called by every payment door (both /start routes,
-// the token door, the USDC wallet-response route, and the ABT wallet
+// the token door, both wallet-response routes, and the ABT wallet
 // callback). Checked in this order, matching the brief's own reading
 // order for a buyer's refusal:
 //   1. the job is pinned to the OTHER currency (a quote named one);
@@ -111,7 +166,11 @@ export function operatorAddressNotSetMessage(rail: Rail): string {
 //      deposit has settled, only that deposit's currency is payable,
 //      independent of whether the job itself ever got pinned to it --
 //      confirm has not necessarily run yet);
-//   3. the hired agent's operator has no payout address on record for
+//   3. part of THIS leg was already paid in the other currency: its price
+//      transfer reached the owner (railHoldingLeg below) but the leg has
+//      not settled. A leg held on a rail finishes on that rail, so no
+//      other currency's door offers it, and nobody pays one leg twice;
+//   4. the hired agent's operator has no payout address on record for
 //      this currency at all.
 // A caller passes operatorAddressOk rather than this function reaching
 // into AccountRepository itself, so it stays usable from both the route
@@ -127,6 +186,9 @@ export function operatorAddressNotSetMessage(rail: Rail): string {
 // abt-did-connect.ts's operatorAddressForJob resolves the identical fact
 // for its own onAuth callback, kept separate because it builds the
 // actual recipient, not merely a boolean.
+//
+// heldRail is required, not optional, so a door that forgets to read it
+// does not compile. A caller that has nothing held passes null.
 export interface RailDoorEligibilityResult {
   readonly ok: true;
 }
@@ -137,8 +199,10 @@ export interface RailDoorEligibilityRefusal {
 }
 export async function checkRailDoorEligible(input: {
   readonly jobId: string;
+  readonly leg: RouteLeg;
   readonly routeRail: Rail;
   readonly jobRail: Rail | null;
+  readonly heldRail: Rail | null;
   readonly settlementRepo: SettlementRepository;
   readonly operatorAddressOk: boolean;
 }): Promise<RailDoorEligibilityResult | RailDoorEligibilityRefusal> {
@@ -148,6 +212,9 @@ export async function checkRailDoorEligible(input: {
   const settledDeposit = await input.settlementRepo.findByJobAndLeg(input.jobId, 'deposit');
   if (settledDeposit !== null && settledDeposit.rail !== input.routeRail) {
     return { ok: false, status: 409, message: depositRailMismatchMessage(input.routeRail, settledDeposit.rail) };
+  }
+  if (input.heldRail !== null && input.heldRail !== input.routeRail) {
+    return { ok: false, status: 409, message: heldRailMismatchMessage(input.leg, input.routeRail, input.heldRail) };
   }
   if (!input.operatorAddressOk) {
     return { ok: false, status: 409, message: operatorAddressNotSetMessage(input.routeRail) };
@@ -242,7 +309,7 @@ export function usdcTransferIntents(
 // only the missing transfer. Wrapped here, the one place that writes the
 // rail's internal 'balance' spelling, exactly like requestPayment above.
 export async function usdcHalfPaidRecordFor(
-  rail: UsdcPaymentRailShim,
+  rail: Pick<UsdcPaymentRailShim, 'readHalfPaidRecord'>,
   jobId: string,
   leg: RouteLeg,
 ): Promise<UsdcHalfPaidRecord | null> {
@@ -254,7 +321,7 @@ export async function usdcHalfPaidRecordFor(
 // confirmed transfer was checked against (null on a row written before the
 // lock id was kept).
 export async function abtEthHalfPaidRecordFor(
-  rail: AbtEthPaymentRail,
+  rail: Pick<AbtEthPaymentRail, 'readHalfPaidRecord'>,
   jobId: string,
   leg: RouteLeg,
 ): Promise<AbtEthStoredHalfPaidRecord | null> {

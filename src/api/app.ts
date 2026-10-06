@@ -178,14 +178,17 @@ import {
   checkRailDoorEligible,
   checkRepositoryReady,
   confirmPayment,
+  heldLegMessage,
   judgeLateAbtEthPayment,
   legStatusConflictMessage,
   legStatusEligible,
   operatorAddressNotSetMessage,
   processWalletResponse,
+  railHoldingLeg,
   repositoryNotAccessibleMessage,
   requestPayment,
   usdcHalfPaidRecordFor,
+  type HeldLegAction,
   type RouteLeg,
 } from '../adapters/payment/route-support.js';
 import { RateUnavailableError, type PaymentRef, type PaymentRequest } from '../adapters/payment/types.js';
@@ -646,15 +649,21 @@ function jobProjection(row: Job): Record<string, unknown> {
 // owner has a payout address for. Rule 3 (settlement fixes the
 // currency): once a deposit has settled, only that deposit's currency,
 // independent of whether the job's own quote ever named one and
-// independent of whether confirm has run yet.
+// independent of whether confirm has run yet. B88: a deposit that has not
+// settled but whose price transfer already reached the owner is held on the
+// rail it was paid in (heldRail, read by the caller), so only that currency
+// is offered while it is finished, whatever the quote pinned or the owner
+// has addresses for.
 async function payableRailsFor(
   job: Job,
   jobAgent: Agent | null,
   accountRepo: AccountRepository,
   settlementRepo: SettlementRepository,
+  heldRail: Rail | null,
 ): Promise<readonly Rail[]> {
   const settledDeposit = await settlementRepo.findByJobAndLeg(job.id, 'deposit');
   if (settledDeposit !== null) return [settledDeposit.rail];
+  if (heldRail !== null) return [heldRail];
   if (job.rail !== null) return [job.rail];
   if (jobAgent === null) return [];
   const account = await accountRepo.findByDid(jobAgent.operatorDid);
@@ -1212,6 +1221,43 @@ export function createApp(
     abtEthPaymentRail === null ? null : (abtEthQuoteLockStorage ?? createAbtEthQuoteLockStorage());
   const abtEthShorts: AbtEthShortPaymentStorage | null =
     abtEthPaymentRail === null ? null : (abtEthShortPaymentStorage ?? createAbtEthShortPaymentStorage());
+  // B88: one read of the rail whose price transfer already reached the owner
+  // on an unsettled leg, for the doors below. Answers { rail } (null when no
+  // rail holds the leg), or answers 503 itself and returns null when a
+  // half-paid read fails, so the route stops: a failed read is never taken
+  // for "nothing held".
+  async function readHeldRail(
+    label: string,
+    res: Response,
+    jobId: string,
+    leg: RouteLeg,
+  ): Promise<{ readonly rail: Rail | null } | null> {
+    try {
+      return { rail: await railHoldingLeg({ jobId, leg, usdcRail: usdcPaymentRail, abtEthRail: abtEthPaymentRail }) };
+    } catch (err) {
+      console.error(`${label}: half-paid read failed`, err);
+      res.status(503).json({ error: 'storage unavailable' });
+      return null;
+    }
+  }
+  // B88: the lifecycle doors' refusal. A leg whose price transfer already
+  // reached the owner holds the way a settled leg does: 409 with the
+  // sentence for the action refused, nothing written. Answers the response
+  // and returns true when the route must stop (409 held, or 503 when the
+  // read failed).
+  async function refuseWhenLegHeld(
+    label: string,
+    res: Response,
+    jobId: string,
+    leg: RouteLeg,
+    action: HeldLegAction,
+  ): Promise<boolean> {
+    const held = await readHeldRail(label, res, jobId, leg);
+    if (held === null) return true;
+    if (held.rail === null) return false;
+    res.status(409).json({ error: heldLegMessage(action) });
+    return true;
+  }
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
   // fresh Map per call, so defaulting the adapter with its own separate call
@@ -5836,7 +5882,15 @@ export function createApp(
     let payableRails: { readonly payableRails: readonly Rail[] } | Record<string, never> = {};
     if (row.status === 'proposed' && row.priceUsd !== null) {
       try {
-        payableRails = { payableRails: await payableRailsFor(row, jobAgent, repo, settlementRepo) };
+        payableRails = {
+          payableRails: await payableRailsFor(
+            row,
+            jobAgent,
+            repo,
+            settlementRepo,
+            await railHoldingLeg({ jobId: row.id, leg: 'deposit', usdcRail: usdcPaymentRail, abtEthRail: abtEthPaymentRail }),
+          ),
+        };
       } catch (err) {
         console.error('GET /jobs/:jobId: storage failed', err);
         res.status(503).json({ error: 'storage unavailable' });
@@ -7117,6 +7171,13 @@ export function createApp(
       // refusal comes out of proposeCriteria below as DepositSettledError,
       // and applyAndPersist maps it to 409 without running onPersisted, so
       // no quote row and no notification is written.
+      //
+      // B88: a deposit whose price transfer already reached the owner but
+      // has not settled holds the same way, because a change would put the
+      // agreed price out from under money already paid against it. That
+      // refusal is answered here (409, the held sentence) before
+      // proposeCriteria runs, so it also writes nothing. A failed
+      // half-paid read is 503.
       let depositIsSettled = false;
       if (current.status === 'proposed') {
         try {
@@ -7124,6 +7185,9 @@ export function createApp(
         } catch (err) {
           console.error('POST /jobs/:jobId/criteria: settlement gate failed', err);
           res.status(503).json({ error: 'storage unavailable' });
+          return;
+        }
+        if (!depositIsSettled && (await refuseWhenLegHeld('POST /jobs/:jobId/criteria', res, current.id, 'deposit', 'change terms'))) {
           return;
         }
       }
@@ -7675,6 +7739,12 @@ export function createApp(
   // answer is threaded into recordWithdrawn, which throws
   // DepositSettledError, mapped to 409 by applyAndPersist. A gate
   // failure is 503, never a guess.
+  //
+  // B88: a deposit whose price transfer already reached the owner but has
+  // not settled holds the same way: refused here (409, the held sentence,
+  // nothing written) before recordWithdrawn runs, and the buyer's way
+  // forward is to finish the payment, then confirm. A failed half-paid
+  // read is 503.
   app.post(
     '/jobs/:jobId/withdraw',
     didSignature,
@@ -7692,6 +7762,7 @@ export function createApp(
           res.status(503).json({ error: 'storage unavailable' });
           return;
         }
+        if (!depositIsSettled && (await refuseWhenLegHeld(label, res, gate.job.id, 'deposit', 'withdraw'))) return;
       }
       await applyAndPersist(label, res, gate.job, (job) => recordWithdrawn(job, depositIsSettled));
     }),
@@ -7713,6 +7784,11 @@ export function createApp(
   // matching every other settlement-gate call site in this file. FIX-B74
   // applies the same rule to withdraw (above) and criteria: three doors,
   // one rule.
+  //
+  // B88: a deposit whose price transfer already reached the owner but has
+  // not settled holds the same way, at the statuses the deposit is payable
+  // in (legStatusEligible): refused (409, the held sentence, nothing
+  // written) before decline() runs. A failed half-paid read is 503.
   app.post(
     '/jobs/:jobId/decline',
     didSignature,
@@ -7729,6 +7805,13 @@ export function createApp(
       } catch (err) {
         console.error(`${label}: settlement gate failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (
+        !depositIsSettled &&
+        legStatusEligible('deposit', gate.job.status) &&
+        (await refuseWhenLegHeld(label, res, gate.job.id, 'deposit', 'decline'))
+      ) {
         return;
       }
       await applyAndPersist(label, res, gate.job, (job) => decline(job, depositIsSettled));
@@ -8177,22 +8260,32 @@ export function createApp(
 
   // SW3-07: the buyer's decline and redo at staged are moves for a hire that
   // is not yet paid in full. The payment model ruling (2026-09-01)
-  // is "one redo at staged before the balance, free decline at staged", and
-  // the design record names three moves there: pay the balance, request the
-  // one redo, or decline for free. Paying is one of the three, so once the
-  // second payment has settled the other two are gone and the hire goes on
-  // to its pull request. Declining a paid hire would end it in
+  // is "one redo at staged before the balance, free decline at staged",
+  // and the design record names three moves there: pay the balance, request
+  // the one redo, or decline for free. Paying is one of the three, so once
+  // the second payment has settled the other two are gone and the hire goes
+  // on to its pull request. Declining a paid hire would end it in
   // staged_declined, whose money is deposit only (DATA-CONTRACT 8.7), and
   // the buyer would lose the work they paid for. The gate is async, so
   // this read lives here at the route layer, like the pull-request route's.
+  //
+  // B88: a remainder whose price transfer already reached the owner but has
+  // not settled holds the same way, for the same reason: the buyer has paid
+  // part of the second payment, and declining or redoing would leave that
+  // money with the owner for work the buyer walked away from. The way
+  // forward is to finish the payment.
+  //
   // Answers the response and returns true when the route must stop: 409
-  // when paid in full, 503 when the gate cannot answer. Any other status is
-  // left to the domain's own transition refusal.
+  // when paid in full (`refusal`) or when the remainder is held
+  // (`heldAction`'s sentence), 503 when the settlement gate or the
+  // half-paid read cannot answer. Any other status is left to the domain's
+  // own transition refusal.
   async function refuseStagedMoveWhenPaid(
     label: string,
     res: Response,
     job: Job,
     refusal: string,
+    heldAction: HeldLegAction,
   ): Promise<boolean> {
     if (job.status !== 'staged') return false;
     let paidInFull: boolean;
@@ -8203,7 +8296,7 @@ export function createApp(
       res.status(503).json({ error: 'storage unavailable' });
       return true;
     }
-    if (!paidInFull) return false;
+    if (!paidInFull) return refuseWhenLegHeld(label, res, job.id, 'remainder', heldAction);
     res.status(409).json({ error: refusal });
     return true;
   }
@@ -8230,6 +8323,7 @@ export function createApp(
           res,
           gate.job,
           'This hire is paid in full, so the work can no longer be declined. The agent opens the pull request next.',
+          'staged-decline',
         )
       ) {
         return;
@@ -8268,6 +8362,7 @@ export function createApp(
           res,
           gate.job,
           'This hire is paid in full, so a redo can no longer be requested. The agent opens the pull request next.',
+          'redo',
         )
       ) {
         return;
@@ -8651,10 +8746,14 @@ export function createApp(
       // currency, the settled deposit's currency, then the operator
       // address for this rail. This door mints only ABT sessions
       // (attachAbtPaymentHandlers mounts here), so routeRail is fixed.
+      const heldAtTokenDoor = await readHeldRail('GET/POST /api/did/pay/token', res, gate.job.id, leg);
+      if (heldAtTokenDoor === null) return;
       const tokenDoorEligibility = await checkRailDoorEligible({
         jobId: gate.job.id,
+        leg,
         routeRail: 'abt',
         jobRail: gate.job.rail,
+        heldRail: heldAtTokenDoor.rail,
         settlementRepo,
         operatorAddressOk: await abtOperatorAddressOk(gate.job.agentDid),
       });
@@ -8723,6 +8822,8 @@ export function createApp(
           agentRepo,
           accountRepo: repo,
           settlementRepo,
+          heldRailFor: (jobId, leg) =>
+            railHoldingLeg({ jobId, leg, usdcRail: usdcPaymentRail, abtEthRail: abtEthPaymentRail }),
           platformSk: process.env.FREEAGENTS_ABT_PLATFORM_SK || '',
           chainHost: process.env.FREEAGENTS_ABT_CHAIN_HOST || '',
           baseUrl: publicBaseUrlFromEnv(),
@@ -8798,10 +8899,14 @@ export function createApp(
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
       // address for this rail.
+      const heldAtAbtStart = await readHeldRail(label, res, gate.job.id, leg);
+      if (heldAtAbtStart === null) return;
       const abtEligibility = await checkRailDoorEligible({
         jobId: gate.job.id,
+        leg,
         routeRail: 'abt',
         jobRail: gate.job.rail,
+        heldRail: heldAtAbtStart.rail,
         settlementRepo,
         operatorAddressOk: await abtOperatorAddressOk(gate.job.agentDid),
       });
@@ -8942,10 +9047,14 @@ export function createApp(
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, then the operator
       // address for this rail.
+      const heldAtUsdcStart = await readHeldRail(label, res, gate.job.id, leg);
+      if (heldAtUsdcStart === null) return;
       const usdcEligibility = await checkRailDoorEligible({
         jobId: gate.job.id,
+        leg,
         routeRail: 'usdc',
         jobRail: gate.job.rail,
+        heldRail: heldAtUsdcStart.rail,
         settlementRepo,
         operatorAddressOk: operatorAddressResult.ok,
       });
@@ -9098,10 +9207,14 @@ export function createApp(
         // B25's job-rail-only check, in this order: the job's pinned
         // currency, the settled deposit's currency, then the operator
         // address for this rail.
+        const heldAtUsdcResponse = await readHeldRail(label, res, gate.job.id, leg);
+        if (heldAtUsdcResponse === null) return;
         const usdcResponseEligibility = await checkRailDoorEligible({
           jobId: gate.job.id,
+          leg,
           routeRail: 'usdc',
           jobRail: gate.job.rail,
+          heldRail: heldAtUsdcResponse.rail,
           settlementRepo,
           operatorAddressOk: (await usdcOperatorAddressForJob(gate.job.agentDid)).ok,
         });
@@ -9282,10 +9395,14 @@ export function createApp(
         return;
       }
       const operatorAddress = await abtEthOperatorAddressForJob(gate.job.agentDid);
+      const heldAtAbtEthStart = await readHeldRail(label, res, gate.job.id, leg);
+      if (heldAtAbtEthStart === null) return;
       const eligibility = await checkRailDoorEligible({
         jobId: gate.job.id,
+        leg,
         routeRail: 'abt_eth',
         jobRail: gate.job.rail,
+        heldRail: heldAtAbtEthStart.rail,
         settlementRepo,
         operatorAddressOk: operatorAddress !== null,
       });
@@ -9463,10 +9580,14 @@ export function createApp(
         incomingFeeHash === recordedFeeHash;
       const operatorAddress = await abtEthOperatorAddressForJob(gate.job.agentDid);
       if (!isIdempotentReplay) {
+        const heldAtAbtEthResponse = await readHeldRail(label, res, gate.job.id, leg);
+        if (heldAtAbtEthResponse === null) return;
         const eligibility = await checkRailDoorEligible({
           jobId: gate.job.id,
+          leg,
           routeRail: 'abt_eth',
           jobRail: gate.job.rail,
+          heldRail: heldAtAbtEthResponse.rail,
           settlementRepo,
           operatorAddressOk: operatorAddress !== null,
         });
