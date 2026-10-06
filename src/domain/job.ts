@@ -973,7 +973,8 @@ export function mergedInsideWindow(job: Job, mergedAt: Date): boolean {
 // settlement gets the safe answer. remainderSettledAt defaults to null,
 // which leaves the delivery clock idle, so a caller that passes neither
 // behaves exactly as before the delivery clock existed; the one caller
-// today passes only remainderIsSettled.
+// today, src/api/app.ts's applyLiveLapses, passes both: the settlement
+// gate's answer and the observedAt of the remainder's settlement row.
 // deemCompleted needs no live fact, but its caller has one to ask first
 // (whether GitHub saw a merge inside the window); see its header comment.
 //
