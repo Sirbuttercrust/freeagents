@@ -5912,17 +5912,20 @@ export function createApp(
     return applyLiveLapses(label, current, res);
   }
 
-  // The live half of applyLapses: lapseAtStaged is the one clock that
-  // needs a fact beyond the row itself (whether the balance has settled),
-  // so this is where the settlement gate is actually asked, for staged
+  // The live half of applyLapses: two of its four clocks need a fact
+  // beyond the row itself. lapseAtStaged needs whether the balance has
+  // settled, and lapseUndelivered needs when the remainder settled (the
+  // observedAt of its settlement row), so this is where the settlement
+  // gate and the settlement row are actually asked, for staged
   // AND redo_requested (the earlier
   // fix widened lapseAtStaged to also cover redo_requested, but this
   // function still asked the gate only for staged, so a paid buyer with a
   // pending redo was fed a fabricated "not settled" answer and could be
-  // terminated closed_unpaid with the gate never consulted -- the other
-  // clock, deemCompleted, never consults the settlement gate; its own live
-  // question, whether GitHub saw a merge inside the review window, is asked
-  // by askGithubBeforeDeeming below). Deriving the set from
+  // terminated closed_unpaid with the gate never consulted). The other
+  // two clocks, expireUnstaged and deemCompleted, never consult the
+  // settlement gate or the settlement row; deemCompleted's own live
+  // question, whether GitHub saw a merge inside the review window, is
+  // asked by askGithubBeforeDeeming below. Deriving the set from
   // lapseAtStaged's own starting statuses, rather than repeating a second
   // literal here, is what keeps this call site from silently falling
   // behind the domain function again the next time that set changes. A
@@ -6282,11 +6285,24 @@ export function createApp(
   // the whole list.
   async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
     let remainderIsSettled = false;
+    let remainderSettledAt: Date | null = null;
     if (LAPSE_AT_STAGED_STATUSES.has(job.status)) {
       try {
         remainderIsSettled = await remainderSettled(settlementGate, job.id);
       } catch (err) {
         console.error(`${label}: settlement gate failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return null;
+      }
+      // The delivery clock counts from the instant the remainder's
+      // settlement row was first recorded. The gate says whether it
+      // settled; only the row says when. A read that fails is the same
+      // 503 as the gate's, never a guess at a time.
+      try {
+        const settlement = await settlementRepo.findByJobAndLeg(job.id, 'remainder');
+        remainderSettledAt = settlement === null ? null : settlement.observedAt;
+      } catch (err) {
+        console.error(`${label}: settlement read failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
         return null;
       }
@@ -6297,7 +6313,7 @@ export function createApp(
       if (asked.kind === 'answered') return null;
       if (asked.kind === 'completed') return asked.row;
     }
-    const lapsed = applyLapses(job, now, remainderIsSettled);
+    const lapsed = applyLapses(job, now, remainderIsSettled, remainderSettledAt);
     if (lapsed.status === job.status) {
       // Already settled at this status on an earlier read -- but if that
       // earlier read is the one whose issuance attempt failed, this is
@@ -9144,7 +9160,11 @@ export function createApp(
       // settlement (the rail itself already wrote its own half-paid row);
       // this route leaves the gate refusing and answers the per-leg
       // statuses confirm() carries.
-      if (confirmation.confirmed && ref.rail === 'usdc') {
+      // A replay is the exact pair this leg already has recorded, so the
+      // row and the paid line it wrote the first time are still true.
+      // Writing them again would move observedAt, which the delivery clock
+      // counts its 7 days from, and repeat the paid line in the thread.
+      if (confirmation.confirmed && ref.rail === 'usdc' && !isIdempotentReplay) {
         await settlementRepo.record({
           jobId: gate.job.id,
           leg,
@@ -9245,6 +9265,11 @@ export function createApp(
         // recorded. The row still carries the pull request's URL, so it
         // used to spend a github read before it was refused.
         'cited_closed',
+        // The hire ended paid in full before any pull request opened, so
+        // the row carries no pullRequestUrl and there is nothing on GitHub
+        // to observe; without this line a merge request reached the
+        // submitted-only parse below and threw.
+        'paid_undelivered',
       ];
       if (nonObservationStatuses.includes(current.status)) {
         res.status(409).json({ error: new JobTransitionError(current.status, 'merge').message });
