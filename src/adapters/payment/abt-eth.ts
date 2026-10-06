@@ -40,7 +40,7 @@ import {
   type WalletResponseInput,
 } from './types.js';
 import { createPrismaAbtEthHalfPaidStorage, createPrismaAbtEthSpentTransferStorage } from './abt-eth-storage-prisma.js';
-import type { UsdcHalfPaidStorage, UsdcTransferStatus } from './usdc-half-paid-storage-types.js';
+import type { UsdcHalfPaidRow, UsdcHalfPaidStorage, UsdcTransferStatus } from './usdc-half-paid-storage-types.js';
 import type { UsdcSpentTransferStorage } from './usdc-spent-transfer-storage-types.js';
 
 type AbtEthPaymentRequest = Extract<PaymentRequest, { rail: 'abt_eth' }>;
@@ -81,6 +81,20 @@ export function readAbtEthEnvConfig(): AbtEthEnvConfig {
   return { rpcUrl, tokenContract, chainId: Number.parseInt(chainIdRaw, 10), feeAddress };
 }
 
+// A leg's half-paid row as the ABT-on-Ethereum rail stores it: the shared
+// USDC row plus the id of the quote lock the confirmed transfer was checked
+// against. lockId is optional so a store built from the USDC types still
+// fits; absent reads as null, the same as a row written before the column.
+export interface AbtEthHalfPaidRow extends UsdcHalfPaidRow {
+  readonly lockId?: string | null;
+}
+
+export interface AbtEthHalfPaidStorage {
+  record(row: AbtEthHalfPaidRow): Promise<void>;
+  read(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthHalfPaidRow | null>;
+  clear(jobId: string, leg: 'deposit' | 'balance'): Promise<void>;
+}
+
 export interface CreateAbtEthPaymentRailOptions {
   // The shared client plus recordedAt: a fake without recordedAt does not
   // compile here. The USDC rail keeps the shared Erc20ChainClient.
@@ -88,7 +102,7 @@ export interface CreateAbtEthPaymentRailOptions {
   // The ABT/USD feed. Defaults to the CoinGecko source the ArcBlock-chain
   // rail uses.
   readonly rateSource?: AbtUsdRateSource;
-  readonly halfPaidStorage?: UsdcHalfPaidStorage;
+  readonly halfPaidStorage?: AbtEthHalfPaidStorage;
   readonly spentTransferStorage?: UsdcSpentTransferStorage;
 }
 
@@ -100,12 +114,20 @@ export interface AbtEthQuote extends Quote {
   readonly rateUpdatedAt: Date;
 }
 
-// The shape of a leg's half-paid record the start route answers with.
+// The shape of a leg's half-paid record the start route answers with. The
+// lock id is not part of what the start answers (the lock rides in
+// quoteLock.id); the routes read it to finish the payment at that lock.
 export interface AbtEthHalfPaidRecord {
   readonly priceTxHash: string;
   readonly priceStatus: UsdcTransferStatus;
   readonly feeTxHash: string | null;
   readonly feeStatus: UsdcTransferStatus;
+}
+
+// What readHalfPaidRecord answers: the record above plus the lock it names,
+// null for a row written before the lock id was kept.
+export interface AbtEthStoredHalfPaidRecord extends AbtEthHalfPaidRecord {
+  readonly lockId: string | null;
 }
 
 // The shared confirmation plus the time the network recorded the price
@@ -122,7 +144,7 @@ export interface AbtEthPaymentRail {
   createRequest(input: CreateRequestInput): Promise<AbtEthPaymentRequest>;
   onWalletResponse(input: AbtEthWalletResponseInput): Promise<AbtEthPaymentRef>;
   confirm(ref: AbtEthPaymentRef): Promise<AbtEthConfirmation>;
-  readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthHalfPaidRecord | null>;
+  readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthStoredHalfPaidRecord | null>;
 }
 
 export function createAbtEthPaymentRail(options: CreateAbtEthPaymentRailOptions = {}): AbtEthPaymentRail {
@@ -198,14 +220,22 @@ export function createAbtEthPaymentRail(options: CreateAbtEthPaymentRailOptions 
         feeTxHash: input.feeTx.signed ? normalizeTxHash(input.feeTx.hash) : null,
         expectedPriceBaseUnits: toBaseUnits(input.amountToken, decimals),
         expectedFeeBaseUnits: toBaseUnits(input.feeToken, decimals),
+        quoteLockId: input.quoteLockId,
       };
     },
 
     async confirm(ref: AbtEthPaymentRef): Promise<AbtEthConfirmation> {
       // The shared two-transfer confirm (erc20.ts), against the ABT
       // contract on this rail's chain and this rail's own spent-hash and
-      // half-paid tables.
-      const outcome = await confirmLegs(ref, chainClient, spentTransferStorage, halfPaidStorage);
+      // half-paid tables. The half-paid row it records is written with the
+      // lock the ref names, so the leg is finished at that lock; read and
+      // clear pass straight through.
+      const lockedHalfPaidStorage: UsdcHalfPaidStorage = {
+        record: (row) => halfPaidStorage.record({ ...row, lockId: ref.quoteLockId }),
+        read: (jobId, leg) => halfPaidStorage.read(jobId, leg),
+        clear: (jobId, leg) => halfPaidStorage.clear(jobId, leg),
+      };
+      const outcome = await confirmLegs(ref, chainClient, spentTransferStorage, lockedHalfPaidStorage);
       // The block time is read only for a price transfer that confirmed: a
       // receipt that is missing or paid something else has no time that
       // means anything here.
@@ -213,7 +243,7 @@ export function createAbtEthPaymentRail(options: CreateAbtEthPaymentRailOptions 
       return { rail: 'abt_eth', ...outcome, priceRecordedAt: recordedAt === null ? null : recordedAt.toISOString() };
     },
 
-    async readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthHalfPaidRecord | null> {
+    async readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthStoredHalfPaidRecord | null> {
       const row = await halfPaidStorage.read(jobId, leg);
       if (row === null) return null;
       return {
@@ -221,6 +251,7 @@ export function createAbtEthPaymentRail(options: CreateAbtEthPaymentRailOptions 
         priceStatus: row.priceStatus,
         feeTxHash: row.feeTxHash,
         feeStatus: row.feeStatus,
+        lockId: row.lockId ?? null,
       };
     },
   };

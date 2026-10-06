@@ -61,6 +61,7 @@ const response = {
   feeTx: { signed: true as const, hash: FEE_HASH },
   amountToken: '80',
   feeToken: '2.4',
+  quoteLockId: 'lock_1',
 };
 
 describe('the ABT-on-Ethereum route helpers: route-safe legs in, the rail internal spelling underneath', () => {
@@ -77,6 +78,7 @@ describe('the ABT-on-Ethereum route helpers: route-safe legs in, the rail intern
       feeTxHash: FEE_HASH,
       expectedPriceBaseUnits: '80000000000000000000',
       expectedFeeBaseUnits: '2400000000000000000',
+      quoteLockId: 'lock_1',
     });
   });
 
@@ -93,6 +95,7 @@ describe('the ABT-on-Ethereum route helpers: route-safe legs in, the rail intern
       feeTxHash: FEE_HASH,
       expectedPriceBaseUnits: '80000000000000000000',
       expectedFeeBaseUnits: '2400000000000000000',
+      quoteLockId: 'lock_1',
     });
   });
 
@@ -111,6 +114,7 @@ describe('the ABT-on-Ethereum route helpers: route-safe legs in, the rail intern
       priceStatus: 'confirmed',
       feeTxHash: FEE_HASH,
       feeStatus: 'not_confirmed',
+      lockId: null,
     });
     expect(await abtEthHalfPaidRecordFor(abtEthRail(storage), 'job_1', 'deposit')).toBeNull();
   });

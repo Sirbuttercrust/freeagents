@@ -14,6 +14,12 @@ import type { RouteLeg } from './route-support.js';
 
 export type { AbtEthQuoteLock, AbtEthQuoteLockStorage, NewAbtEthQuoteLock } from './abt-eth-quote-lock-types.js';
 
+// Answered when a report names a lock other than the one the leg's
+// half-paid record names, for the price transfer already on record. The
+// buyer can do the one thing that finishes the payment: reload, and the
+// start answers the lock the first transfer was confirmed against.
+export const STARTED_AT_EARLIER_PRICE_MESSAGE = 'This payment was started at an earlier price. Reload the page to finish it.';
+
 // Prisma when DATABASE_URL is configured, in-memory otherwise, with the
 // same restart-does-not-survive warning as session-storage.ts.
 export function createAbtEthQuoteLockStorage(): AbtEthQuoteLockStorage {

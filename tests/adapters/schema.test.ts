@@ -680,6 +680,45 @@ describe('prisma, the ABT-on-Ethereum short payment table is keyed by the price 
   });
 });
 
+// The half-paid record of the ABT-on-Ethereum rail names the lock its
+// confirmed transfer was checked against. The column is nullable so rows
+// written before it read null, and the migration only adds it.
+describe('prisma, the ABT-on-Ethereum half-paid record names its lock and is actually migrated', () => {
+  const migrationDir = new URL('../../prisma/migrations/20261006160000_fix_b85_half_paid_lock/', import.meta.url);
+  const sql = existsSync(fileURLToPath(migrationDir)) ? readFileSync(join(fileURLToPath(migrationDir), 'migration.sql'), 'utf8') : '';
+  const statements = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter((statement) => statement !== '');
+
+  it('the model declares the lock id as an optional string beside the existing columns', () => {
+    const lines = modelBody('AbtEthHalfPaidSettlement')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'))
+      .map((line) => line.split(/\s+/));
+    expect(lines).toEqual([
+      ['id', 'String', '@id', '@default(cuid())'],
+      ['jobId', 'String'],
+      ['leg', 'String'],
+      ['priceTxHash', 'String'],
+      ['priceStatus', 'UsdcTransferStatus'],
+      ['feeTxHash', 'String?'],
+      ['feeStatus', 'UsdcTransferStatus'],
+      ['recordedAt', 'DateTime', '@default(now())'],
+      ['lockId', 'String?'],
+      ['@@unique([jobId,', 'leg])'],
+    ]);
+  });
+
+  it('the migration is one statement that adds the nullable column', () => {
+    expect(statements).toEqual(['ALTER TABLE "AbtEthHalfPaidSettlement" ADD COLUMN "lockId" TEXT']);
+  });
+});
+
 // The delivery clock's ending: the JobStatus value must be in the migration
 // Postgres actually runs, in a migration of its own, because Postgres cannot
 // use a new enum value in the transaction that adds it.

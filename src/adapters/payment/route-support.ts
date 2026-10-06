@@ -17,7 +17,7 @@ import type {
   UsdcTransferIntent,
   WalletResponseInput,
 } from './types.js';
-import type { AbtEthHalfPaidRecord, AbtEthPaymentRail } from './abt-eth.js';
+import type { AbtEthPaymentRail, AbtEthStoredHalfPaidRecord } from './abt-eth.js';
 import type { UsdcHalfPaidRecord, UsdcPaymentRailShim } from './usdc.js';
 import { agreementGap, LAPSE_AT_STAGED_STATUSES, type AgreementGap, type Job, type JobStatus } from '../../domain/job.js';
 import { verifiedGithubLogin, type Agent } from '../../domain/agent.js';
@@ -250,12 +250,14 @@ export async function usdcHalfPaidRecordFor(
 }
 
 // The ABT-on-Ethereum rail's half-paid record for a leg, read the same way
-// and for the same reason as the USDC one above.
+// and for the same reason as the USDC one above, with the id of the lock its
+// confirmed transfer was checked against (null on a row written before the
+// lock id was kept).
 export async function abtEthHalfPaidRecordFor(
   rail: AbtEthPaymentRail,
   jobId: string,
   leg: RouteLeg,
-): Promise<AbtEthHalfPaidRecord | null> {
+): Promise<AbtEthStoredHalfPaidRecord | null> {
   return rail.readHalfPaidRecord(jobId, toRailLeg(leg));
 }
 

@@ -211,6 +211,10 @@ export type WalletResponseInput =
       readonly feeTx: { readonly signed: true; readonly hash: string } | { readonly signed: false };
       readonly amountToken: string;
       readonly feeToken: string;
+      // The id of the quote lock the amounts above came from. The rail
+      // writes it into the leg's half-paid record, so a later start and a
+      // later report can name the lock the first transfer was confirmed at.
+      readonly quoteLockId: string;
     };
 
 // Opaque per rail: what confirm() and every downstream caller address a
@@ -273,6 +277,8 @@ export type PaymentRef =
       readonly feeTxHash: string | null;
       readonly expectedPriceBaseUnits: string;
       readonly expectedFeeBaseUnits: string;
+      // The lock the expected amounts came from (see the input arm above).
+      readonly quoteLockId: string;
     };
 
 // Per-leg outcome confirm() actually observed on chain, on the two ERC-20

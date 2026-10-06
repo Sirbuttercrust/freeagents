@@ -2,10 +2,12 @@
 // rail: the same shapes and lazy-client stance as the USDC rail's two
 // drivers, over this rail's own tables (AbtEthSpentTransfer,
 // AbtEthHalfPaidSettlement). A hash is only unique within one chain, so this
-// rail does not share the USDC rail's tables. The row types are the USDC
-// ones, since the columns are identical.
+// rail does not share the USDC rail's tables. The spent-hash row type is the
+// USDC one, since the columns are identical; the half-paid row adds the lock
+// id (abt-eth.ts).
 import { PrismaClient } from '../../generated/prisma/index.js';
-import type { UsdcHalfPaidRow, UsdcHalfPaidStorage } from './usdc-half-paid-storage-types.js';
+import type { AbtEthHalfPaidRow, AbtEthHalfPaidStorage } from './abt-eth.js';
+import type { UsdcHalfPaidRow } from './usdc-half-paid-storage-types.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from './usdc-spent-transfer-storage-types.js';
 
 let client: PrismaClient | null = null;
@@ -14,14 +16,15 @@ function db(): PrismaClient {
   return client;
 }
 
-export function createPrismaAbtEthHalfPaidStorage(): UsdcHalfPaidStorage {
+export function createPrismaAbtEthHalfPaidStorage(): AbtEthHalfPaidStorage {
   return {
-    async record(row: UsdcHalfPaidRow): Promise<void> {
+    async record(row: AbtEthHalfPaidRow): Promise<void> {
       const data = {
         priceTxHash: row.priceTxHash,
         priceStatus: row.priceStatus,
         feeTxHash: row.feeTxHash,
         feeStatus: row.feeStatus,
+        lockId: row.lockId ?? null,
       };
       await db().abtEthHalfPaidSettlement.upsert({
         where: { jobId_leg: { jobId: row.jobId, leg: row.leg } },
@@ -30,7 +33,7 @@ export function createPrismaAbtEthHalfPaidStorage(): UsdcHalfPaidStorage {
       });
     },
 
-    async read(jobId: string, leg: 'deposit' | 'balance'): Promise<UsdcHalfPaidRow | null> {
+    async read(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthHalfPaidRow | null> {
       const row = await db().abtEthHalfPaidSettlement.findUnique({ where: { jobId_leg: { jobId, leg } } });
       if (row === null) return null;
       return {
@@ -40,6 +43,7 @@ export function createPrismaAbtEthHalfPaidStorage(): UsdcHalfPaidStorage {
         priceStatus: row.priceStatus as UsdcHalfPaidRow['priceStatus'],
         feeTxHash: row.feeTxHash,
         feeStatus: row.feeStatus as UsdcHalfPaidRow['feeStatus'],
+        lockId: row.lockId,
       };
     },
 
