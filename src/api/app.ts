@@ -269,6 +269,7 @@ import {
 import { reencodeImage, ImageReencodeError } from '../adapters/attachments/image.js';
 import { createWebhookSender, type WebhookSender } from '../adapters/webhook/webhook.js';
 import { createPushSender, type PushSender } from '../adapters/push/push.js';
+import { createOperatorAddressCheck, type OperatorAddressCheck, type OperatorAddressNetwork } from '../adapters/payment/operator-address-check.js';
 
 // chainIdentifiersMatch moved to
 // src/domain/chain-identifiers.ts (STG2T) so the staging adapter's
@@ -279,8 +280,8 @@ import { createPushSender, type PushSender } from '../adapters/push/push.js';
 // passkey was made under must not be public).
 //
 // accountProjection is the public shape: did, githubLogin, createdAt,
-// operatorAddressEvm, operatorAddressAbt, and no passkeySubject key at all
-// (absent, not null). GET /accounts/:did needs no sign-in, so anyone who
+// operatorAddressEvm, operatorAddressAbt, operatorAddressAbtEth, and no
+// passkeySubject key at all (absent, not null). GET /accounts/:did needs no sign-in, so anyone who
 // knows a DID reads this shape, and POST /accounts (also unauthenticated)
 // answers it too. tests/api/account-invariant2.test.ts and
 // tests/api/account-public-shape.test.ts assert the key set, and any added
@@ -292,9 +293,11 @@ import { createPushSender, type PushSender } from '../adapters/push/push.js';
 // party's own DID: GET /accounts/me and the 200 of
 // PATCH /accounts/:did/operator-address. The settings page reads it from
 // GET /accounts/me to show which sign-in method the account uses.
-// operatorAddressEvm and operatorAddressAbt ride both shapes the same way
-// (S3, P8c): null until the operator sets one through
-// PATCH /accounts/:did/operator-address.
+// operatorAddressEvm (USDC on Arbitrum), operatorAddressAbt (ABT on ArcBlock)
+// and operatorAddressAbtEth (ABT on Ethereum) ride both shapes the same way
+// (S3, P8c): each is null until the operator sets it through
+// PATCH /accounts/:did/operator-address, and no one is ever filled from
+// another.
 //
 // FIX-B62b: githubLogin in both shapes is the proved column, so a row
 // registered before logins needed proof shows githubLogin: null. Its
@@ -309,6 +312,7 @@ function accountProjection(row: Account): Record<string, unknown> {
     createdAt: row.createdAt.toISOString(),
     operatorAddressEvm: row.operatorAddressEvm,
     operatorAddressAbt: row.operatorAddressAbt,
+    operatorAddressAbtEth: row.operatorAddressAbtEth,
   };
 }
 
@@ -1166,6 +1170,12 @@ export function createApp(
   // observe what would have been sent, with no network in the suite.
   webhookSender: WebhookSender = createWebhookSender(),
   pushSender: PushSender = createPushSender(),
+  // The checksum read and the contract-code lookup behind
+  // PATCH /accounts/:did/operator-address. Injectable so no test reaches a
+  // network: the default asks the public node named by an environment
+  // variable, which no test environment sets, and a test that wants an answer
+  // hands in its own.
+  operatorAddressCheck: OperatorAddressCheck = createOperatorAddressCheck(),
 ): Express {
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
@@ -2393,13 +2403,18 @@ export function createApp(
       return;
     }
 
-    // P8c: either field alone is a valid request (brief scope item 3); a
-    // body naming neither is refused, the same way a body naming an
-    // invalid value for a field it DOES name is refused below.
-    const body = (req.body ?? {}) as { operatorAddressEvm?: unknown; operatorAddressAbt?: unknown };
-    if (body.operatorAddressEvm === undefined && body.operatorAddressAbt === undefined) {
+    // Any one of the three addresses alone is a valid request, and a body
+    // naming none of them is refused. Each address is its own value on its
+    // own network: no field is ever filled from another.
+    const body = (req.body ?? {}) as {
+      operatorAddressEvm?: unknown;
+      operatorAddressAbt?: unknown;
+      operatorAddressAbtEth?: unknown;
+      confirmContractAddress?: unknown;
+    };
+    if (body.operatorAddressEvm === undefined && body.operatorAddressAbt === undefined && body.operatorAddressAbtEth === undefined) {
       res.status(400).json({
-        error: 'body must name operatorAddressEvm, operatorAddressAbt, or both',
+        error: 'body must name at least one of operatorAddressEvm, operatorAddressAbt and operatorAddressAbtEth',
       });
       return;
     }
@@ -2415,12 +2430,63 @@ export function createApp(
       });
       return;
     }
+    if (body.operatorAddressAbtEth !== undefined && (typeof body.operatorAddressAbtEth !== 'string' || !isValidOperatorAddressEvm(body.operatorAddressAbtEth))) {
+      res.status(400).json({
+        error: 'operatorAddressAbtEth must be an Ethereum address matching /^0x[0-9a-fA-F]{40}$/',
+      });
+      return;
+    }
+
+    // The two Ethereum-style boxes are checked before anything is written:
+    // the checksum first (a mistyped address is refused outright), then what
+    // that box's own network says about the address. USDC is on Arbitrum and
+    // ABT is on Ethereum, so each field is asked on its own network.
+    const evmBoxes: { readonly field: 'operatorAddressEvm' | 'operatorAddressAbtEth'; readonly network: OperatorAddressNetwork; readonly address: string; readonly warning: string }[] = [];
+    if (typeof body.operatorAddressEvm === 'string') {
+      evmBoxes.push({
+        field: 'operatorAddressEvm',
+        network: 'arbitrum',
+        address: body.operatorAddressEvm,
+        warning:
+          'This address on Arbitrum holds contract code, so it may be a contract and not an ordinary wallet. USDC sent to a contract only arrives if the contract was built to receive it. Check the address in your wallet before you save it.',
+      });
+    }
+    if (typeof body.operatorAddressAbtEth === 'string') {
+      evmBoxes.push({
+        field: 'operatorAddressAbtEth',
+        network: 'ethereum',
+        address: body.operatorAddressAbtEth,
+        warning:
+          'This address on Ethereum holds contract code, so it may be a contract and not an ordinary wallet. ABT sent to a contract only arrives if the contract was built to receive it. Check the address in your wallet before you save it.',
+      });
+    }
+    const checked = await Promise.all(evmBoxes.map((box) => operatorAddressCheck.check(box.network, box.address)));
+    for (let i = 0; i < evmBoxes.length; i += 1) {
+      if (!(checked[i] as { checksumOk: boolean }).checksumOk) {
+        res.status(400).json({
+          error: `${(evmBoxes[i] as { field: string }).field} does not pass its checksum, so a character is probably mistyped; copy the address from your wallet again`,
+        });
+        return;
+      }
+    }
+    if (body.confirmContractAddress !== true) {
+      const contractBoxes = evmBoxes.filter((_box, i) => (checked[i] as { holdsContractCode: boolean | null }).holdsContractCode === true);
+      if (contractBoxes.length > 0) {
+        res.status(409).json({
+          error: contractBoxes.map((box) => box.warning).join(' '),
+          contractAddressFields: contractBoxes.map((box) => box.field),
+          confirmField: 'confirmContractAddress',
+        });
+        return;
+      }
+    }
 
     try {
       // Each field writes independently, through its own repository call,
-      // so a body naming only one never touches the other's stored value
+      // so a body naming only one never touches another's stored value
       // (S3's own stance on operatorAddressEvm, unchanged; P8c widens it
-      // to a second field rather than a second rule).
+      // to a second field and the Ethereum ABT address to a third). Every
+      // check above has passed, so a refusal of any field wrote none.
       let row: Account | null = null;
       if (body.operatorAddressEvm !== undefined) {
         row = await repo.setOperatorAddressEvm(did, body.operatorAddressEvm as string);
@@ -2431,6 +2497,13 @@ export function createApp(
       }
       if (body.operatorAddressAbt !== undefined) {
         row = await repo.setOperatorAddressAbt(did, body.operatorAddressAbt as string);
+        if (row === null) {
+          res.status(404).json({ error: 'not found' });
+          return;
+        }
+      }
+      if (body.operatorAddressAbtEth !== undefined) {
+        row = await repo.setOperatorAddressAbtEth(did, body.operatorAddressAbtEth as string);
         if (row === null) {
           res.status(404).json({ error: 'not found' });
           return;

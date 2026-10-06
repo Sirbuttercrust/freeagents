@@ -21,7 +21,7 @@ import { createJob } from '../../src/domain/job.js';
 import { fakeGitHubConfig, fakeGitHubFetch, mintSessionToken } from '../helpers/session-fixtures.js';
 
 const STRANGER_DID = 'did:abt:zNStrangerLegacyRowDidForB62b';
-const PUBLIC_KEYS = ['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm'];
+const PUBLIC_KEYS = ['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressAbtEth', 'operatorAddressEvm'];
 
 beforeAll(() => {
   vi.stubEnv('FREEAGENTS_PLATFORM_SEED', 'f'.repeat(64));
@@ -259,7 +259,7 @@ describe('promoteUnprovedGithubLogin, memory driver (FIX-B62b d)', () => {
 });
 
 describe('the public shape never carries the unproved login (FIX-B62b e)', () => {
-  it('GET /accounts/:did answers the five public keys, githubLogin null, and the text appears nowhere', async () => {
+  it('GET /accounts/:did answers the six public keys, githubLogin null, and the text appears nowhere', async () => {
     const accounts = new MemoryAccountRepository();
     await accounts.register({ did: STRANGER_DID, unprovedGithubLogin: 'victim-login' });
     const rig = await startRig(accounts);
@@ -274,7 +274,7 @@ describe('the public shape never carries the unproved login (FIX-B62b e)', () =>
     expect(JSON.stringify(res.body)).not.toContain('unprovedGithubLogin');
   });
 
-  it('POST /accounts answers the five public keys and no unprovedGithubLogin key', async () => {
+  it('POST /accounts answers the six public keys and no unprovedGithubLogin key', async () => {
     const accounts = new MemoryAccountRepository();
     await accounts.register({ did: STRANGER_DID, unprovedGithubLogin: 'victim-login' });
     const rig = await startRig(accounts);
