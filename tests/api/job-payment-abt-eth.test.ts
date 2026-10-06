@@ -1751,11 +1751,19 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
       const rig = await boot(BOTH);
       const { jobId } = await feeOnlyAtLock1(rig);
       expect(await payableRails(rig, jobId)).toEqual(['usdc', 'abt_eth']);
+      const before = structuredClone(await readJob(rig, jobId)) as {
+        price: { priceUsd: string; acceptedByAgent: boolean; acceptedByBuyer: boolean };
+      };
 
       const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
 
       expect(res.status).toBe(200);
-      expect(((await readJob(rig, jobId)) as { price: { priceUsd: string } }).price.priceUsd).toBe('600.00');
+      // A re-price changes the price and clears both sides' acceptance; nothing else in the body moves.
+      const expected = structuredClone(before);
+      expected.price.priceUsd = '600.00';
+      expected.price.acceptedByAgent = false;
+      expected.price.acceptedByBuyer = false;
+      expect(await readJob(rig, jobId)).toEqual(expected);
     });
 
     it('(h) answers 503 and changes nothing when the half-paid read fails, at criteria and at abt_eth/start', async () => {

@@ -8743,8 +8743,9 @@ export function createApp(
       }
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
-      // currency, the settled deposit's currency, then the operator
-      // address for this rail. This door mints only ABT sessions
+      // currency, the settled deposit's currency, the rail a
+      // half-paid leg is held on, then the operator address for this
+      // rail. This door mints only ABT sessions
       // (attachAbtPaymentHandlers mounts here), so routeRail is fixed.
       const heldAtTokenDoor = await readHeldRail('GET/POST /api/did/pay/token', res, gate.job.id, leg);
       if (heldAtTokenDoor === null) return;
@@ -8897,8 +8898,9 @@ export function createApp(
       }
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
-      // currency, the settled deposit's currency, then the operator
-      // address for this rail.
+      // currency, the settled deposit's currency, the rail a
+      // half-paid leg is held on, then the operator address for this
+      // rail.
       const heldAtAbtStart = await readHeldRail(label, res, gate.job.id, leg);
       if (heldAtAbtStart === null) return;
       const abtEligibility = await checkRailDoorEligible({
@@ -9045,8 +9047,9 @@ export function createApp(
       const operatorAddressResult = await usdcOperatorAddressForJob(gate.job.agentDid);
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
-      // currency, the settled deposit's currency, then the operator
-      // address for this rail.
+      // currency, the settled deposit's currency, the rail a
+      // half-paid leg is held on, then the operator address for this
+      // rail.
       const heldAtUsdcStart = await readHeldRail(label, res, gate.job.id, leg);
       if (heldAtUsdcStart === null) return;
       const usdcEligibility = await checkRailDoorEligible({
@@ -9205,8 +9208,9 @@ export function createApp(
       if (!isIdempotentReplay) {
         // FIX-B39 (B39), rule 5: ONE shared check, in place of
         // B25's job-rail-only check, in this order: the job's pinned
-        // currency, the settled deposit's currency, then the operator
-        // address for this rail.
+        // currency, the settled deposit's currency, the rail a
+        // half-paid leg is held on, then the operator address for this
+        // rail.
         const heldAtUsdcResponse = await readHeldRail(label, res, gate.job.id, leg);
         if (heldAtUsdcResponse === null) return;
         const usdcResponseEligibility = await checkRailDoorEligible({

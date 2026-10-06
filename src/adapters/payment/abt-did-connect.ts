@@ -472,8 +472,9 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       }
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
-      // currency, the settled deposit's currency, then the operator
-      // address for this rail. operatorAddressOk here makes its OWN
+      // currency, the settled deposit's currency, the rail a
+      // half-paid leg is held on, then the operator address for this
+      // rail. operatorAddressOk here makes its OWN
       // call to operatorAddressForJob (a second, separate call from the
       // one a few lines below that resolves the actual recipient
       // address): the two calls answer different questions (a boolean
