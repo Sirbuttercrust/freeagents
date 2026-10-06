@@ -3,7 +3,7 @@
 // GET /accounts/:did needs no sign-in, so anyone who knew a DID could read
 // it. Pinned here, over real HTTP and a real WebAuthn sign-up
 // (tests/helpers/webauthn-fixtures.ts): the two answers that go to whoever
-// asks (GET /accounts/:did and the POST /accounts 201) carry the five public
+// asks (GET /accounts/:did and the POST /accounts 201) carry the six public
 // keys and no passkeySubject key at all, while the two answers that go to
 // the account itself (GET /accounts/me and the operator-address PATCH 200)
 // keep it.

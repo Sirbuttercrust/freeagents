@@ -769,9 +769,9 @@ interface SessionedRequest extends Request {
 // second row -- the race two concurrent first requests create is closed
 // by catching that error and re-reading the winner's row, never a 500.
 // The custody fence lives entirely in what this function does NOT do: it
-// never calls setOperatorAddressEvm or setOperatorAddressAbt, so a
+// never calls an operator-address setter, so a
 // provisioned account's payout addresses stay exactly what register()
-// itself defaults them to (null on both rails, in both storage drivers).
+// itself defaults them to (null on all three rails, in both storage drivers).
 //
 // FIX-B62b: a GitHub sign-in resolves only to a row holding the login in
 // the proved githubLogin column. A row registered before logins needed
@@ -2373,7 +2373,8 @@ export function createApp(
   });
 
   // S3, Ruling 4 / P8c: the ONLY way an account's payout addresses are ever
-  // set, on either rail. Guarded by requireSessionOrSignature (401 with no
+  // set, on any of the three rails (USDC on Arbitrum, ABT on ArcBlock, ABT
+  // on Ethereum). Guarded by requireSessionOrSignature (401 with no
   // proof at all) and then by the resolved acting party equalling :did
   // (403 for a registered stranger; the domain rule is "an account may
   // only set its own address", never "the caller differs from the buyer"
