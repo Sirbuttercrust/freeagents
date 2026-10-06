@@ -143,6 +143,8 @@ export const ROUTE_TABLE: readonly RouteEntry[] = [
   { method: 'POST', pattern: '/jobs/:jobId/payments/:leg/abt/start', classification: 'upstream' },
   { method: 'POST', pattern: '/jobs/:jobId/payments/:leg/usdc/start', classification: 'upstream' },
   { method: 'POST', pattern: '/jobs/:jobId/payments/:leg/usdc/wallet-response', classification: 'upstream' },
+  { method: 'POST', pattern: '/jobs/:jobId/payments/:leg/abt_eth/start', classification: 'upstream' },
+  { method: 'POST', pattern: '/jobs/:jobId/payments/:leg/abt_eth/wallet-response', classification: 'upstream' },
   { method: 'POST', pattern: '/jobs/:jobId/merge', classification: 'upstream' },
   { method: 'POST', pattern: '/jobs/:jobId/cited-close', classification: 'write' },
   { method: 'POST', pattern: '/jobs/:jobId/reviews', classification: 'write' },

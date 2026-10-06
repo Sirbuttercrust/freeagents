@@ -546,7 +546,7 @@ describe('7. the access list renders into the component its sheet styles', () =>
     expect(served.capabilities.length, 'GET /capabilities returned nothing to label').toBeGreaterThan(0);
     const perJob = served.capabilities.filter((cap) => cap.path.includes('/jobs/:jobId'));
     const shown = served.capabilities.filter((cap) => !cap.path.includes('/jobs/:jobId'));
-    expect(perJob.length, 'no per-job step served: the filter below would be untested').toBe(19);
+    expect(perJob.length, 'no per-job step served: the filter below would be untested').toBe(21);
     expect(shown.map((cap) => cap.id)).toContain('job.hire');
 
     const page = await renderSignin();

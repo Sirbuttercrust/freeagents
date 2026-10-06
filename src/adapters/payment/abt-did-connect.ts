@@ -112,7 +112,7 @@ export interface AttachAbtPaymentHandlersOptions {
   readonly onSettlementRecorded?: (input: {
     readonly jobId: string;
     readonly leg: 'deposit' | 'remainder';
-    readonly rail: 'abt' | 'usdc';
+    readonly rail: 'abt' | 'usdc' | 'abt_eth';
     readonly amountUsd: string;
   }) => void | Promise<void>;
 }

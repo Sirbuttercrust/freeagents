@@ -157,18 +157,29 @@ import {
 import { depositUsd, remainderUsd } from '../domain/payment.js';
 import { createSettlementGate, remainderSettled, type SettlementGate } from '../adapters/payment/gate.js';
 import type { AbtPaymentRail } from '../adapters/payment/abt.js';
+import type { AbtEthPaymentRail } from '../adapters/payment/abt-eth.js';
+import {
+  checkAbtEthQuoteLock,
+  createAbtEthQuoteLockStorage,
+  lockAbtEthQuote,
+  type AbtEthQuoteLockStorage,
+} from '../adapters/payment/abt-eth-quote-lock.js';
+import { createAbtEthShortPaymentStorage, type AbtEthShortPaymentStorage } from '../adapters/payment/abt-eth-short-payment.js';
 import { normalizeUsdcTxHash, type UsdcPaymentRailShim } from '../adapters/payment/usdc.js';
-import { createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adapters/payment/rail-factory.js';
+import { createAbtEthPaymentRailOrNull, createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adapters/payment/rail-factory.js';
 import { attachAbtPaymentHandlers, setProvenStarter, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
 import { createTxEncoder as createAbtTxEncoder } from '@ocap/client/encode';
 import {
+  abtEthHalfPaidRecordFor,
   checkDepositReadiness,
   checkLegNotAlreadySettled,
   checkRailDoorEligible,
   checkRepositoryReady,
   confirmPayment,
+  judgeLateAbtEthPayment,
   legStatusConflictMessage,
   legStatusEligible,
+  operatorAddressNotSetMessage,
   processWalletResponse,
   repositoryNotAccessibleMessage,
   requestPayment,
@@ -649,6 +660,7 @@ async function payableRailsFor(
   const rails: Rail[] = [];
   if (account.operatorAddressAbt !== null) rails.push('abt');
   if (account.operatorAddressEvm !== null) rails.push('usdc');
+  if (account.operatorAddressAbtEth !== null) rails.push('abt_eth');
   return rails;
 }
 
@@ -1176,7 +1188,28 @@ export function createApp(
   // variable, which no test environment sets, and a test that wants an answer
   // hands in its own.
   operatorAddressCheck: OperatorAddressCheck = createOperatorAddressCheck(),
+  // ABT on Ethereum: the third payment rail, with the same null-safe stance
+  // as the two above. Injectable so a test hands in a rail built on a fake
+  // chain client and a fake price feed; the default answers null on a
+  // deployment with no ABT-on-Ethereum variables, and the two routes then
+  // answer 503.
+  abtEthPaymentRail: AbtEthPaymentRail | null = createAbtEthPaymentRailOrNull(),
+  // The price each ABT-on-Ethereum checkout locked. Left undefined by every
+  // caller that has no rail, and built only when a rail is configured, so a
+  // deployment or a test without the rail never gets the in-memory-storage
+  // warning from a default it did not ask for. Injectable so a test can read
+  // the rows the start wrote.
+  abtEthQuoteLockStorage: AbtEthQuoteLockStorage | undefined = undefined,
+  // The payments the network recorded after their price hold that were worth
+  // less than the agreed price. Built only when the rail is configured, for
+  // the same reason as the lock storage above, and injectable so a test can
+  // read the rows a short report wrote.
+  abtEthShortPaymentStorage: AbtEthShortPaymentStorage | undefined = undefined,
 ): Express {
+  const abtEthLocks: AbtEthQuoteLockStorage | null =
+    abtEthPaymentRail === null ? null : (abtEthQuoteLockStorage ?? createAbtEthQuoteLockStorage());
+  const abtEthShorts: AbtEthShortPaymentStorage | null =
+    abtEthPaymentRail === null ? null : (abtEthShortPaymentStorage ?? createAbtEthShortPaymentStorage());
   // One repository behind both halves of the capability when the caller
   // supplies neither. createCredentialRepository() hands the memory driver a
   // fresh Map per call, so defaulting the adapter with its own separate call
@@ -6889,7 +6922,7 @@ export function createApp(
   async function recordSettlementSystemEvent(input: {
     readonly jobId: string;
     readonly leg: 'deposit' | 'remainder';
-    readonly rail: 'abt' | 'usdc';
+    readonly rail: 'abt' | 'usdc' | 'abt_eth';
     readonly amountUsd: string;
   }): Promise<void> {
     try {
@@ -7044,13 +7077,13 @@ export function createApp(
           // FIX-B39, rule 1: rail is OPTIONAL on a price proposal (the ABT
           // ruling, 2026-09-15: "the buyer pays in whatever they came
           // with"). A proposal that names one still pins the job to it.
-          (rail !== undefined && rail !== 'abt' && rail !== 'usdc') ||
+          (rail !== undefined && rail !== 'abt' && rail !== 'usdc' && rail !== 'abt_eth') ||
           (deliveryWindowDays !== undefined &&
             (typeof deliveryWindowDays !== 'number' || !Number.isInteger(deliveryWindowDays) || deliveryWindowDays <= 0))
         ) {
           res.status(400).json({
             error:
-              'a proposed price must be { priceUsd, rail?, deliveryWindowDays? }; priceUsd a decimal string, rail (if present) "abt" or "usdc", deliveryWindowDays (if present) a positive integer',
+              'a proposed price must be { priceUsd, rail?, deliveryWindowDays? }; priceUsd a decimal string, rail (if present) "abt", "usdc" or "abt_eth", deliveryWindowDays (if present) a positive integer',
           });
           return;
         }
@@ -7098,8 +7131,8 @@ export function createApp(
         // Well-formed by the guard above; re-narrow so the domain call
         // below is typed without a cast. FIX-B39: rail may be absent
         // entirely (an open quote), so this stays undefined rather than
-        // being forced to 'abt' | 'usdc'.
-        const rawRail = rail as 'abt' | 'usdc' | undefined;
+        // being forced to one of the three.
+        const rawRail = rail as 'abt' | 'usdc' | 'abt_eth' | undefined;
         const rawWindow = deliveryWindowDays as number | undefined;
         // Scope item 5: refused at propose time, before the
         // domain ever sees it, naming the floor. Only fires when the job's
@@ -8514,6 +8547,20 @@ export function createApp(
     return { ok: true, operatorAddress: account.operatorAddressEvm };
   }
 
+  // The recipient of an ABT-on-Ethereum payment: the address the hired
+  // agent's operator set for that network, resolved from the account the way
+  // usdcOperatorAddressForJob resolves the USDC one. It reads operatorAddressAbtEth
+  // and nothing else: an owner with only a USDC address has none here, and
+  // the two are never swapped for each other (the same 0x shape on a
+  // different network is exactly the wrong-network mistake).
+  async function abtEthOperatorAddressForJob(agentDid: string): Promise<string | null> {
+    const agent = await agentRepo.findByDid(agentDid);
+    if (agent === null) return null;
+    const account = await repo.findByDid(agent.operatorDid);
+    if (account === null) return null;
+    return account.operatorAddressAbtEth;
+  }
+
   // FIX-B39 (B39), rule 5: whether the hired agent's operator has
   // an ABT payout address on record, resolved the same way
   // usdcOperatorAddressForJob resolves the USDC sibling, so
@@ -9184,6 +9231,339 @@ export function createApp(
         });
       }
 
+      res.status(200).json(confirmation);
+    }),
+  );
+
+  // The ABT-on-Ethereum start route: the USDC start's gates in the USDC
+  // start's order, then a quote, a lock and the request. The lock is what the
+  // wallet-response route checks the report against: the buyer's wallet
+  // broadcasts the two transfers itself and the platform hears of them
+  // afterwards, so the amounts the buyer was asked to sign are kept here,
+  // per start, and never read again from the price feed.
+  //
+  // Invariant 12: the answer is an intent for the buyer's own wallet. The
+  // platform builds, signs and holds nothing.
+  app.post(
+    '/jobs/:jobId/payments/:leg/abt_eth/start',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/payments/:leg/abt_eth/start';
+      const leg = parseRouteLeg(String(req.params.leg));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      if (abtEthPaymentRail === null || abtEthLocks === null) {
+        res.status(503).json({ error: 'the abt_eth payment rail is not configured on this deployment' });
+        return;
+      }
+      const body = (req.body ?? {}) as { operatorAddress?: unknown };
+      if (body.operatorAddress !== undefined) {
+        res.status(400).json({
+          error: "the recipient is resolved from the hired agent's operator and may not be supplied",
+        });
+        return;
+      }
+      if (gate.job.priceUsd === null) {
+        res.status(409).json({ error: 'this job has no agreed price to pay against' });
+        return;
+      }
+      const operatorAddress = await abtEthOperatorAddressForJob(gate.job.agentDid);
+      const eligibility = await checkRailDoorEligible({
+        jobId: gate.job.id,
+        routeRail: 'abt_eth',
+        jobRail: gate.job.rail,
+        settlementRepo,
+        operatorAddressOk: operatorAddress !== null,
+      });
+      if (!eligibility.ok) {
+        res.status(eligibility.status).json({ error: eligibility.message });
+        return;
+      }
+      if (!legStatusEligible(leg, gate.job.status)) {
+        res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+        return;
+      }
+      const alreadySettled = await checkLegNotAlreadySettled({
+        jobId: gate.job.id,
+        leg,
+        settlementRepo,
+      });
+      if (!alreadySettled.ok) {
+        res.status(alreadySettled.status).json({ error: alreadySettled.message });
+        return;
+      }
+      if (leg === 'deposit') {
+        const readiness = await checkDepositReadiness({
+          label,
+          job: gate.job,
+          jobRepo,
+          github,
+          agent: await agentRepo.findByDid(gate.job.agentDid),
+        });
+        if (!readiness.ok) {
+          res.status(readiness.status).json({ error: readiness.message });
+          return;
+        }
+      }
+      // Narrowing only: checkRailDoorEligible above already refused every
+      // case where the owner has no ABT-on-Ethereum address.
+      if (operatorAddress === null) {
+        res.status(409).json({ error: operatorAddressNotSetMessage('abt_eth') });
+        return;
+      }
+      // The amount comes from the job's signed price, never a body field.
+      const amountUsd = legAmountUsdFromJob(gate.job, leg);
+      let quote;
+      try {
+        quote = await abtEthPaymentRail.quote({ priceUsd: amountUsd });
+      } catch (err) {
+        if (err instanceof RateUnavailableError) {
+          res.status(503).json({ error: 'The ABT price is not available right now. Try again in a minute.' });
+          return;
+        }
+        console.error(`${label}: rail failed`, err);
+        res.status(503).json({ error: 'the abt_eth payment rail is unavailable' });
+        return;
+      }
+      const lock = await lockAbtEthQuote(abtEthLocks, { jobId: gate.job.id, leg, amountUsd, quote, now: new Date() });
+      // The request is built from the lock's own amounts, never a second
+      // quote: what the buyer is asked to sign is what the report is checked
+      // against. A failure here (the node not answering for the token's
+      // decimals) leaves the lock row behind, which no buyer holds the id of
+      // and no report can name.
+      let request: PaymentRequest;
+      try {
+        request = await requestPayment(abtEthPaymentRail, {
+          jobId: gate.job.id,
+          leg,
+          operatorAddress,
+          amountToken: lock.amountToken,
+          feeToken: lock.feeToken,
+        });
+      } catch (err) {
+        console.error(`${label}: rail failed`, err);
+        res.status(503).json({ error: 'the abt_eth payment rail is unavailable' });
+        return;
+      }
+      const quoteLock = {
+        id: lock.id,
+        usdPerAbt: lock.usdPerToken,
+        rateUpdatedAt: lock.rateUpdatedAt === null ? null : lock.rateUpdatedAt.toISOString(),
+        expiresAt: lock.expiresAt.toISOString(),
+      };
+      // The leg's half-paid record rides beside the request when the leg has
+      // one, so a device can finish the payment by sending only what is missing.
+      const halfPaidRecord = await abtEthHalfPaidRecordFor(abtEthPaymentRail, gate.job.id, leg);
+      res.status(200).json(halfPaidRecord === null ? { ...request, quoteLock } : { ...request, quoteLock, halfPaidRecord });
+    }),
+  );
+
+  // The ABT-on-Ethereum report route: what the wallet answered, the price
+  // hash and the fee outcome, with the id of the lock the start answered.
+  // The rail is handed the lock's amounts, never the body's and never a new
+  // quote, so a price that moved since the start cannot change what the
+  // network is checked against.
+  //
+  // The late-transfer rule. The buyer's wallet broadcast the transfers, so the
+  // time that counts is the block time the rail read (priceRecordedAt), never
+  // the time this request arrived. Recorded inside the hold: it counts at
+  // the held price however late this report is. Recorded at or after the
+  // hold's end, or with no block time: it counts only if the locked token
+  // amount is still worth the agreed dollars at a price read now; otherwise
+  // it is stored as short, nothing settles, and the hire waits on the owner.
+  app.post(
+    '/jobs/:jobId/payments/:leg/abt_eth/wallet-response',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/payments/:leg/abt_eth/wallet-response';
+      const leg = parseRouteLeg(String(req.params.leg));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['buyer']);
+      if (gate === null) return;
+      if (abtEthPaymentRail === null || abtEthLocks === null || abtEthShorts === null) {
+        res.status(503).json({ error: 'the abt_eth payment rail is not configured on this deployment' });
+        return;
+      }
+      if (gate.job.priceUsd === null) {
+        res.status(409).json({ error: 'this job has no agreed price to pay against' });
+        return;
+      }
+      // A replay is the exact pair this leg already has recorded (the price
+      // hash and the fee hash, or the same "the wallet never signed the
+      // fee"), recognised before the status and rail gates so a late or
+      // duplicate report still answers as the first one did after the job
+      // moved on. It writes nothing: the settlement row's time is what the
+      // delivery clock counts its 7 days from, and the paid line is already
+      // in the thread. Hashes compare without case.
+      const replayBody = req.body as
+        | { priceTxHash?: unknown; feeTx?: { signed?: unknown; hash?: unknown } }
+        | undefined;
+      const alreadyRecorded = await settlementRepo.findByJobAndLeg(gate.job.id, leg);
+      const incomingFeeHash =
+        typeof replayBody?.feeTx === 'object' &&
+        replayBody.feeTx !== null &&
+        replayBody.feeTx.signed === true &&
+        typeof replayBody.feeTx.hash === 'string'
+          ? replayBody.feeTx.hash.toLowerCase()
+          : null;
+      const recordedFeeHash = alreadyRecorded?.secondaryHash != null ? alreadyRecorded.secondaryHash.toLowerCase() : null;
+      const isIdempotentReplay =
+        alreadyRecorded !== null &&
+        typeof replayBody?.priceTxHash === 'string' &&
+        alreadyRecorded.hash.toLowerCase() === replayBody.priceTxHash.toLowerCase() &&
+        incomingFeeHash === recordedFeeHash;
+      const operatorAddress = await abtEthOperatorAddressForJob(gate.job.agentDid);
+      if (!isIdempotentReplay) {
+        const eligibility = await checkRailDoorEligible({
+          jobId: gate.job.id,
+          routeRail: 'abt_eth',
+          jobRail: gate.job.rail,
+          settlementRepo,
+          operatorAddressOk: operatorAddress !== null,
+        });
+        if (!eligibility.ok) {
+          res.status(eligibility.status).json({ error: eligibility.message });
+          return;
+        }
+        if (!legStatusEligible(leg, gate.job.status)) {
+          res.status(409).json({ error: legStatusConflictMessage(leg, gate.job.status) });
+          return;
+        }
+        const alreadySettled = await checkLegNotAlreadySettled({
+          jobId: gate.job.id,
+          leg,
+          settlementRepo,
+        });
+        if (!alreadySettled.ok) {
+          res.status(alreadySettled.status).json({ error: alreadySettled.message });
+          return;
+        }
+      }
+      const body = (req.body ?? {}) as {
+        operatorAddress?: unknown;
+        priceTxHash?: unknown;
+        feeTx?: unknown;
+        quoteLockId?: unknown;
+      };
+      if (body.operatorAddress !== undefined) {
+        res.status(400).json({
+          error: "the recipient is resolved from the hired agent's operator and may not be supplied",
+        });
+        return;
+      }
+      const feeTxRaw = body.feeTx as { signed?: unknown; hash?: unknown } | undefined;
+      const feeTxWellFormed =
+        typeof feeTxRaw === 'object' &&
+        feeTxRaw !== null &&
+        (feeTxRaw.signed === false || (feeTxRaw.signed === true && typeof feeTxRaw.hash === 'string' && feeTxRaw.hash.length > 0));
+      if (
+        typeof body.priceTxHash !== 'string' ||
+        body.priceTxHash.trim() === '' ||
+        !feeTxWellFormed ||
+        typeof body.quoteLockId !== 'string' ||
+        body.quoteLockId === ''
+      ) {
+        res.status(400).json({
+          error:
+            'body must be { priceTxHash, feeTx, quoteLockId }; feeTx is { signed: true, hash } or { signed: false }; quoteLockId is the id the start answered',
+        });
+        return;
+      }
+      const feeTx = feeTxRaw as { signed: true; hash: string } | { signed: false };
+      if (operatorAddress === null) {
+        // Reached only by a replay of a leg whose owner has since cleared the
+        // address; every other case was refused by the eligibility check.
+        res.status(409).json({ error: operatorAddressNotSetMessage('abt_eth') });
+        return;
+      }
+      if (feeTx.signed && feeTx.hash.toLowerCase() === body.priceTxHash.toLowerCase()) {
+        res.status(400).json({ error: 'priceTxHash and feeTx.hash must not be the same transaction' });
+        return;
+      }
+      const amountUsd = legAmountUsdFromJob(gate.job, leg);
+      const lockCheck = await checkAbtEthQuoteLock(abtEthLocks, {
+        lockId: body.quoteLockId,
+        jobId: gate.job.id,
+        leg,
+        amountUsd,
+      });
+      if (!lockCheck.ok) {
+        res.status(409).json({ error: lockCheck.message });
+        return;
+      }
+      const lock = lockCheck.lock;
+
+      let ref: Extract<PaymentRef, { rail: 'abt_eth' }>;
+      let confirmation;
+      try {
+        const processed = await processWalletResponse(abtEthPaymentRail, leg, {
+          rail: 'abt_eth',
+          jobId: gate.job.id,
+          operatorAddress,
+          priceTxHash: body.priceTxHash,
+          feeTx,
+          amountToken: lock.amountToken,
+          feeToken: lock.feeToken,
+        });
+        if (processed.rail !== 'abt_eth') throw new Error('the abt_eth rail answered a reference for another rail');
+        ref = processed;
+        confirmation = await abtEthPaymentRail.confirm(ref);
+      } catch (err) {
+        console.error(`${label}: rail failed`, err);
+        res.status(503).json({ error: 'the abt_eth payment rail is unavailable' });
+        return;
+      }
+
+      if (!confirmation.confirmed || isIdempotentReplay) {
+        res.status(200).json(confirmation);
+        return;
+      }
+      const judgement = await judgeLateAbtEthPayment({
+        lock,
+        priceRecordedAt: confirmation.priceRecordedAt,
+        readPrice: (input) => abtEthPaymentRail.quote(input),
+      });
+      if (judgement.kind === 'short') {
+        await abtEthShorts.record({
+          priceTxHash: ref.priceTxHash,
+          jobId: gate.job.id,
+          leg,
+          lockId: lock.id,
+          feeTxHash: ref.feeTxHash,
+          amountToken: lock.amountToken,
+          amountUsd: lock.amountUsd,
+          usdPerTokenAtRead: judgement.usdPerToken,
+          worthUsd: judgement.worthUsd,
+          recordedAt: confirmation.priceRecordedAt === null ? null : new Date(confirmation.priceRecordedAt),
+          readAt: new Date(),
+        });
+        res.status(200).json({
+          ...confirmation,
+          short: { recordedAt: confirmation.priceRecordedAt, agreedUsd: lock.amountUsd, worthUsd: judgement.worthUsd },
+        });
+        return;
+      }
+      await settlementRepo.record({
+        jobId: gate.job.id,
+        leg,
+        rail: 'abt_eth',
+        hash: ref.priceTxHash,
+        secondaryHash: ref.feeTxHash,
+        operatorAddress: ref.operatorAddress,
+        feeAddress: ref.feeAddress,
+        amountUsd,
+        observedAt: new Date(),
+      });
+      await recordSettlementSystemEvent({ jobId: gate.job.id, leg, rail: 'abt_eth', amountUsd });
       res.status(200).json(confirmation);
     }),
   );
