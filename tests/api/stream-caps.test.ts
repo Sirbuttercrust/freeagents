@@ -1,9 +1,13 @@
 // SW4-04: one caller cannot hold unlimited live streams open.
 // Every test drives createApp over a real listening server, opens real SSE
 // connections with fetch, and closes every stream it opened and the server it
-// started in a finally block, so no socket outlives the test.
+// started in a finally block, so no socket outlives the test. The world also
+// holds every response it opens until it closes, because the collector would
+// otherwise cancel a response nobody holds and free the place being counted.
 import { ServerResponse, type Server } from 'node:http';
 import type { Socket } from 'node:net';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
@@ -171,6 +175,11 @@ async function withWorld(run: (world: World) => Promise<void>, jobRepo: MemoryJo
     });
   });
   const controllers: AbortController[] = [];
+  // Every response `open` returns stays reachable until the world closes. A
+  // response nobody holds is cancelled by the collector, which closes its
+  // socket, and the server then gives the place back: so a test that checks a
+  // stream and drops it would lose the place it is counting.
+  const opened: Opened[] = [];
   try {
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
@@ -199,7 +208,9 @@ async function withWorld(run: (world: World) => Promise<void>, jobRepo: MemoryJo
     };
     const open = async (path: string, as: SigningIdentity): Promise<Opened> => {
       const started = start(path, as);
-      return { res: await started.answer, abort: started.abort };
+      const response: Opened = { res: await started.answer, abort: started.abort };
+      opened.push(response);
+      return response;
     };
     await run({
       baseUrl,
@@ -227,6 +238,8 @@ async function withWorld(run: (world: World) => Promise<void>, jobRepo: MemoryJo
     for (const c of controllers) c.abort();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    // The responses are held to here, after the server is gone.
+    opened.length = 0;
   }
 }
 
@@ -236,6 +249,18 @@ async function until(condition: () => boolean, what: string): Promise<void> {
   while (!condition()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+// Runs the collector inside the worker, which has no --expose-gc flag: V8 is
+// told to expose it, then it is read off a fresh context. A response nobody
+// holds is only collected in a later pass, so it runs three, 150 ms apart.
+async function collectGarbage(): Promise<void> {
+  v8.setFlagsFromString('--expose_gc');
+  const gc = vm.runInNewContext('gc') as () => void;
+  for (let pass = 0; pass < 3; pass++) {
+    gc();
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 }
 
@@ -417,5 +442,19 @@ describe('SW4-04: stream caps per caller', () => {
     } finally {
       writes.restore();
     }
+  });
+
+  it('(j) ten streams opened and never kept stay counted through garbage collection, so the 11th is still refused with the caller sentence', async () => {
+    await withWorld(async (w) => {
+      const jobs = [await w.draft(), await w.draft(), await w.draft()];
+      // Nothing here keeps a response: each open is checked and dropped, the
+      // shape (a), (c), (d) and (f) use. A response nobody holds is
+      // cancelled by the collector, which closes its socket, and the server
+      // then gives the place back.
+      for (const jobId of jobs) for (let i = 0; i < 3; i++) expectStream(await w.stream(jobId, w.buyer));
+      expectStream(await w.notifications(w.buyer.did, w.buyer));
+      await collectGarbage();
+      await expectRefused(await w.stream(await w.draft(), w.buyer), CALLER_SENTENCE);
+    });
   });
 });
