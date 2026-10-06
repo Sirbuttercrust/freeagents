@@ -632,6 +632,54 @@ describe('prisma, the ABT-on-Ethereum quote lock table is a row per start and is
   });
 });
 
+// The short ABT-on-Ethereum payment: one row per price transfer, keyed by the
+// transfer's hash, in the migration Postgres actually runs. The (jobId, leg)
+// index must not be unique: a second transfer for one leg is another row.
+describe('prisma, the ABT-on-Ethereum short payment table is keyed by the price transfer and is actually migrated', () => {
+  const migrationDir = new URL('../../prisma/migrations/20261006120000_abt_eth_short_payment/', import.meta.url);
+  const sql = existsSync(fileURLToPath(migrationDir)) ? readFileSync(join(fileURLToPath(migrationDir), 'migration.sql'), 'utf8') : '';
+  const statements = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter((statement) => statement !== '');
+
+  it('the model declares the eleven columns, the hash as the id, and the (jobId, leg) index', () => {
+    const lines = modelBody('AbtEthShortPayment')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//'))
+      .map((line) => line.split(/\s+/));
+    expect(lines).toEqual([
+      ['priceTxHash', 'String', '@id'],
+      ['jobId', 'String'],
+      ['leg', 'String'],
+      ['lockId', 'String'],
+      ['feeTxHash', 'String?'],
+      ['amountToken', 'String'],
+      ['amountUsd', 'String'],
+      ['usdPerTokenAtRead', 'String?'],
+      ['worthUsd', 'String?'],
+      ['recordedAt', 'DateTime?'],
+      ['readAt', 'DateTime'],
+      ['@@index([jobId,', 'leg])'],
+    ]);
+  });
+
+  it('the model has no unique key on (jobId, leg)', () => {
+    expect(modelBody('AbtEthShortPayment')).not.toMatch(/@@unique|@unique/);
+  });
+
+  it('the migration creates the table with its primary key on the hash, then the (jobId, leg) index, and nothing else', () => {
+    expect(statements).toEqual([
+      'CREATE TABLE "AbtEthShortPayment" ( "priceTxHash" TEXT NOT NULL, "jobId" TEXT NOT NULL, "leg" TEXT NOT NULL, "lockId" TEXT NOT NULL, "feeTxHash" TEXT, "amountToken" TEXT NOT NULL, "amountUsd" TEXT NOT NULL, "usdPerTokenAtRead" TEXT, "worthUsd" TEXT, "recordedAt" TIMESTAMP(3), "readAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "AbtEthShortPayment_pkey" PRIMARY KEY ("priceTxHash") )',
+      'CREATE INDEX "AbtEthShortPayment_jobId_leg_idx" ON "AbtEthShortPayment"("jobId", "leg")',
+    ]);
+  });
+});
+
 // The delivery clock's ending: the JobStatus value must be in the migration
 // Postgres actually runs, in a migration of its own, because Postgres cannot
 // use a new enum value in the transaction that adds it.

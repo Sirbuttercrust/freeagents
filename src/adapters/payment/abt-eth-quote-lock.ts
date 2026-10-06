@@ -86,9 +86,11 @@ export async function checkAbtEthQuoteLock(
 // above on purpose. On the ArcBlock rail the platform sees the signed
 // transaction before it is broadcast, so refusing an expired lock moves no
 // money. Here the buyer's wallet broadcasts the transfers itself and the
-// platform hears of them afterwards, so what to do with a lock that
-// expired before the report arrived is a decision for the route that
-// receives the report, not for the check.
+// platform hears of them afterwards, so a lock that expired before the
+// report arrived says nothing about the transfer: what counts is when the
+// network recorded it. judgeAbtEthLateTransfer (abt-eth-late.ts) asks this
+// predicate with the transfer's block time, never with the time of the
+// report.
 export function abtEthQuoteLockExpired(lock: AbtEthQuoteLock, now: Date): boolean {
   return !(now.getTime() < lock.expiresAt.getTime());
 }

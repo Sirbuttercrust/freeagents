@@ -17,6 +17,7 @@ import type {
   UsdcTransferIntent,
   WalletResponseInput,
 } from './types.js';
+import type { AbtEthHalfPaidRecord, AbtEthPaymentRail } from './abt-eth.js';
 import type { UsdcHalfPaidRecord, UsdcPaymentRailShim } from './usdc.js';
 import { agreementGap, LAPSE_AT_STAGED_STATUSES, type AgreementGap, type Job, type JobStatus } from '../../domain/job.js';
 import { verifiedGithubLogin, type Agent } from '../../domain/agent.js';
@@ -96,7 +97,7 @@ export function depositRailMismatchMessage(routeRail: Rail, depositRail: Rail): 
 // this comment (a comment line, exempt) is the only place that word may
 // appear near this function; the string itself says "operator address".
 export function operatorAddressNotSetMessage(rail: Rail): string {
-  const article = rail === 'abt' ? 'an ABT' : 'a USDC';
+  const article = rail === 'abt' ? 'an ABT' : rail === 'abt_eth' ? 'an ABT-on-Ethereum' : 'a USDC';
   return `the hired agent's operator has not set ${article} operator address; PATCH /accounts/:did/operator-address first`;
 }
 
@@ -211,6 +212,11 @@ export async function processWalletResponse(
 export async function processWalletResponse(
   rail: PaymentRail,
   leg: RouteLeg,
+  input: Omit<Extract<WalletResponseInput, { rail: 'abt_eth' }>, 'leg' | 'rail'> & { readonly rail: 'abt_eth' },
+): Promise<PaymentRef>;
+export async function processWalletResponse(
+  rail: PaymentRail,
+  leg: RouteLeg,
   input: Omit<WalletResponseInput, 'leg'>,
 ): Promise<PaymentRef> {
   return rail.onWalletResponse({ ...input, leg: toRailLeg(leg) } as WalletResponseInput);
@@ -240,6 +246,16 @@ export async function usdcHalfPaidRecordFor(
   jobId: string,
   leg: RouteLeg,
 ): Promise<UsdcHalfPaidRecord | null> {
+  return rail.readHalfPaidRecord(jobId, toRailLeg(leg));
+}
+
+// The ABT-on-Ethereum rail's half-paid record for a leg, read the same way
+// and for the same reason as the USDC one above.
+export async function abtEthHalfPaidRecordFor(
+  rail: AbtEthPaymentRail,
+  jobId: string,
+  leg: RouteLeg,
+): Promise<AbtEthHalfPaidRecord | null> {
   return rail.readHalfPaidRecord(jobId, toRailLeg(leg));
 }
 

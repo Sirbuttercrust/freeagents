@@ -111,4 +111,9 @@ describe('operatorAddressNotSetMessage: byte-identical to the pre-existing per-r
       "the hired agent's operator has not set a USDC operator address; PATCH /accounts/:did/operator-address first",
     );
   });
+  it('names "an ABT-on-Ethereum" for the abt_eth rail, and not the USDC sentence', () => {
+    expect(operatorAddressNotSetMessage('abt_eth')).toBe(
+      "the hired agent's operator has not set an ABT-on-Ethereum operator address; PATCH /accounts/:did/operator-address first",
+    );
+  });
 });

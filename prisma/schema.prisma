@@ -621,6 +621,28 @@ model AbtEthQuoteLock {
   @@index([jobId, leg])
 }
 
+// A price transfer of the ABT-on-Ethereum rail that the network recorded
+// after its price hold and that was worth less than the agreed price when
+// the platform read it (or could not be priced). Keyed by the price
+// transfer's lower-case hash: the same transfer reported twice is one row,
+// and a second transfer for the same job and leg is another. It records what
+// the chain showed and what was read; it moves nothing.
+model AbtEthShortPayment {
+  priceTxHash       String    @id
+  jobId             String
+  leg               String
+  lockId            String
+  feeTxHash         String?
+  amountToken       String
+  amountUsd         String
+  usdPerTokenAtRead String?
+  worthUsd          String?
+  recordedAt        DateTime?
+  readAt            DateTime
+
+  @@index([jobId, leg])
+}
+
 // P5 (design record, 2026-09-01): the attestation the platform publishes
 // when a job reaches `staged`. Widened by P6's redo (design record, same
 // date): a job may accumulate MANY rows, one per stage/restage cycle,

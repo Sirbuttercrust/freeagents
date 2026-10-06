@@ -25,7 +25,7 @@ import {
   createErc20ChainClient,
   isValidChainId,
   normalizeTxHash,
-  type Erc20ChainClient,
+  type AbtEthChainClient,
 } from './erc20.js';
 import {
   PaymentConfigError,
@@ -82,7 +82,9 @@ export function readAbtEthEnvConfig(): AbtEthEnvConfig {
 }
 
 export interface CreateAbtEthPaymentRailOptions {
-  readonly chainClient?: Erc20ChainClient;
+  // The shared client plus recordedAt: a fake without recordedAt does not
+  // compile here. The USDC rail keeps the shared Erc20ChainClient.
+  readonly chainClient?: AbtEthChainClient;
   // The ABT/USD feed. Defaults to the CoinGecko source the ArcBlock-chain
   // rail uses.
   readonly rateSource?: AbtUsdRateSource;
@@ -106,12 +108,20 @@ export interface AbtEthHalfPaidRecord {
   readonly feeStatus: UsdcTransferStatus;
 }
 
+// The shared confirmation plus the time the network recorded the price
+// transfer (ISO). Read only when the price leg is confirmed; null for any
+// other price leg, and null when the chain client has no block time for a
+// confirmed one. judgeAbtEthLateTransfer (abt-eth-late.ts) decides from it.
+export interface AbtEthConfirmation extends Confirmation {
+  readonly priceRecordedAt: string | null;
+}
+
 export interface AbtEthPaymentRail {
   readonly rail: 'abt_eth';
   quote(input: { readonly priceUsd: string }): Promise<AbtEthQuote>;
   createRequest(input: CreateRequestInput): Promise<AbtEthPaymentRequest>;
   onWalletResponse(input: AbtEthWalletResponseInput): Promise<AbtEthPaymentRef>;
-  confirm(ref: AbtEthPaymentRef): Promise<Confirmation>;
+  confirm(ref: AbtEthPaymentRef): Promise<AbtEthConfirmation>;
   readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthHalfPaidRecord | null>;
 }
 
@@ -191,12 +201,16 @@ export function createAbtEthPaymentRail(options: CreateAbtEthPaymentRailOptions 
       };
     },
 
-    async confirm(ref: AbtEthPaymentRef): Promise<Confirmation> {
+    async confirm(ref: AbtEthPaymentRef): Promise<AbtEthConfirmation> {
       // The shared two-transfer confirm (erc20.ts), against the ABT
       // contract on this rail's chain and this rail's own spent-hash and
       // half-paid tables.
       const outcome = await confirmLegs(ref, chainClient, spentTransferStorage, halfPaidStorage);
-      return { rail: 'abt_eth', ...outcome };
+      // The block time is read only for a price transfer that confirmed: a
+      // receipt that is missing or paid something else has no time that
+      // means anything here.
+      const recordedAt = outcome.legs.price.status === 'confirmed' ? await chainClient.recordedAt(ref.priceTxHash) : null;
+      return { rail: 'abt_eth', ...outcome, priceRecordedAt: recordedAt === null ? null : recordedAt.toISOString() };
     },
 
     async readHalfPaidRecord(jobId: string, leg: 'deposit' | 'balance'): Promise<AbtEthHalfPaidRecord | null> {
