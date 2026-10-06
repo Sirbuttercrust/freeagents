@@ -549,8 +549,12 @@ describe('(d2) the lock rides only the ABT report, and check() never guesses one
 describe('(e) a record of one currency is never resumed as the other', () => {
   it('a USDC record under its own key is not resumed by an ABT payment of the same job and leg, and is left alone', async () => {
     const { h, page } = await setup(8);
+    // The first payment's report never reaches the server. A report that did
+    // would leave the server holding a half-paid USDC leg, and the second
+    // currency is refused while the first is half-paid on the server.
+    watchRoutes(page, { dropFirstReport: true });
     const usdcWallet = buildFakeWallet(h.chain, { refuseFeeTransfer: true });
-    expect((await payUsdc(page, h, usdcWallet)).outcome).toBe('fee_due');
+    expect((await payUsdc(page, h, usdcWallet)).outcome).toBe('server_refused');
     const usdcRecord = stored(page, USDC_KEY, h);
     expect(JSON.parse(usdcRecord!)).toEqual({ priceTxHash: hashOf(1), feeTxHash: null });
     expect(stored(page, ABT_KEY, h)).toBeNull();
@@ -570,8 +574,12 @@ describe('(e) a record of one currency is never resumed as the other', () => {
 
   it('an ABT record under its own key is not resumed by a USDC payment of the same job and leg, and is left alone', async () => {
     const { h, page } = await setup(9);
+    // The first payment's report never reaches the server. A report that did
+    // would leave the server holding a half-paid ABT leg, and the second
+    // currency is refused while the first is half-paid on the server.
+    watchRoutes(page, { dropFirstReport: true });
     const abtWallet = buildFakeWallet(h.chain, { refuseFeeTransfer: true });
-    expect((await payAbt(page, h, abtWallet)).outcome).toBe('fee_due');
+    expect((await payAbt(page, h, abtWallet)).outcome).toBe('server_refused');
     const abtRecord = stored(page, ABT_KEY, h);
     expect(JSON.parse(abtRecord!)).toEqual({ priceTxHash: hashOf(1), feeTxHash: null, quoteLockId: h.locks[0]!.id });
     expect(stored(page, USDC_KEY, h)).toBeNull();

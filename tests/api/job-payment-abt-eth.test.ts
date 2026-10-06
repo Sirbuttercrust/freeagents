@@ -12,6 +12,7 @@ import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/api/app.js';
+import { createUsdcPaymentRail, type UsdcPaymentRailShim } from '../../src/adapters/payment/usdc.js';
 import { createAbtEthPaymentRail, type AbtEthHalfPaidStorage, type AbtEthPaymentRail } from '../../src/adapters/payment/abt-eth.js';
 import { createMemoryAbtEthQuoteLockStorage } from '../../src/adapters/payment/abt-eth-quote-lock-memory.js';
 import type { AbtEthQuoteLock, AbtEthQuoteLockStorage } from '../../src/adapters/payment/abt-eth-quote-lock.js';
@@ -24,7 +25,7 @@ import type { RateReading } from '../../src/adapters/payment/types.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository, MemoryMessageRepository, MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
-import { postSigned } from '../helpers/abt-fixtures.js';
+import { postSigned, withEnv } from '../helpers/abt-fixtures.js';
 import { fakeHalfPaidStorage } from '../helpers/usdc-half-paid-fixtures.js';
 import { createStagingLifecycleGithubFake, registerAgentForkPullRequest, type StagingLifecycleFixture } from '../helpers/github-staging-fixtures.js';
 import { startOpenRailAppWithRails } from '../helpers/open-rail-fixtures.js';
@@ -140,12 +141,47 @@ interface Rig {
   readonly locks: AbtEthQuoteLock[];
   readonly shorts: AbtEthShortPaymentStorage;
   readonly halfPaid: AbtEthHalfPaidStorage;
+  // What the USDC rail's chain reads answer, when the rig wires that rail
+  // beside this one (usdcRail), and a switch that makes the half-paid
+  // reads of both rails throw.
+  readonly usdcReceipts: Map<string, Receipt>;
+  readonly readsFail: { on: boolean };
   readonly settlementRepo: MemorySettlementRepository;
   readonly messageRepo: MemoryMessageRepository;
   readonly fixture: StagingLifecycleFixture;
 }
 
+const USDC_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
+const USDC_FEE_ADDRESS = '0x3333333333333333333333333333333333333333';
+const USDC_CHAIN_ID = 421614;
+
+async function buildUsdcRail(receipts: Map<string, Receipt>, readsFail: { on: boolean }): Promise<UsdcPaymentRailShim> {
+  const env = {
+    FREEAGENTS_USDC_RPC_URL: 'https://rpc.example.test',
+    FREEAGENTS_USDC_TOKEN_CONTRACT: USDC_TOKEN,
+    FREEAGENTS_USDC_CHAIN_ID: String(USDC_CHAIN_ID),
+    FREEAGENTS_USDC_FEE_ADDRESS: USDC_FEE_ADDRESS,
+  };
+  const inner = fakeHalfPaidStorage();
+  return withEnv(env, async () =>
+    createUsdcPaymentRail({
+      chainClient: { decimals: async () => 6, getTransactionReceipt: async (hash: string) => receipts.get(hash.toLowerCase()) ?? null },
+      rateSource: async () => '1',
+      halfPaidStorage: {
+        ...inner,
+        read: async (jobId, leg) => {
+          if (readsFail.on) throw new Error('storage down');
+          return inner.read(jobId, leg);
+        },
+      },
+      spentTransferStorage: memorySpent(),
+    }),
+  );
+}
+
 interface RigOptions {
+  // Wires the USDC rail beside the ABT-on-Ethereum one.
+  readonly usdcRail?: boolean;
   readonly railConfigured?: boolean;
   readonly ownerEth?: string | null;
   readonly ownerUsdc?: string | null;
@@ -188,7 +224,17 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
   };
   const shorts = createMemoryAbtEthShortPaymentStorage();
   const halfPaid: AbtEthHalfPaidStorage = fakeHalfPaidStorage();
-  const rail = options.railConfigured === false ? null : buildRail(chain, feed, halfPaid);
+  const readsFail = { on: false };
+  const railHalfPaid: AbtEthHalfPaidStorage = {
+    ...halfPaid,
+    read: async (jobId, leg) => {
+      if (readsFail.on) throw new Error('storage down');
+      return halfPaid.read(jobId, leg);
+    },
+  };
+  const rail = options.railConfigured === false ? null : buildRail(chain, feed, railHalfPaid);
+  const usdcReceipts = new Map<string, Receipt>();
+  const usdcRail = options.usdcRail === true ? await buildUsdcRail(usdcReceipts, readsFail) : null;
 
   const app = createApp(
     accounts,
@@ -196,7 +242,7 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
     undefined, fixture.github, new MemoryJobRepository(), undefined, undefined, undefined,
     { verify: 100_000, read: 100_000, write: 100_000, upstream: 100_000 },
     undefined, undefined, undefined, undefined,
-    new PrismaSettlementGate(settlementRepo), anyCommitStagingObserver(), undefined, null, null,
+    new PrismaSettlementGate(settlementRepo), anyCommitStagingObserver(), undefined, null, usdcRail,
     settlementRepo, undefined, undefined, messageRepo,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     rail, lockStorage, shorts,
@@ -216,6 +262,8 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
     locks,
     shorts,
     halfPaid,
+    usdcReceipts,
+    readsFail,
     settlementRepo,
     messageRepo,
     fixture,
@@ -1129,6 +1177,30 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
     return { jobId, lockId };
   }
 
+  // The deposit started at lock1 and the price transfer failed on the network
+  // while the fee confirmed: a half-paid leg whose price has NOT reached the
+  // owner (the fee is the transfer already on the network). Answers the job
+  // and lock1's id.
+  const FEE_ONLY_RECORD = { priceTxHash: DEP_PRICE, priceStatus: 'not_confirmed', feeTxHash: DEP_FEE, feeStatus: 'confirmed' } as const;
+  async function feeOnlyAtLock1(rig: Rig): Promise<{ jobId: string; lockId: string }> {
+    const jobId = await walkToProposedAndPriced(rig);
+    rig.chain.receipts.set(DEP_PRICE, { status: 0, transfer: null });
+    landFee(rig);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(INSIDE_HOLD);
+    const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      rail: 'abt_eth',
+      hash: DEP_PRICE,
+      confirmed: false,
+      legs: { price: { status: 'not_confirmed', hash: DEP_PRICE }, fee: { status: 'confirmed', hash: DEP_FEE } },
+      halfPaid: true,
+      priceRecordedAt: null,
+    });
+    return { jobId, lockId };
+  }
+
   // ABT is worth 0.20 now, and the clock is past the hold.
   function priceMovesAndHoldPasses(rig: Rig): void {
     setTime(REPORTED_AT);
@@ -1368,13 +1440,17 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
     expect(rig.locks).toEqual([]);
   });
 
-  describe('(i) the agreed price changes while the leg is half paid', () => {
+  // The half-paid price-changed sentence meets a leg whose FEE is the transfer
+  // already on the network (a half-paid leg whose price confirmed is held, and
+  // the re-price is refused before it lands: see (j)). So every case here sets
+  // up the fee-only leg of case (f).
+  describe('(i) the agreed price changes while only the fee transfer is on the network', () => {
     const HALF_PAID_REPRICED_SENTENCE =
       "One of this payment's two transfers is already on the network, at the price agreed when it started. " +
       'The agreed price has changed since. Ask the agent to put that earlier price back, and this payment can be finished.';
 
     async function reprice(rig: Rig, jobId: string, priceUsd: string): Promise<void> {
-      await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd }, rig.agent);
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd }, rig.agent)).status).toBe(200);
       for (const index of [0, 1]) {
         expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, rig.buyer)).status).toBe(200);
         expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, rig.agent)).status).toBe(200);
@@ -1385,7 +1461,7 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
 
     it('refuses a start with the sentence that names what the buyer can do, and writes no lock', async () => {
       const rig = await boot();
-      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      const { jobId, lockId } = await feeOnlyAtLock1(rig);
       await reprice(rig, jobId, '600.00');
 
       const res = await startLeg(rig, jobId, 'deposit');
@@ -1395,23 +1471,23 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
       expect(rig.locks).toEqual([lockRow(jobId, lockId)]);
     });
 
-    it('refuses a report naming lock1 with the same sentence, settles nothing, and keeps the record', async () => {
+    it('refuses a resent price transfer reported with lock1 with the same sentence, settles nothing, and keeps the record', async () => {
       const rig = await boot();
-      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      const { jobId, lockId } = await feeOnlyAtLock1(rig);
       await reprice(rig, jobId, '600.00');
-      landFee(rig);
+      landPrice(rig, RESENT_PRICE, INSIDE_HOLD);
 
-      const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+      const res = await report(rig, jobId, 'deposit', reportBody({ price: RESENT_PRICE, fee: DEP_FEE }, lockId));
 
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: HALF_PAID_REPRICED_SENTENCE });
       await expectNothingSettled(rig, jobId);
-      expect(await rig.halfPaid.read(jobId, 'deposit')).toEqual({ jobId, leg: 'deposit', ...PRICE_ONLY_RECORD, lockId });
+      expect(await rig.halfPaid.read(jobId, 'deposit')).toEqual({ jobId, leg: 'deposit', ...FEE_ONLY_RECORD, lockId });
     });
 
     it('finishes the leg at lock1 once the earlier price is put back', async () => {
       const rig = await boot();
-      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      const { jobId, lockId } = await feeOnlyAtLock1(rig);
       await reprice(rig, jobId, '600.00');
       await reprice(rig, jobId, '500.00');
       priceMovesAndHoldPasses(rig);
@@ -1419,11 +1495,11 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
       const restart = await startLeg(rig, jobId, 'deposit');
 
       expect(restart.status).toBe(200);
-      expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
-      landFee(rig);
-      const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+      expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, FEE_ONLY_RECORD));
+      landPrice(rig, RESENT_PRICE, INSIDE_HOLD);
+      const done = await report(rig, jobId, 'deposit', reportBody({ price: RESENT_PRICE, fee: DEP_FEE }, lockId));
       expect(done.status).toBe(200);
-      expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+      expect(await done.json()).toEqual(confirmationBody({ price: RESENT_PRICE, fee: DEP_FEE }, INSIDE_HOLD));
       expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
     });
 
@@ -1438,6 +1514,274 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
 
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: PRICE_CHANGED });
+    });
+  });
+
+  // B88: a leg whose price transfer already reached the owner and has not
+  // settled holds the way a settled leg does. These cases run on the real
+  // routes with the USDC rail wired beside this one where the second currency
+  // matters.
+  describe('(j) a leg whose price transfer reached the owner is held', () => {
+    const HELD_TERMS = "The deposit's price has already reached the owner, so the terms can no longer change. The buyer finishes the payment, then confirms the hire.";
+    const HELD_WITHDRAW = "The deposit's price has already reached the owner, so this hire can no longer be withdrawn. Finish the payment, then confirm the hire.";
+    const HELD_DECLINE = "The deposit's price has already reached the owner, so this hire can no longer be declined.";
+    const HELD_STAGED_DECLINE = "The balance's price has already reached the owner, so the work can no longer be declined. Finish the payment, and the agent opens the pull request next.";
+    const HELD_REDO = "The balance's price has already reached the owner, so a redo can no longer be requested. Finish the payment, and the agent opens the pull request next.";
+    const HELD_IN_ABT_ETH = 'part of the deposit for this job was paid in "abt_eth"; finish it there, the "usdc" payment routes refuse it';
+    const STORAGE_DOWN = { error: 'storage unavailable' };
+    const USDC_PRICE = '0xcc01';
+    const USDC_FEE = '0xcc02';
+    const BOTH = { usdcRail: true, ownerUsdc: OWNER_USDC } as const;
+
+    async function readJob(rig: Rig, jobId: string): Promise<unknown> {
+      return (await fetch(`${rig.baseUrl}/jobs/${jobId}`)).json();
+    }
+
+    function usdcPath(jobId: string, route: 'start' | 'wallet-response'): string {
+      return `/jobs/${jobId}/payments/deposit/usdc/${route}`;
+    }
+
+    // The USDC deposit, 125.00 to the owner and 7.50 as the fee: the price
+    // transfer on the network, the fee approved in the wallet and not yet on
+    // the network. Answers the job.
+    async function usdcHalfPaid(rig: Rig): Promise<string> {
+      const jobId = await walkToProposedAndPriced(rig);
+      expect((await postSigned(rig.baseUrl, usdcPath(jobId, 'start'), {}, rig.buyer)).status).toBe(200);
+      rig.usdcReceipts.set(USDC_PRICE, { status: 1, transfer: { to: OWNER_USDC, value: '125000000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } });
+      const res = await postSigned(rig.baseUrl, usdcPath(jobId, 'wallet-response'), { priceTxHash: USDC_PRICE, feeTx: { signed: true, hash: USDC_FEE } }, rig.buyer);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        rail: 'usdc',
+        hash: USDC_PRICE,
+        confirmed: false,
+        legs: { price: { status: 'confirmed', hash: USDC_PRICE }, fee: { status: 'not_confirmed', hash: USDC_FEE } },
+        halfPaid: true,
+      });
+      return jobId;
+    }
+
+    async function payableRails(rig: Rig, jobId: string): Promise<unknown> {
+      return ((await readJob(rig, jobId)) as { payableRails?: unknown }).payableRails;
+    }
+
+    it('(a) refuses the agent\'s and the buyer\'s re-price of a USDC deposit half-paid, leaves the job as it was, and settles it at 125.00 when the fee lands', async () => {
+      const rig = await boot(BOTH);
+      const jobId = await usdcHalfPaid(rig);
+      const before = structuredClone(await readJob(rig, jobId));
+
+      const byAgent = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
+      const byBuyer = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.buyer);
+
+      expect(byAgent.status).toBe(409);
+      expect(await byAgent.json()).toEqual({ error: HELD_TERMS });
+      expect(byBuyer.status).toBe(409);
+      expect(await byBuyer.json()).toEqual({ error: HELD_TERMS });
+      expect(await readJob(rig, jobId)).toEqual(before);
+
+      rig.usdcReceipts.set(USDC_FEE, { status: 1, transfer: { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } });
+      const done = await postSigned(rig.baseUrl, usdcPath(jobId, 'wallet-response'), { priceTxHash: USDC_PRICE, feeTx: { signed: true, hash: USDC_FEE } }, rig.buyer);
+
+      expect(done.status).toBe(200);
+      expect(await done.json()).toEqual({
+        rail: 'usdc',
+        hash: USDC_PRICE,
+        confirmed: true,
+        legs: { price: { status: 'confirmed', hash: USDC_PRICE }, fee: { status: 'confirmed', hash: USDC_FEE } },
+        halfPaid: false,
+      });
+      expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual({
+        jobId, leg: 'deposit', rail: 'usdc', hash: USDC_PRICE, secondaryHash: USDC_FEE,
+        operatorAddress: OWNER_USDC, feeAddress: USDC_FEE_ADDRESS, amountUsd: '125.00', observedAt: NOW,
+      });
+      expect(await paidLines(rig, jobId)).toEqual([{
+        body: 'Deposit paid',
+        systemEvent: { type: 'deposit_paid', leg: 'deposit', amountUsd: '125.00', rail: 'usdc' },
+      }]);
+    });
+
+    it('(b) refuses the re-price of a deposit half-paid at lock1, leaves the job as it was, answers lock1 on a restart, and settles at lock1 when the fee lands', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      const before = structuredClone(await readJob(rig, jobId));
+
+      const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HELD_TERMS });
+      expect(await readJob(rig, jobId)).toEqual(before);
+      priceMovesAndHoldPasses(rig);
+      const restart = await startLeg(rig, jobId, 'deposit');
+      expect(restart.status).toBe(200);
+      expect(await restart.json()).toEqual(lock1Restart(jobId, lockId, PRICE_ONLY_RECORD));
+      landFee(rig);
+      const done = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+      expect(done.status).toBe(200);
+      expect(await done.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+      expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
+    });
+
+    it('(c) refuses the buyer\'s withdraw of a half-paid deposit, and the job stays as it was', async () => {
+      const rig = await boot();
+      const { jobId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      const before = structuredClone(await readJob(rig, jobId));
+
+      const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/withdraw`, {}, rig.buyer);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HELD_WITHDRAW });
+      expect(await readJob(rig, jobId)).toEqual(before);
+    });
+
+    it('(c) refuses the buyer\'s withdraw of a deposit half-paid in USDC, and the job stays as it was', async () => {
+      const rig = await boot(BOTH);
+      const jobId = await usdcHalfPaid(rig);
+      const before = structuredClone(await readJob(rig, jobId));
+
+      const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/withdraw`, {}, rig.buyer);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HELD_WITHDRAW });
+      expect(await readJob(rig, jobId)).toEqual(before);
+    });
+
+    it('(d) refuses the agent\'s decline of a half-paid deposit, and the job stays as it was', async () => {
+      const rig = await boot();
+      const { jobId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+      const before = structuredClone(await readJob(rig, jobId));
+
+      const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/decline`, {}, rig.agent);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HELD_DECLINE });
+      expect(await readJob(rig, jobId)).toEqual(before);
+    });
+
+    // The deposit paid and confirmed, the work staged, and the remainder's
+    // price transfer on the network with its fee not yet.
+    async function halfPaidRemainder(rig: Rig): Promise<string> {
+      const jobId = await walkToProposedAndPriced(rig);
+      landPair(rig, 'deposit', INSIDE_HOLD);
+      const depositLock = await startOk(rig, jobId, 'deposit');
+      setTime(INSIDE_HOLD);
+      expect((await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, depositLock))).status).toBe(200);
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/confirm`, {}, rig.buyer)).status).toBe(200);
+      expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-abt-eth-1' }, rig.agent)).status).toBe(200);
+      rig.chain.receipts.set(REM_PRICE, { status: 1, transfer: transfer(OWNER_ETH, REM_PRICE_UNITS) });
+      rig.chain.recorded.set(REM_PRICE, new Date(INSIDE_HOLD));
+      const lockId = await startOk(rig, jobId, 'remainder');
+      const res = await report(rig, jobId, 'remainder', reportBody(REMAINDER_PAIR, lockId));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        rail: 'abt_eth',
+        hash: REM_PRICE,
+        confirmed: false,
+        legs: { price: { status: 'confirmed', hash: REM_PRICE }, fee: { status: 'not_confirmed', hash: REM_FEE } },
+        halfPaid: true,
+        priceRecordedAt: INSIDE_HOLD,
+      });
+      return jobId;
+    }
+
+    it.each([
+      ['staged-decline', 'staged-decline', {}, HELD_STAGED_DECLINE],
+      ['redo', 'redo', { criterionIndex: 0 }, HELD_REDO],
+    ])('(e) refuses the buyer\'s %s on a half-paid remainder, and the job is still staged with no redo recorded', async (_name, route, body, sentence) => {
+      const rig = await boot();
+      const jobId = await halfPaidRemainder(rig);
+      const before = structuredClone(await readJob(rig, jobId));
+
+      const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/${route}`, body, rig.buyer);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: sentence });
+      const after = await readJob(rig, jobId);
+      expect(after).toEqual(before);
+      expect((after as { status: string }).status).toBe('staged');
+    });
+
+    it.each([
+      ['abt_eth/start', (rig: Rig, jobId: string) => startLeg(rig, jobId, 'deposit')],
+      // A fresh pair, not a replay: nothing is recorded for these hashes.
+      ['abt_eth/wallet-response', (rig: Rig, jobId: string) => report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, 'a-lock-this-door-never-checks'))],
+    ])('(f) refuses a deposit half-paid in USDC at %s, writes no lock and no settlement', async (_door, call) => {
+      const rig = await boot(BOTH);
+      const jobId = await usdcHalfPaid(rig);
+
+      const res = await call(rig, jobId);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: 'part of the deposit for this job was paid in "usdc"; finish it there, the "abt_eth" payment routes refuse it',
+      });
+      expect(rig.locks).toEqual([]);
+      await expectNothingSettled(rig, jobId);
+    });
+
+    it('(f) offers only USDC for a deposit half-paid in USDC, and the USDC rail finishes the leg with one settlement row', async () => {
+      const rig = await boot(BOTH);
+      const jobId = await usdcHalfPaid(rig);
+
+      expect(await payableRails(rig, jobId)).toEqual(['usdc']);
+
+      rig.usdcReceipts.set(USDC_FEE, { status: 1, transfer: { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } });
+      const done = await postSigned(rig.baseUrl, usdcPath(jobId, 'wallet-response'), { priceTxHash: USDC_PRICE, feeTx: { signed: true, hash: USDC_FEE } }, rig.buyer);
+      expect(done.status).toBe(200);
+      expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual({
+        jobId, leg: 'deposit', rail: 'usdc', hash: USDC_PRICE, secondaryHash: USDC_FEE,
+        operatorAddress: OWNER_USDC, feeAddress: USDC_FEE_ADDRESS, amountUsd: '125.00', observedAt: NOW,
+      });
+    });
+
+    it.each([
+      ['usdc/start', 'start', {}],
+      ['usdc/wallet-response', 'wallet-response', { priceTxHash: USDC_PRICE, feeTx: { signed: false } }],
+    ] as const)('(f) refuses a deposit half-paid on abt_eth at %s, and offers only abt_eth', async (_door, route, body) => {
+      const rig = await boot(BOTH);
+      const { jobId } = await halfPaidAtLock1(rig, INSIDE_HOLD, INSIDE_HOLD);
+
+      const res = await postSigned(rig.baseUrl, usdcPath(jobId, route), body, rig.buyer);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: HELD_IN_ABT_ETH });
+      expect(await payableRails(rig, jobId)).toEqual(['abt_eth']);
+      await expectNothingSettled(rig, jobId);
+    });
+
+    it('(g) holds nothing for a leg with only its fee on the network: the re-price answers 200 and both currencies are still offered', async () => {
+      const rig = await boot(BOTH);
+      const { jobId } = await feeOnlyAtLock1(rig);
+      expect(await payableRails(rig, jobId)).toEqual(['usdc', 'abt_eth']);
+      const before = structuredClone(await readJob(rig, jobId)) as {
+        price: { priceUsd: string; acceptedByAgent: boolean; acceptedByBuyer: boolean };
+      };
+
+      const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
+
+      expect(res.status).toBe(200);
+      // A re-price changes the price and clears both sides' acceptance; nothing else in the body moves.
+      const expected = structuredClone(before);
+      expected.price.priceUsd = '600.00';
+      expected.price.acceptedByAgent = false;
+      expected.price.acceptedByBuyer = false;
+      expect(await readJob(rig, jobId)).toEqual(expected);
+    });
+
+    it('(h) answers 503 and changes nothing when the half-paid read fails, at criteria and at abt_eth/start', async () => {
+      const rig = await boot();
+      const jobId = await walkToProposedAndPriced(rig);
+      const before = structuredClone(await readJob(rig, jobId));
+      rig.readsFail.on = true;
+
+      const criteriaRes = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
+      const startRes = await startLeg(rig, jobId, 'deposit');
+      rig.readsFail.on = false;
+
+      expect(criteriaRes.status).toBe(503);
+      expect(await criteriaRes.json()).toEqual(STORAGE_DOWN);
+      expect(startRes.status).toBe(503);
+      expect(await startRes.json()).toEqual(STORAGE_DOWN);
+      expect(rig.locks).toEqual([]);
+      expect(await readJob(rig, jobId)).toEqual(before);
     });
   });
 });

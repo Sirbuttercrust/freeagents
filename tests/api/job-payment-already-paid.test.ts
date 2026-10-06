@@ -15,15 +15,18 @@ import { fromRandom } from '@ocap/wallet';
 import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
-import { createAbtPaymentRail, type AbtChainClient } from '../../src/adapters/payment/abt.js';
+import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
+import type { UsdcHalfPaidStorage } from '../../src/adapters/payment/usdc-half-paid-storage-types.js';
 import { didSuffix } from '../../src/domain/agent.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
 import { MemorySettlementRepository, MemoryAgentRepository, MemoryJobRepository, MemoryAccountRepository } from '../../src/adapters/storage/memory.js';
 import { createStagingLifecycleGithubFake } from '../helpers/github-staging-fixtures.js';
 import { signingIdentityFromSeed } from '../helpers/sign-request.js';
+import { fakeHalfPaidStorage } from '../helpers/usdc-half-paid-fixtures.js';
 import {
   abtEnv,
   continueAbtWalletProtocol,
+  fakeAbtChainClient as recordingAbtChainClient,
   getSigned,
   postSigned,
   pureTxEncoder,
@@ -67,9 +70,6 @@ function fakeUsdcChainClient(): UsdcChainClient {
     },
   };
 }
-function fakeAbtChainClient(): AbtChainClient {
-  return { getTransaction: async () => null } as unknown as AbtChainClient;
-}
 function fakeSpentTransferStorage(): UsdcSpentTransferStorage {
   const rows = new Map<string, UsdcSpentTransferRow>();
   return {
@@ -85,6 +85,12 @@ interface Started {
   readonly server: Server;
   readonly baseUrl: string;
   readonly settlementRepo: MemorySettlementRepository;
+  // The USDC rail's half-paid record, readable by the test, and a switch
+  // that makes its next reads throw.
+  readonly usdcHalfPaid: UsdcHalfPaidStorage;
+  readonly usdcReadsFail: { on: boolean };
+  // The signed transaction the ABT rail broadcast, undefined while none was.
+  readonly abtBroadcast: () => string | undefined;
 }
 // Runs fn against a started app, guaranteeing server.close() even on
 // failure -- the try/finally every describe block below would otherwise
@@ -101,15 +107,24 @@ async function startApp(): Promise<Started> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   return withEnv({ ...usdcEnvVars(), ...abtEnv(baseUrl, platformWallet, ABT_TOKEN, ABT_FEE_ADDRESS) }, async () => {
+    const usdcHalfPaid = fakeHalfPaidStorage();
+    const usdcReadsFail = { on: false };
     const usdcRail = createUsdcPaymentRail({
       chainClient: fakeUsdcChainClient(),
       rateSource: async () => '1',
-      halfPaidStorage: { record: async () => {}, read: async () => null, clear: async () => {} },
+      halfPaidStorage: {
+        ...usdcHalfPaid,
+        read: async (jobId, leg) => {
+          if (usdcReadsFail.on) throw new Error('storage down');
+          return usdcHalfPaid.read(jobId, leg);
+        },
+      },
       spentTransferStorage: fakeSpentTransferStorage(),
     });
     const abtSpentRows = new Map<string, { hash: string; jobId: string; leg: 'deposit' | 'balance' }>();
+    const abtChain = recordingAbtChainClient();
     const abtRail = createAbtPaymentRail({
-      chainClient: fakeAbtChainClient(),
+      chainClient: abtChain.client,
       rateSource: async () => '1',
       spentTransferStorage: {
         async record(row) {
@@ -163,10 +178,11 @@ async function startApp(): Promise<Started> {
     );
     const server = app.listen(port, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
-    return { server, baseUrl, settlementRepo };
+    return { server, baseUrl, settlementRepo, usdcHalfPaid, usdcReadsFail, abtBroadcast: abtChain.sentTx };
   });
 }
-async function walkToProposed(baseUrl: string, rail: 'usdc' | 'abt' = 'usdc'): Promise<string> {
+// rail null is an open quote: the buyer picks the currency at checkout.
+async function walkToProposed(baseUrl: string, rail: 'usdc' | 'abt' | null = 'usdc'): Promise<string> {
   const created = await postSigned(baseUrl, '/jobs', {
     buyerDid: buyer.did,
     agentDid: agent.did,
@@ -174,7 +190,7 @@ async function walkToProposed(baseUrl: string, rail: 'usdc' | 'abt' = 'usdc'): P
     brief: 'Fix the login bug',
   }, buyer);
   const jobId = String(((await created.json()) as Record<string, unknown>).id);
-  await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', rail }, agent);
+  await postSigned(baseUrl, `/jobs/${jobId}/criteria`, { criteria: proposal, priceUsd: '500.00', ...(rail === null ? {} : { rail }) }, agent);
   await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, buyer);
   await postSigned(baseUrl, `/jobs/${jobId}/criteria/0/accept`, {}, agent);
   await postSigned(baseUrl, `/jobs/${jobId}/criteria/1/accept`, {}, buyer);
@@ -276,5 +292,61 @@ describe('B49: onAuth (the ABT wallet callback) refuses to broadcast or settle a
     // carries the hash this test itself wrote, never a broadcast hash.
     const row = await settlementRepo.findByJobAndLeg(jobId, 'deposit');
     expect(row?.hash).toBe(`already-paid-hash-${jobId}`);
+  }));
+});
+
+// B88: a deposit whose price transfer already reached the owner in USDC (the
+// fee still to come) is held on USDC the way a settled one is. Every door
+// that offers the leg in ABT refuses it, and refuses it with the sentence
+// that says where to finish it.
+describe('B88: a deposit half-paid in USDC is refused by every ABT door', () => {
+  const HELD_IN_USDC = 'part of the deposit for this job was paid in "usdc"; finish it there, the "abt" payment routes refuse it';
+  const STORAGE_DOWN = 'storage unavailable';
+
+  async function halfPayInUsdc(baseUrl: string, jobId: string): Promise<void> {
+    expect((await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, buyer)).status).toBe(200);
+    const res = await postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/usdc/wallet-response`, { priceTxHash: '0xdep-price', feeTx: { signed: false } }, buyer);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      rail: 'usdc',
+      hash: '0xdep-price',
+      confirmed: false,
+      legs: { price: { status: 'confirmed', hash: '0xdep-price' }, fee: { status: 'not_signed' } },
+      halfPaid: true,
+    });
+  }
+
+  it.each([
+    ['abt/start', (baseUrl: string, jobId: string) => postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, buyer)],
+    ['the token-mint door', (baseUrl: string, jobId: string) => getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer)],
+  ])('%s answers 409 with the held sentence and mints no session', (_door, call) => withStarted(async ({ baseUrl, settlementRepo }) => {
+    const jobId = await walkToProposed(baseUrl, null);
+    await halfPayInUsdc(baseUrl, jobId);
+    const res = await call(baseUrl, jobId);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: HELD_IN_USDC });
+    expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+  }));
+
+  it('onAuth refuses a session minted before the USDC price landed: nothing is broadcast and no row is written', () => withStarted(async ({ baseUrl, settlementRepo, abtBroadcast }) => {
+    const jobId = await walkToProposed(baseUrl, null);
+    // The session is minted while nothing is paid (B49's race shape), then the
+    // USDC price lands before this wallet answers.
+    const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
+    await halfPayInUsdc(baseUrl, jobId);
+    const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
+    expect(result).toEqual({ confirmed: false, error: HELD_IN_USDC });
+    expect(abtBroadcast()).toBeUndefined();
+    expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+  }));
+
+  it('onAuth answers the storage sentence when the half-paid read fails, and broadcasts and records nothing', () => withStarted(async ({ baseUrl, settlementRepo, abtBroadcast, usdcReadsFail }) => {
+    const jobId = await walkToProposed(baseUrl, null);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
+    usdcReadsFail.on = true;
+    const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
+    expect(result).toEqual({ confirmed: false, error: STORAGE_DOWN });
+    expect(abtBroadcast()).toBeUndefined();
+    expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
   }));
 });
