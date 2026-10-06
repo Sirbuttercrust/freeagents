@@ -206,6 +206,7 @@ describe('the settings screen, driven end to end against the real app', () => {
       expect(abt).not.toBeNull();
       abt!.value = VALID_ABT;
       abt!.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+      (page.document.getElementById('payout-abt-confirm') as HTMLInputElement).click();
       const saveBtn = page.document.getElementById('save-btn') as HTMLButtonElement | null;
       expect(saveBtn).not.toBeNull();
       saveBtn!.click();
@@ -237,12 +238,13 @@ describe('the settings screen, driven end to end against the real app', () => {
     }
   });
 
-  it('a 400 from the route renders the route own message; the typed value stays in the input (done-means 6, mutation proof 3)', async () => {
+  it('a 400 from the route names the box in its label words, never the route field or pattern; the typed value stays in the input (done-means 6, mutation proof 3)', async () => {
     const page = await renderSettings(baseUrl, session);
     try {
       const evm = page.document.getElementById('payout-evm') as HTMLInputElement | null;
       evm!.value = 'not-an-address';
       evm!.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+      (page.document.getElementById('payout-evm-confirm') as HTMLInputElement).click();
       const saveBtn = page.document.getElementById('save-btn') as HTMLButtonElement | null;
       saveBtn!.click();
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -256,7 +258,7 @@ describe('the settings screen, driven end to end against the real app', () => {
       const saveError = page.document.getElementById('save-error');
       expect(saveError?.hidden).toBe(false);
       const detail = page.document.getElementById('save-error-detail')?.textContent ?? '';
-      expect(detail).toContain('operatorAddressEvm must be an EVM address');
+      expect(detail).toBe('The USDC on Arbitrum address is not a valid address. Copy it from your wallet again.');
       const saveSuccess = page.document.getElementById('save-success');
       expect(saveSuccess?.hidden).toBe(true);
       expect(evm!.value).toBe('not-an-address');
@@ -272,6 +274,7 @@ describe('the settings screen, driven end to end against the real app', () => {
       const secondEvm = '0x' + 'a'.repeat(40);
       evm!.value = secondEvm;
       evm!.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+      (page.document.getElementById('payout-evm-confirm') as HTMLInputElement).click();
       const saveBtn = page.document.getElementById('save-btn') as HTMLButtonElement | null;
       saveBtn!.click();
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -310,6 +313,7 @@ describe('the settings screen, driven end to end against the real app', () => {
         const typedValue = '0x' + 'b'.repeat(40);
         evm!.value = typedValue;
         evm!.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+        (page.document.getElementById('payout-evm-confirm') as HTMLInputElement).click();
         const saveBtn = page.document.getElementById('save-btn') as HTMLButtonElement | null;
         saveBtn!.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
@@ -408,7 +412,11 @@ describe('the settings screen, driven end to end against the real app', () => {
       // FIX-PUSH: the notifications switch exists only where this browser
       // can do push; tests/web/settings-push.test.ts drives both sides.
       expect(page.document.getElementById('push-toggle')).toBeNull();
-      expect(page.document.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+      // The only checkboxes are the three payout confirmations, which are
+      // in the document from the start and hidden until a box changes
+      // (tests/web/settings-payout.test.ts drives them).
+      const boxes = Array.from(page.document.querySelectorAll('input[type="checkbox"]')).map((b) => b.id);
+      expect(boxes).toEqual(['payout-evm-confirm', 'payout-abt-eth-confirm', 'payout-abt-confirm']);
       const text = page.document.body.textContent ?? '';
       expect(text).not.toContain('checked');
       expect(text).not.toContain('hours ago');
@@ -545,9 +553,14 @@ describe('the settings screen, driven end to end against the real app', () => {
         `);
         expect(overflow.scrollWidth, 'the 320px page must not scroll sideways').toBe(overflow.clientWidth);
 
+        // DESIGN.md 5.3's exemption, the way tests/web/browse.test.ts takes
+        // it: a checkbox inside a label is exempt only because the label is
+        // the tap target, so the label is measured in its place.
         const undersized = await browser.evaluate<Array<[string, number, number]>>(`
-          Array.from(document.querySelectorAll('#settings-body a, #settings-body button, #settings-body input'))
+          Array.from(document.querySelectorAll('#settings-body a, #settings-body button, #settings-body input, #settings-body label'))
             .filter((el) => !el.closest('[hidden]'))
+            .filter((el) => el.tagName !== 'INPUT' || el.type !== 'checkbox' || !el.closest('label'))
+            .filter((el) => el.tagName !== 'LABEL' || el.querySelector('input[type="checkbox"]'))
             .map((el) => {
               const r = el.getBoundingClientRect();
               return [el.id || el.textContent || '', r.width, r.height];

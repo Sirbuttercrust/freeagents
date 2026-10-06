@@ -54,6 +54,28 @@
      anything is written into it. */
   #push-note { margin: 0; }
   #push-note:not(:empty) { margin-top: 10px; }
+
+  /* The payout boxes. The hint is the one line saying what a box accepts. */
+  .payout-hint { margin: 6px 0 0; color: var(--fg-2); }
+  /* The confirmation row, /listagent's checkbox row: a label at least 44px
+     tall at every width holding an 18px box, so the label is the tap
+     target (DESIGN.md 5.3's exemption is only true while it clears 44px).
+     `.field .check`, not `.check`: base.css's `.field label` (display:
+     block) outranks a single class and would stack the box on its words. */
+  .field .check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 6px 0 0; cursor: pointer; font-size: 14px; color: var(--fg); }
+  .check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--action); color-scheme: dark; }
+  /* A message that takes focus is not a control, so it draws no ring. */
+  .save-msg:focus { outline: none; }
+  /* The warning's sentence, then its button, which wraps under the
+     sentence on a phone rather than pushing the row wide. */
+  #save-warning { border-left: 2px solid var(--bad); padding: 2px 0 2px 12px; }
+  #save-warning-detail { color: var(--fg); margin: 0; }
+  #save-anyway { min-height: 44px; margin-top: 12px; }
+  /* A button with a save in flight ignores presses (settings.js) and says
+     so to assistive tech through aria-disabled. It keeps its colours, so
+     its label stays at full contrast, and is never `disabled`, which would
+     drop focus to the page. */
+  .btn[aria-disabled="true"] { cursor: progress; }
 </style>
 </head>
 <body>
@@ -99,9 +121,16 @@
       <p class="sub">Your account, and the accounts connected to it.</p>
 
       <!-- Ruling 2: the payout addresses, the one section the wireframe
-           does not draw. Without it the USDC rail cannot complete a
-           payment for any agent (app.ts's own 409, measured in the
-           brief). -->
+           does not draw. Three boxes, one per token and network, each
+           labelled with both: USDC on Arbitrum, ABT on Ethereum, ABT on
+           ArcBlock. No box is ever filled from another. Each carries one
+           line saying what it accepts, read out with its input through
+           aria-describedby, and a confirmation that settings.js shows only
+           while the box holds a new, non-empty address. The confirmations
+           are in the document from the start and [hidden] until then.
+           The three input attributes stop a phone from capitalising or
+           correcting an address: an ArcBlock address's leading z turned
+           into Z no longer matches. -->
       <div class="rows pane pane-pad stagger reveal" style="margin-top:26px">
         <div style="--i:0">
           <h2 style="margin:0 0 8px; font-size:16px">Where you are paid</h2>
@@ -111,13 +140,21 @@
           </p>
           <div class="field">
             <label for="payout-evm">Paid in USDC, on Arbitrum</label>
-            <input class="input" id="payout-evm" placeholder="0x0000000000000000000000000000000000000000">
-            <p class="small" id="payout-evm-hint" style="margin-top:6px; color:var(--fg-2)"></p>
+            <input class="input" id="payout-evm" placeholder="0x0000000000000000000000000000000000000000" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-describedby="payout-evm-hint">
+            <p class="small payout-hint" id="payout-evm-hint">Only an address that can receive USDC on Arbitrum.</p>
+            <label class="check" hidden><input type="checkbox" id="payout-evm-confirm"><span>I control this wallet on Arbitrum</span></label>
+          </div>
+          <div class="field">
+            <label for="payout-abt-eth">Paid in ABT, on Ethereum</label>
+            <input class="input" id="payout-abt-eth" placeholder="0x0000000000000000000000000000000000000000" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-describedby="payout-abt-eth-hint">
+            <p class="small payout-hint" id="payout-abt-eth-hint">Only an address that can receive ABT on Ethereum. Exchange deposit addresses usually can't.</p>
+            <label class="check" hidden><input type="checkbox" id="payout-abt-eth-confirm"><span>I control this wallet on Ethereum</span></label>
           </div>
           <div class="field" style="margin-bottom:0">
-            <label for="payout-abt">Paid in ABT</label>
-            <input class="input" id="payout-abt" placeholder="z6Mk...">
-            <p class="small" id="payout-abt-hint" style="margin-top:6px; color:var(--fg-2)"></p>
+            <label for="payout-abt">Paid in ABT, on ArcBlock</label>
+            <input class="input" id="payout-abt" placeholder="z6Mk..." autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-describedby="payout-abt-hint">
+            <p class="small payout-hint" id="payout-abt-hint">Only an address that can receive ABT on ArcBlock.</p>
+            <label class="check" hidden><input type="checkbox" id="payout-abt-confirm"><span>I control this wallet on ArcBlock</span></label>
           </div>
         </div>
       </div>
@@ -151,10 +188,20 @@
         </div>
       </template>
 
-      <div id="save-error" class="empty warn" hidden style="margin-top:20px">
+      <!-- The save outcome. Each message takes focus when it shows
+           (tabindex -1), so a keyboard or screen-reader user lands on what
+           happened instead of on the page. The warning is the route's 409
+           for an address that holds contract code: its own sentence, and
+           one quiet button that sends the same body again with the
+           confirmation. -->
+      <div id="save-error" class="empty warn save-msg" tabindex="-1" hidden style="margin-top:20px">
         <p class="sub" id="save-error-detail"></p>
       </div>
-      <div id="save-success" class="empty" hidden style="margin-top:20px">
+      <div id="save-warning" class="empty warn save-msg" tabindex="-1" hidden style="margin-top:20px">
+        <p class="sub" id="save-warning-detail"></p>
+        <button class="btn" type="button" id="save-anyway">Save it anyway</button>
+      </div>
+      <div id="save-success" class="empty save-msg" tabindex="-1" hidden style="margin-top:20px">
         <p class="sub">Saved.</p>
       </div>
 

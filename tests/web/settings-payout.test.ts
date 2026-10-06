@@ -365,6 +365,28 @@ describe('/settings, the three payout boxes', () => {
     }
   });
 
+  it('(e) a box edited while the save is out gets the warning sentence with no "Save it anyway", since the warned address is no longer on screen', async () => {
+    const w = await startWorld(true);
+    let release: () => void = () => undefined;
+    const gate: Gate = { wait: new Promise<void>((resolve) => { release = resolve; }) };
+    const page = await render(w, gate);
+    try {
+      page.type('payout-abt-eth', ETH);
+      page.tick('payout-abt-eth-confirm');
+      page.save();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      page.type('payout-abt-eth', ETH_SECOND);
+      release();
+      await until(() => page.shown('save-error'));
+      expect([page.text('save-error-detail'), page.shown('save-warning'), page.shown('save-anyway')]).toEqual([CONTRACT_SENTENCE_ETH, false, false]);
+      expect(page.patches()).toEqual([{ operatorAddressAbtEth: ETH }]);
+      expect(await stored(w)).toEqual({ evm: null, abtEth: null, abt: null });
+    } finally {
+      release();
+      page.close();
+    }
+  });
+
   it.each([
     ['payout-evm', 'not-an-address', 'The USDC on Arbitrum address is not a valid address. Copy it from your wallet again.'],
     ['payout-abt-eth', 'not-an-address', 'The ABT on Ethereum address is not a valid address. Copy it from your wallet again.'],
