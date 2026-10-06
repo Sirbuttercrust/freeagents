@@ -224,6 +224,21 @@ beforeAll(async () => {
     mergedAt: HOURS_AGO(2),
     mergeCommit: 'merge-polish-completed',
   });
+
+  // Paid in full, and the pull request never opened within seven days: the
+  // delivery clock's terminal ending, built directly here because no route
+  // reaches it yet.
+  await jobRepo.create({
+    ...jobFixture({
+      id: 'polish-paid-undelivered', status: 'staged', ...agreed,
+      confirmedSpecHash: 'sha256:polish-paid-undelivered',
+      stagingRepo: { owner: PLATFORM_LOGIN, repo: 'staging-polish-paid-undelivered' },
+      baseCommit: 'base-polish-paid-undelivered',
+      stagedAt: HOURS_AGO(4),
+      stagedCommit: 'commit-polish-paid-undelivered',
+    }),
+    status: 'paid_undelivered',
+  });
 });
 
 afterAll(async () => {
@@ -581,6 +596,22 @@ describe('3. the timeline distinguishes what happened from what is happening', (
     }
   });
 
+  it('a hire paid in full that never got its pull request reads as ended, and marks no row current', async () => {
+    const page = await render('polish-paid-undelivered');
+    try {
+      expect(page.document.getElementById('state-heading')?.textContent).toBe('Paid in full, and the pull request never opened');
+      expect(page.document.getElementById('state-lede')?.textContent).toBe(
+        'The buyer paid in full and the pull request did not open within seven days, so the hire ended. It counts on your public record as paid and never delivered.',
+      );
+      const rows = Array.from(page.document.querySelectorAll('#history > li'));
+      expect(rows.length, 'no history rows rendered on the paid_undelivered job').toBeGreaterThanOrEqual(3);
+      expect(rows.filter((li) => li.classList.contains('now')).map((li) => li.textContent), 'a row marked current on an ended hire').toEqual([]);
+      expect(rows.map((li) => li.className).every((c) => c === 'done')).toBe(true);
+    } finally {
+      page.close();
+    }
+  });
+
   // The page's own terminal list, checked against the domain's. A status the
   // domain calls terminal that this page thinks is open would put a "current"
   // marker on a finished hire; the reverse would lose the marker on a live
@@ -596,7 +627,9 @@ describe('3. the timeline distinguishes what happened from what is happening', (
       'draft', 'proposed', 'confirmed', 'staged', 'redo_requested', 'submitted',
       'completed', 'declined', 'closed_unmerged', 'stale', 'withdrawn',
       'staged_declined', 'closed_unpaid', 'expired_unstaged', 'deemed_completed', 'cited_closed',
+      'paid_undelivered',
     ];
+    expect(every, 'the hand list must name all seventeen JobStatus values').toHaveLength(17);
     const disagreements = every.filter((s) => isTerminal(s) !== pageList.includes(s));
     expect(disagreements, 'statuses where the page and src/domain/job.ts disagree about "finished"').toEqual([]);
   });

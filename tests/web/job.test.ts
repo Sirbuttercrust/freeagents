@@ -340,6 +340,26 @@ describe('fifteen of the seventeen JobStatus values render a distinct plain sent
   });
 });
 
+// A hire paid in full whose pull request never opened within seven days
+// ends paid_undelivered. The page draws the same sentence and map for every
+// reader, so one signed-out render covers both seats here.
+describe('a hire paid in full that ended with no pull request reads as ended', () => {
+  it('shows the whole paid-and-never-delivered sentence and no step map', async () => {
+    const page = await render('/jobs/job-status-paid_undelivered');
+    try {
+      expect(page.document.getElementById('state-label')?.textContent ?? '').toBe(
+        'The hire was paid in full, but the pull request did not open within seven days, so it ended as paid and never delivered. No money returns.',
+      );
+      const where = page.document.getElementById('job-where');
+      expect(where, '#job-where is missing from the served page').not.toBeNull();
+      expect(where!.hidden).toBe(true);
+      expect(where!.querySelector('ol.stepflow')).toBeNull();
+    } finally {
+      page.close();
+    }
+  });
+});
+
 describe('an absent group renders no row at all, never a pending row with an empty date', () => {
   it('a confirmed job with no submission shows no submission row', async () => {
     const page = await render('/jobs/job-confirmed-no-submission');

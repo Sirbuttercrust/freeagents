@@ -213,6 +213,8 @@ beforeAll(async () => {
   }
   await jobRepo.create(job('rv-submitted', { status: 'submitted', pullRequestUrl: PR, submittedAt: RECENT }));
   await jobRepo.create(job('rv-deemed', { status: 'deemed_completed', pullRequestUrl: PR, submittedAt: RECENT }));
+  // Paid in full, and the pull request never opened within seven days.
+  await jobRepo.create(job('rv-paid-undelivered', { status: 'paid_undelivered', stagedAt: RECENT, stagedCommit: 'rvstaged' }));
   await reviewRepo.save({ jobId: 'rv-reviewed', authorDid: BUYER_DID, agentDid: AGENT_DID, text: 'Already said my piece.', createdAt: new Date('2026-09-03T12:00:00Z') });
 });
 
@@ -342,6 +344,18 @@ describe('(d) everyone else sees one sentence and no form', () => {
     try {
       expect(visible(page, state), `#${state} is showing`).toBe(true);
       expect(text(page, state)).toContain(sentence);
+      expect(hasForm(page)).toBe(false);
+      expect(visible(page, 'review-body')).toBe(false);
+    } finally {
+      page.close();
+    }
+  });
+
+  it('a hire paid in full that ended with no pull request gets the ended sentence and no form', async () => {
+    const page = await render('/review?job=rv-paid-undelivered', 'buyer');
+    try {
+      expect(visible(page, 'not-finished'), '#not-finished is showing').toBe(true);
+      expect(text(page, 'not-finished-sentence')).toBe('Only a hire whose work merged can be reviewed.');
       expect(hasForm(page)).toBe(false);
       expect(visible(page, 'review-body')).toBe(false);
     } finally {
