@@ -1370,7 +1370,7 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
 
   describe('(i) the agreed price changes while the leg is half paid', () => {
     const HALF_PAID_REPRICED_SENTENCE =
-      'Half of this payment is already on the network, at the price agreed when it started. ' +
+      "One of this payment's two transfers is already on the network, at the price agreed when it started. " +
       'The agreed price has changed since. Ask the agent to put that earlier price back, and this payment can be finished.';
 
     async function reprice(rig: Rig, jobId: string, priceUsd: string): Promise<void> {
