@@ -32,7 +32,7 @@ vi.mock('../../../src/generated/prisma/index.js', async () => {
   };
 });
 import { createAbtEthPaymentRail, readAbtEthEnvConfig } from '../../../src/adapters/payment/abt-eth.js';
-import type { Erc20ChainClient, Erc20ObservedTransfer } from '../../../src/adapters/payment/erc20.js';
+import type { AbtEthChainClient, Erc20ObservedTransfer } from '../../../src/adapters/payment/erc20.js';
 import { PaymentConfigError, RateUnavailableError } from '../../../src/adapters/payment/types.js';
 import type { RateReading } from '../../../src/adapters/payment/types.js';
 import type { UsdcHalfPaidRow, UsdcHalfPaidStorage } from '../../../src/adapters/payment/usdc-half-paid-storage-types.js';
@@ -121,11 +121,22 @@ function memoryHalfPaid(): UsdcHalfPaidStorage & { rows: Map<string, UsdcHalfPai
 
 type Receipt = { readonly status: number | null; readonly transfer: Erc20ObservedTransfer | null } | null;
 
-function chainClient(byHash: Record<string, Receipt> = {}, decimals = 18): Erc20ChainClient {
+// recordedAt answers the time given for a hash, null for any other, and logs
+// every hash it was asked about so a test can say it was never asked.
+function chainClient(
+  byHash: Record<string, Receipt> = {},
+  decimals = 18,
+  recorded: Record<string, Date | null> = {},
+  recordedAtCalls: string[] = [],
+): AbtEthChainClient {
   const normalized = new Map(Object.entries(byHash).map(([hash, receipt]) => [hash.toLowerCase(), receipt]));
   return {
     decimals: async () => decimals,
     getTransactionReceipt: async (hash) => normalized.get(hash.toLowerCase()) ?? null,
+    recordedAt: async (hash) => {
+      recordedAtCalls.push(hash);
+      return recorded[hash] ?? null;
+    },
   };
 }
 
@@ -137,7 +148,7 @@ interface Built {
 
 function build(
   options: {
-    readonly client?: Erc20ChainClient;
+    readonly client?: AbtEthChainClient;
     readonly rateSource?: () => Promise<RateReading | null>;
     readonly spent?: ReturnType<typeof memorySpent>;
     readonly halfPaid?: ReturnType<typeof memoryHalfPaid>;
@@ -260,6 +271,18 @@ describe('quote: the CoinGecko price, with the fee at 3 percent', () => {
   });
 });
 
+describe('the rail takes a chain client that can say when a transfer was recorded', () => {
+  it('does not compile with a client that lacks recordedAt (checked by the project typecheck)', () => {
+    const withoutRecordedAt = { decimals: async () => 18, getTransactionReceipt: async () => null };
+    const build = () =>
+      createAbtEthPaymentRail({
+        // @ts-expect-error the ABT-on-Ethereum rail needs recordedAt; the USDC rail does not
+        chainClient: withoutRecordedAt,
+      });
+    expect(typeof build).toBe('function');
+  });
+});
+
 describe('createRequest: two transfers in base units read from the contract', () => {
   it('builds the price transfer to the owner, then the fee transfer to the platform, on chain 1 and the ABT contract', async () => {
     const { rail } = build();
@@ -303,7 +326,7 @@ describe('decimals are read off the contract on every call, not once per rail', 
   it('createRequest and onWalletResponse each answer with the decimals the contract reports at that moment', async () => {
     let decimals = 18;
     const { rail } = build({
-      client: { decimals: async () => decimals, getTransactionReceipt: async () => null },
+      client: { decimals: async () => decimals, getTransactionReceipt: async () => null, recordedAt: async () => null },
     });
     const requestInput = {
       jobId: 'job_1',
@@ -404,17 +427,84 @@ describe('confirm: only an ABT transfer on chain 1 to the right recipient', () =
     return { ...built, ref, confirmation: await built.rail.confirm(ref) };
   }
 
-  it('confirms two matching transfers and answers the whole confirmation', async () => {
-    const { confirmation } = await confirmWith({
-      [PRICE_HASH]: { status: 1, transfer: priceTransfer() },
-      [FEE_HASH]: { status: 1, transfer: feeTransfer() },
+  // The confirmation now also answers when the network recorded the price
+  // transfer (priceRecordedAt), so this whole-value pin takes the new key.
+  it('confirms two matching transfers and answers the whole confirmation, with the time the network recorded the price transfer', async () => {
+    const built = build({
+      client: chainClient(
+        {
+          [PRICE_HASH]: { status: 1, transfer: priceTransfer() },
+          [FEE_HASH]: { status: 1, transfer: feeTransfer() },
+        },
+        18,
+        { [PRICE_HASH]: new Date('2026-10-01T12:20:00.000Z') },
+      ),
     });
+    const confirmation = await built.rail.confirm(await built.rail.onWalletResponse(walletInput));
     expect(confirmation).toEqual({
       rail: 'abt_eth',
       hash: PRICE_HASH,
       confirmed: true,
       legs: { price: { status: 'confirmed', hash: PRICE_HASH }, fee: { status: 'confirmed', hash: FEE_HASH } },
       halfPaid: false,
+      priceRecordedAt: '2026-10-01T12:20:00.000Z',
+    });
+  });
+
+  describe('priceRecordedAt: read only for a confirmed price transfer', () => {
+    const RECORDED = { [PRICE_HASH]: new Date('2026-10-01T12:20:00.000Z'), [FEE_HASH]: new Date('2026-10-01T12:21:00.000Z') };
+
+    async function confirmRecorded(receipts: Record<string, Receipt>, recorded: Record<string, Date | null>) {
+      const asked: string[] = [];
+      const built = build({ client: chainClient(receipts, 18, recorded, asked) });
+      const confirmation = await built.rail.confirm(await built.rail.onWalletResponse(walletInput));
+      return { confirmation, asked };
+    }
+
+    it('answers the price transfer time when only the price leg landed, and asks about no other hash', async () => {
+      const { confirmation, asked } = await confirmRecorded(
+        { [PRICE_HASH]: { status: 1, transfer: priceTransfer() } },
+        RECORDED,
+      );
+      expect(confirmation.halfPaid).toBe(true);
+      expect(confirmation.priceRecordedAt).toBe('2026-10-01T12:20:00.000Z');
+      expect(asked).toEqual([PRICE_HASH]);
+    });
+
+    it('answers null and asks about nothing when the price transfer has no receipt, even if the fee transfer landed', async () => {
+      const { confirmation, asked } = await confirmRecorded(
+        { [FEE_HASH]: { status: 1, transfer: feeTransfer() } },
+        RECORDED,
+      );
+      expect(confirmation.legs?.price).toEqual({ status: 'not_confirmed', hash: PRICE_HASH });
+      expect(confirmation.priceRecordedAt).toBeNull();
+      expect(asked).toEqual([]);
+    });
+
+    it('answers null and asks about nothing when the price transfer is mismatched', async () => {
+      const { confirmation, asked } = await confirmRecorded(
+        {
+          [PRICE_HASH]: { status: 1, transfer: priceTransfer({ to: STRANGER }) },
+          [FEE_HASH]: { status: 1, transfer: feeTransfer() },
+        },
+        RECORDED,
+      );
+      expect(confirmation.legs?.price).toEqual({ status: 'mismatched', hash: PRICE_HASH });
+      expect(confirmation.priceRecordedAt).toBeNull();
+      expect(asked).toEqual([]);
+    });
+
+    it('answers null when the price leg is confirmed and the client has no block time for it', async () => {
+      const { confirmation, asked } = await confirmRecorded(
+        {
+          [PRICE_HASH]: { status: 1, transfer: priceTransfer() },
+          [FEE_HASH]: { status: 1, transfer: feeTransfer() },
+        },
+        { [PRICE_HASH]: null },
+      );
+      expect(confirmation.confirmed).toBe(true);
+      expect(confirmation.priceRecordedAt).toBeNull();
+      expect(asked).toEqual([PRICE_HASH]);
     });
   });
 
