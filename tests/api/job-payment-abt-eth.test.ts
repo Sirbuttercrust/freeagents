@@ -215,7 +215,13 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
   };
 }
 
-async function createJob(rig: Rig): Promise<string> {
+interface Parties {
+  readonly baseUrl: string;
+  readonly buyer: SigningIdentity;
+  readonly agent: SigningIdentity;
+}
+
+async function createJob(rig: Parties): Promise<string> {
   const created = await postSigned(rig.baseUrl, '/jobs', {
     buyerDid: rig.buyer.did,
     agentDid: rig.agent.did,
@@ -225,7 +231,7 @@ async function createJob(rig: Rig): Promise<string> {
   return String(((await created.json()) as Record<string, unknown>).id);
 }
 
-async function walkToProposedAndPriced(rig: Rig, rail?: 'abt' | 'usdc' | 'abt_eth'): Promise<string> {
+async function walkToProposedAndPriced(rig: Parties, rail?: 'abt' | 'usdc' | 'abt_eth'): Promise<string> {
   const jobId = await createJob(rig);
   await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, {
     criteria,
@@ -309,6 +315,12 @@ async function paidLines(rig: Rig, jobId: string): Promise<unknown[]> {
     .map((row) => ({ body: row.body, systemEvent: row.systemEvent }));
 }
 
+// No settlement row for the deposit and no paid line in the thread.
+async function expectNothingSettled(rig: Rig, jobId: string): Promise<void> {
+  expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+  expect(await paidLines(rig, jobId)).toEqual([]);
+}
+
 // The whole settlement row a paid deposit or remainder leaves.
 function settlementRow(jobId: string, leg: 'deposit' | 'remainder', observedAt: string): Record<string, unknown> {
   const pair = leg === 'deposit' ? DEPOSIT_PAIR : REMAINDER_PAIR;
@@ -378,8 +390,7 @@ describe('(a) a deployment with no ABT-on-Ethereum rail', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'the abt_eth payment rail is not configured on this deployment' });
     expect(rig.locks).toEqual([]);
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 });
 
@@ -396,8 +407,7 @@ describe('(b) who may use the routes', () => {
 
     expect([strangerStart.status, strangerReport.status, unsignedStart.status, unsignedReport.status]).toEqual([403, 403, 401, 401]);
     expect(rig.locks).toEqual([]);
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 });
 
@@ -635,8 +645,7 @@ describe('the gates the USDC routes make, made on both ABT-on-Ethereum routes', 
     expect(await noFee.json()).toEqual({ error: BAD_REPORT });
     expect(await noPrice.json()).toEqual({ error: BAD_REPORT });
     expect(await same.json()).toEqual({ error: 'priceTxHash and feeTx.hash must not be the same transaction' });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 });
 
@@ -686,8 +695,7 @@ describe('(f) the lock the report names', () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: NO_LOCK });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 
   it("refuses another job's lock with 409 and settles nothing", async () => {
@@ -702,8 +710,7 @@ describe('(f) the lock the report names', () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: NO_LOCK });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 
   it("refuses another leg's lock with 409 and settles nothing", async () => {
@@ -737,8 +744,7 @@ describe('(f) the lock the report names', () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: PRICE_CHANGED });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 });
 
@@ -794,8 +800,7 @@ describe('the late-transfer rule', () => {
       ...confirmationBody(DEPOSIT_PAIR, AFTER_HOLD),
       short: { recordedAt: AFTER_HOLD, agreedUsd: '125.00', worthUsd: '100' },
     });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
       shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: AFTER_HOLD, readAt: REPORTED_AT }),
     ]);
@@ -817,8 +822,7 @@ describe('the late-transfer rule', () => {
       ...confirmationBody(DEPOSIT_PAIR, AFTER_HOLD),
       short: { recordedAt: AFTER_HOLD, agreedUsd: '125.00', worthUsd: null },
     });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
       shortRow(jobId, lockId, { usdPerTokenAtRead: null, worthUsd: null, recordedAt: AFTER_HOLD, readAt: REPORTED_AT }),
     ]);
@@ -840,8 +844,7 @@ describe('the late-transfer rule', () => {
       ...confirmationBody(DEPOSIT_PAIR, null),
       short: { recordedAt: null, agreedUsd: '125.00', worthUsd: '100' },
     });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
       shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: null, readAt: INSIDE_HOLD }),
     ]);
@@ -920,8 +923,7 @@ describe('(l) a payment reported twice', () => {
       short: { recordedAt: AFTER_HOLD, agreedUsd: '125.00', worthUsd: '100' },
     });
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toHaveLength(1);
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
   });
 });
 
@@ -945,8 +947,7 @@ describe('(m) a half-paid leg', () => {
       halfPaid: true,
       priceRecordedAt: INSIDE_HOLD,
     });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
+    await expectNothingSettled(rig, jobId);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([]);
 
     const restart = await startLeg(rig, jobId, 'deposit');
@@ -988,22 +989,7 @@ describe('(n) the rail is offered only when the owner set it up', () => {
   it('accepts a quote naming abt_eth and pins the job; the ABT and USDC doors then refuse it', async () => {
     const app = await startOpenRailAppWithRails({ abt: 'z1OperatorAbt', evm: OWNER_USDC });
     servers.push(app.server);
-    const created = await postSigned(app.baseUrl, '/jobs', {
-      buyerDid: app.buyer.did,
-      agentDid: app.agent.did,
-      repository: 'buyer/target-repo',
-      brief: 'Fix the login bug',
-    }, app.buyer);
-    const jobId = String(((await created.json()) as Record<string, unknown>).id);
-
-    const quote = await postSigned(app.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '500.00', rail: 'abt_eth' }, app.agent);
-    expect(quote.status).toBe(200);
-    for (const index of [0, 1]) {
-      await postSigned(app.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, app.buyer);
-      await postSigned(app.baseUrl, `/jobs/${jobId}/criteria/${index}/accept`, {}, app.agent);
-    }
-    await postSigned(app.baseUrl, `/jobs/${jobId}/price/accept`, {}, app.buyer);
-    await postSigned(app.baseUrl, `/jobs/${jobId}/price/accept`, {}, app.agent);
+    const jobId = await walkToProposedAndPriced(app, 'abt_eth');
     const read = (await (await fetch(`${app.baseUrl}/jobs/${jobId}`)).json()) as { payableRails?: unknown; price?: { rail?: unknown } };
     const usdcStart = await postSigned(app.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, app.buyer);
     const abtStart = await postSigned(app.baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, app.buyer);
