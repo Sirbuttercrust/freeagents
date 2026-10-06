@@ -1699,20 +1699,28 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
       expect((after as { status: string }).status).toBe('staged');
     });
 
-    it('(f) refuses a deposit half-paid in USDC at both ABT-on-Ethereum doors, offers only USDC, and the USDC rail finishes the leg with one settlement row', async () => {
+    it.each([
+      ['abt_eth/start', (rig: Rig, jobId: string) => startLeg(rig, jobId, 'deposit')],
+      // A fresh pair, not a replay: nothing is recorded for these hashes.
+      ['abt_eth/wallet-response', (rig: Rig, jobId: string) => report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, 'a-lock-this-door-never-checks'))],
+    ])('(f) refuses a deposit half-paid in USDC at %s, writes no lock and no settlement', async (_door, call) => {
       const rig = await boot(BOTH);
       const jobId = await usdcHalfPaid(rig);
-      const held = { error: 'part of the deposit for this job was paid in "usdc"; finish it there, the "abt_eth" payment routes refuse it' };
 
-      const start = await startLeg(rig, jobId, 'deposit');
-      const fresh = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, 'a-lock-this-door-never-checks'));
+      const res = await call(rig, jobId);
 
-      expect(start.status).toBe(409);
-      expect(await start.json()).toEqual(held);
-      expect(fresh.status).toBe(409);
-      expect(await fresh.json()).toEqual(held);
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: 'part of the deposit for this job was paid in "usdc"; finish it there, the "abt_eth" payment routes refuse it',
+      });
       expect(rig.locks).toEqual([]);
       await expectNothingSettled(rig, jobId);
+    });
+
+    it('(f) offers only USDC for a deposit half-paid in USDC, and the USDC rail finishes the leg with one settlement row', async () => {
+      const rig = await boot(BOTH);
+      const jobId = await usdcHalfPaid(rig);
+
       expect(await payableRails(rig, jobId)).toEqual(['usdc']);
 
       rig.usdcReceipts.set(USDC_FEE, { status: 1, transfer: { to: USDC_FEE_ADDRESS, value: '7500000', tokenContract: USDC_TOKEN, chainId: USDC_CHAIN_ID } });
