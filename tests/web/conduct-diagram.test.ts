@@ -1,7 +1,7 @@
 // The /conduct diagram (DIAG1c), measured in a real browser against
 // createApp(), the way tests/web/diagrams.test.ts measures /outcomes and
 // tests/web/how-diagrams.test.ts measures /how. tests/web/conduct.test.ts
-// keeps the page's data pins (four states, eight counts field by field,
+// keeps the page's data pins (four states, ten counts field by field,
 // no score, markup as text, no avatar); this file holds what the diagram
 // adds on top of them.
 //
@@ -9,12 +9,13 @@
 // loaded with ?still in the same browser at the same size.
 //
 //   (a) the diagram waits for the read, plays once as it comes into view,
-//       ends on the response's eight values field by field; Replay replays
+//       ends on the response's ten values field by field, the owner's four
+//       in page order under their own branch head; Replay replays
 //   (b) reduced motion: final values at once, never counted, nothing moves;
 //       scripts off: the page says so and shows no number
 //   (c) every word in the diagram meets AA at ?t=0, mid count-up and at
 //       the end, on painted pixels
-//   (d) the cold start: eight "0" leaves, both branches, nothing hidden
+//   (d) the cold start: ten "0" leaves, both branches, nothing hidden
 //   (e) keyed: false, 404, 503 and a network failure: today's sentence and
 //       no diagram node that carries a number
 //   (f) both disclosures closed at load, each opens to main's words
@@ -53,7 +54,17 @@ const FIELDS: Array<[string, 'counts' | 'operatorCounts', string]> = [
   ['ct-walked-away', 'counts', 'walkedAway'],
   ['ct-delivered-never-paid', 'operatorCounts', 'deliveredNeverPaid'],
   ['ct-redos-refused', 'operatorCounts', 'redosRefused'],
+  ['ct-walked-after-deposit', 'operatorCounts', 'walkedAfterDeposit'],
+  ['ct-paid-never-delivered', 'operatorCounts', 'paidNeverDelivered'],
 ];
+// The owner's four, in page order, with the label each leaf carries.
+const OWNER_LEAVES: Array<[string, string]> = [
+  ['ct-delivered-never-paid', 'delivered and never paid for'],
+  ['ct-redos-refused', 'redos refused'],
+  ['ct-walked-after-deposit', 'walked away after the deposit'],
+  ['ct-paid-never-delivered', 'paid and never delivered'],
+];
+const ARIA = 'This account\'s conduct record: six counts when they hire, four when their agents are hired, never added up';
 const IDS = FIELDS.map(([id]) => id);
 
 let server: Server;
@@ -87,9 +98,11 @@ beforeAll(async () => {
     const base = createJob({ id: `conduct-diagram-${n++}`, buyerDid: buyer, agentDid: agent, repository: 'buyer/repo', brief: 'b' }, new Date('2026-08-01T00:00:00Z'));
     await jobs.create({ ...base, confirmedAt: at, ...o });
   };
-  // Eight different numbers, so a leaf bound to the wrong field cannot
+  // Ten different numbers, so a leaf bound to the wrong field cannot
   // pass by coincidence: confirmed 11, merged 5, deemed 1, citedCloses 2,
-  // redosRequested 4, walkedAway 3, deliveredNeverPaid 7, redosRefused 6.
+  // redosRequested 4, walkedAway 3, deliveredNeverPaid 7, redosRefused 6,
+  // walkedAfterDeposit 9, paidNeverDelivered 8. One job of each new ending
+  // would give two 1s and tie with deemed, so each gets its own count.
   for (let i = 0; i < 5; i++) await job(BUYER_DID, AGENT_DID, { status: 'completed', mergeCommit: 'c', mergedAt: at, ...(i < 2 ? { redoRequestedAt: at } : {}) });
   await job(BUYER_DID, AGENT_DID, { status: 'deemed_completed', deemedCompletedAt: at });
   for (let i = 0; i < 2; i++) await job(BUYER_DID, AGENT_DID, { status: 'cited_closed', citedCloseAt: at, ...(i === 0 ? { redoRequestedAt: at } : {}) });
@@ -97,6 +110,8 @@ beforeAll(async () => {
   await job(BUYER_DID, AGENT_DID, { status: 'closed_unpaid' });
   for (let i = 0; i < 6; i++) await job(OTHER_BUYER, OWN_AGENT_DID, { status: 'staged_declined', redoRequestedAt: at, redoRefusedAt: at });
   await job(OTHER_BUYER, OWN_AGENT_DID, { status: 'closed_unpaid' });
+  for (let i = 0; i < 9; i++) await job(OTHER_BUYER, OWN_AGENT_DID, { status: 'expired_unstaged' });
+  for (let i = 0; i < 8; i++) await job(OTHER_BUYER, OWN_AGENT_DID, { status: 'paid_undelivered' });
 
   server = createApp(accounts, agents, undefined, undefined, jobs).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -106,7 +121,7 @@ beforeAll(async () => {
   // below binds the page to the response rather than to a copy of it.
   const body = (await (await fetch(`${baseUrl}/buyers/${BUYER}/conduct`)).json()) as Record<string, Record<string, number>>;
   expected = Object.fromEntries(FIELDS.map(([id, side, field]) => [id, String(body[side]?.[field])]));
-  expect(Object.values(expected), 'the fixture gives eight different numbers').toEqual(['11', '5', '1', '2', '4', '3', '7', '6']);
+  expect(Object.values(expected), 'the fixture gives ten different numbers').toEqual(['11', '5', '1', '2', '4', '3', '7', '6', '9', '8']);
 });
 
 afterAll(async () => {
@@ -168,8 +183,8 @@ async function reference(b: RealBrowser, login = BUYER): Promise<Picture> {
   let s = await state(b);
   while (!s.built && Date.now() < until) { await sleep(150); s = await state(b); }
   const ref = picture(s);
-  expect(ref.nodes.length, 'the root, two branch heads, eight leaves and three plates').toBe(14);
-  expect(ref.wires.length, 'a wire to each branch head and to each leaf').toBe(10);
+  expect(ref.nodes.length, 'the root, two branch heads, ten leaves and three plates').toBe(16);
+  expect(ref.wires.length, 'a wire to each branch head and to each leaf').toBe(12);
   return ref;
 }
 
@@ -212,8 +227,8 @@ const HOLD = `(function () {
   }).observe(document, { childList: true, subtree: true });
 })();`;
 
-describe('(a) the diagram waits for the read, plays once as it comes into view, and ends on the response\u2019s eight values', () => {
-  it('nothing is built or numbered while the read is out; it is set up only after all eight numbers are written; the lower leaves wait below the fold; it ends on each field\u2019s value; scrolling back moves nothing; Replay replays', async () => {
+describe('(a) the diagram waits for the read, plays once as it comes into view, and ends on the response\u2019s ten values', () => {
+  it('nothing is built or numbered while the read is out; it is set up only after all ten numbers are written; the lower leaves wait below the fold; it ends on each field\u2019s value, the owner\u2019s four in page order under "When their agents are hired"; scrolling back moves nothing; Replay replays', async () => {
     if (skipWithoutChrome()) return;
     const b = await openBrowser({ width: 390, height: 844, init: HOLD });
     try {
@@ -221,7 +236,7 @@ describe('(a) the diagram waits for the read, plays once as it comes into view, 
       await b.goto(page(BUYER), 700);
       const waiting = await b.evaluate<{ read: string; built: boolean; bodyHidden: boolean; texts: string[] }>(`({ read: window.__read, built: !!document.querySelector('.dg-wires'),
         bodyHidden: document.getElementById('conduct-body').hidden, texts: Array.from(document.querySelectorAll('.dg-leaf .n')).map(function (n) { return n.textContent; }) })`);
-      expect(waiting, 'while the read is out: no diagram built, the body hidden, no number anywhere').toEqual({ read: 'pending', built: false, bodyHidden: true, texts: Array(8).fill('') });
+      expect(waiting, 'while the read is out: no diagram built, the body hidden, no number anywhere').toEqual({ read: 'pending', built: false, bodyHidden: true, texts: Array(10).fill('') });
 
       await sleep(1600);
       const setUp = await b.evaluate<{ read: string; shown: boolean; nums: Record<string, string> } | undefined>('window.__setUp');
@@ -232,12 +247,22 @@ describe('(a) the diagram waits for the read, plays once as it comes into view, 
       const early = await state(b);
       expect(early.replayShown, 'not finished while its lower leaves are below the fold').toBe(false);
       const below = await b.evaluate<Array<[string, string]>>(`Array.from(document.querySelectorAll('#operator-counts .n')).map(function (n) { return [n.id, n.textContent]; })`);
-      expect(below, 'the two leaves nobody has scrolled to have not counted').toEqual([['ct-delivered-never-paid', ''], ['ct-redos-refused', '']]);
+      expect(below, 'the four leaves nobody has scrolled to have not counted').toEqual(OWNER_LEAVES.map(([id]) => [id, '']));
 
       await toEnd(b);
       const done = await waitFinished(b, 20_000);
       expect(done.replayShown, 'it finishes and offers Replay').toBe(true);
       expect(await numbers(b), 'each leaf ends on its field\u2019s value').toEqual(expected);
+      // The owner's four, read in page order: id, number and label, and
+      // the branch head each one hangs under. A leaf bound to the wrong
+      // field, a dropped write or two leaves swapped all change this list.
+      const owner = await b.evaluate<Array<[string, string, string, string]>>(`Array.from(document.querySelectorAll('#operator-counts .dg-leaf')).map(function (l) {
+        var n = l.querySelector('.n'); return [n.id, n.textContent, l.querySelector('.l').textContent, l.closest('.dg-tree').querySelector('.dg-group-head h3').textContent]; })`);
+      expect(owner, 'the owner\u2019s four leaves, in page order, each on its own field').toEqual(
+        OWNER_LEAVES.map(([id, label]) => [id, expected[id], label, 'When their agents are hired']));
+      const heads = await b.evaluate<{ aria: string | null; heads: string[] }>(`({ aria: document.getElementById('conduct-diagram').getAttribute('aria-label'),
+        heads: Array.from(document.querySelectorAll('.dg-group-head')).map(function (h) { return h.querySelector('h3').textContent + '|' + h.querySelector('p').textContent; }) })`);
+      expect(heads, 'each branch head and the diagram\u2019s name count the leaves under them').toEqual({ aria: ARIA, heads: ['When they hire|6 counts', 'When their agents are hired|4 counts'] });
       expect(picture(done), 'the finished picture').toEqual(ref);
       for (const y of ['0', 'document.documentElement.scrollHeight', '0']) {
         await b.evaluate(`window.scrollTo(0, ${y})`);
@@ -311,7 +336,7 @@ describe('(b) reduced motion shows the final values at once and nothing moves; s
         numbered: Array.from(document.querySelectorAll('.dg-leaf .n')).filter(function (n) { return n.textContent !== '' || n.hasAttribute('data-n'); }).length,
         built: !!document.querySelector('.dg-wires')
       })`);
-      expect(seen.leaves, 'the diagram and its eight leaves are in the page').toBe(8);
+      expect(seen.leaves, 'the diagram and its ten leaves are in the page').toBe(10);
       expect(seen.mainHidden, 'the record is not shown without its read').toBe(true);
       expect(seen.numbered, 'no leaf holds a number it did not read').toBe(0);
       expect(seen.built).toBe(false);
@@ -444,18 +469,18 @@ describe('(c) every word in the diagram meets AA at every moment of the play', (
   // 3.5: "hires started" mid count-up (its count runs 3.35 to 4.05 s) and
   // a light on the wire into "merged". 20: past the end of the play.
   const moments: Array<[string, number, number, number, boolean]> = [
-    ['0', 390, 844, 21, false], ['3.5', 390, 844, 22, true], ['20', 390, 844, 29, false],
-    ['0', 1280, 800, 21, false], ['3.5', 1280, 800, 22, true], ['20', 1280, 800, 29, false],
+    ['0', 390, 844, 23, false], ['3.5', 390, 844, 24, true], ['20', 390, 844, 33, false],
+    ['0', 1280, 800, 23, false], ['3.5', 1280, 800, 24, true], ['20', 1280, 800, 33, false],
   ];
   it.each(moments)('/conduct?t=%s @ %i x %i: every text run in the diagram meets AA on painted pixels', async (t, width, height, runs, mid) => {
     if (skipWithoutChrome()) return;
     const b = await openBrowser({ width, height });
     try {
       const got = await contrastAt(b, page(BUYER, `&t=${t}`));
-      // 21 text runs with no number showing: the title, the root's two
-      // lines, two per branch head, the eight leaf labels and two per
+      // 23 text runs with no number showing: the title, the root's two
+      // lines, two per branch head, the ten leaf labels and two per
       // plate. Replay is hidden while ?t freezes the diagram. Each number
-      // shown adds one: one mid count-up at 3.5, all eight at the end.
+      // shown adds one: one mid count-up at 3.5, all ten at the end.
       expect(got.total, `the diagram holds ${runs} visible text runs at ?t=${t}`).toBe(runs);
       expect(got.measured, 'the walk measured every one of them').toBe(got.total);
       if (mid) expect(got.midCount.length, 'a number is caught mid count-up').toBeGreaterThan(0);
@@ -467,8 +492,8 @@ describe('(c) every word in the diagram meets AA at every moment of the play', (
   }, T_MS);
 });
 
-describe('(d) the cold start: eight "0" leaves, both branches, and nothing hidden', () => {
-  it('a keyed account with no history plays to eight "0" leaves in the quieter style, each laid out and visible, under both branch heads', async () => {
+describe('(d) the cold start: ten "0" leaves, both branches, and nothing hidden', () => {
+  it('a keyed account with no history plays to ten "0" leaves in the quieter style, each laid out and visible, under both branch heads', async () => {
     if (skipWithoutChrome()) return;
     const b = await openBrowser({ width: 390, height: 844 });
     try {
@@ -538,9 +563,9 @@ describe('(e) each failed or absent record shows today\u2019s sentence and no di
         numbered: Array.from(document.querySelectorAll('.dg-leaf .n')).filter(function (n) { return n.textContent !== '' || n.hasAttribute('data-n'); }).map(function (n) { return n.id; }),
         visibleDigits: /\\d/.test(Array.from(document.querySelectorAll('#conduct-diagram *')).filter(function (e) { return e.checkVisibility(); }).map(function (e) { return e.textContent; }).join(''))
       })`);
-      // leaves: the eight leaves are in the page, so "none numbered" is
+      // leaves: the ten leaves are in the page, so "none numbered" is
       // about them and not about an empty set.
-      expect(seen).toEqual({ sentence, bodyHidden: true, leaves: 8, built: false, numbered: [], visibleDigits: false });
+      expect(seen).toEqual({ sentence, bodyHidden: true, leaves: 10, built: false, numbered: [], visibleDigits: false });
     } finally {
       await b.close();
       if (failing) await new Promise<void>((resolve) => failing!.close(() => resolve()));
@@ -558,17 +583,19 @@ const MEANS = [
   'walked away|Work was delivered and they declined it, or went quiet for seven days.',
   'delivered and never paid for|Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.',
   'redos refused|A buyer sent work back citing a line and the operator declined to redo it.',
+  'walked away after the deposit|The hire was confirmed after the deposit, and no work was staged within thirty days.',
+  'paid and never delivered|The buyer paid in full and the pull request did not open within seven days.',
 ];
 const PARAS = [
   'Six counts. Every hire this account has paid a deposit on.',
   'Nothing here is added up and nothing here is a rate. Fourteen hires with one walk-away is a different thing from two hires with one walk-away, and a percentage would hide which of those you are looking at.',
-  'Two counts. These are about how this account behaved as the party doing the work, and they are kept separate from what their agents delivered.',
+  'Four counts. These are about how this account behaved as the party doing the work, and they are kept separate from what their agents delivered.',
   'What their agents actually delivered lives on each agent\u2019s own profile, in three unblended tiers. It is deliberately not repeated here: this page is about conduct, and that page is about evidence.',
 ];
 const ITEMS = [
-  'These are counts, never a score|no rating exists|No star, no percentage, no letter, no computed reliability, and no total. Eight numbers stay eight numbers. Deciding what they mean is yours.',
+  'These are counts, never a score|no rating exists|No star, no percentage, no letter, no computed reliability, and no total. Ten numbers stay ten numbers. Deciding what they mean is yours.',
   'Tied to a confirmed GitHub account|not to a wallet|A fresh identity is free to make, so a record attached to one would be worth nothing. This is attached to the same GitHub account that lists the repositories a person can hire against.',
-  'A zero is shown as a zero|always|An account with no history shows the same eight rows, all at zero. There is no new badge and nothing is hidden to make an empty record look fuller.',
+  'A zero is shown as a zero|always|An account with no history shows the same ten rows, all at zero. There is no new badge and nothing is hidden to make an empty record look fuller.',
   'Nothing here says anyone was wrong|no fault is recorded|Declining delivered work is allowed. Refusing a redo is allowed. Both are counted because they happened and because the other side is entitled to know, not because FreeAgents thinks either was a mistake.',
   'Operators can require a record before they take work|their choice|An operator can set their agents to only accept buyers above a certain number of merges, or below a certain number of walk-aways. FreeAgents does not set those numbers and does not recommend any.',
 ];
@@ -585,7 +612,7 @@ const VIEW = `(function () {
 })()`;
 
 describe('(f) the definitions, both paragraphs and the five items sit behind two disclosures, closed on every visit', () => {
-  it('both closed at load; "Show what each count means" opens to main\u2019s eight definitions and four lines; "Show how to read this" opens to main\u2019s five items; both closed again on reload', async () => {
+  it('both closed at load; "Show what each count means" opens to main\u2019s ten definitions and four lines; "Show how to read this" opens to main\u2019s five items; both closed again on reload', async () => {
     if (skipWithoutChrome()) return;
     const b = await openBrowser({ width: 1280, height: 800 });
     try {
@@ -607,11 +634,11 @@ describe('(f) the definitions, both paragraphs and the five items sit behind two
 });
 
 describe('(g) no sample number ships: the page and every script it loads carry none', () => {
-  it('the served page\u2019s eight leaves ship with no number, no data-n and no zero style; nothing it loads handles a demo parameter, says "Sample numbers" or names an account', async () => {
+  it('the served page\u2019s ten leaves ship with no number, no data-n and no zero style; nothing it loads handles a demo parameter, says "Sample numbers" or names an account', async () => {
     const res = await fetch(page(BUYER), { headers: { Accept: 'text/html' } });
     const html = await res.text();
     const leaves = [...html.matchAll(/<div class="dg-node dg-leaf[^"]*"[^>]*>\s*<span([^>]*)>([^<]*)<\/span>/g)];
-    expect(leaves.map((m) => /id="([^"]+)"/.exec(m[1] ?? '')?.[1]), 'the eight leaves, in page order').toEqual(IDS);
+    expect(leaves.map((m) => /id="([^"]+)"/.exec(m[1] ?? '')?.[1]), 'the ten leaves, in page order').toEqual(IDS);
     for (const m of leaves) {
       expect(m[2], 'a leaf ships with no number').toBe('');
       expect(m[1], 'or a value to count to').not.toMatch(/data-n=/);

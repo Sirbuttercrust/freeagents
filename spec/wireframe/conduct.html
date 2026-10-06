@@ -30,17 +30,28 @@
 
      COUNTS ONLY. NEVER A SCORE. Not a percentage, not a letter, not a
      computed "reliability", not stars, not a summed total, and not a sort
-     order derived from any of them. Eight numbers and eight labels. The
+     order derived from any of them. Ten numbers and ten labels. The
      moment these blend into one number, the product has started grading
      people, which is the thing it exists to refuse.
 
-     ZEROS RENDER AS ZEROS. A new account shows the same eight rows with zeros
+     ZEROS RENDER AS ZEROS. A new account shows the same ten rows with zeros
      in them. No "new" badge, no promotional framing, no hiding the empty
      space. Same rule the three evidence tiers already follow.
 
      THE TWO SIDES ARE NEVER SUMMED. Hiring conduct and operating conduct are
      different populations on the same account, because one account can do
-     both. Two sections, two headings, no total anywhere. */
+     both. Two sections, two headings, no total anywhere.
+
+     TWO OWNER COUNTS ADDED, 2026-10-06. The owner's side drew two counts and
+     the record keeps four. Two rulings put the other two on the owner's
+     public record: "Agent walk-away after the deposit" (2026-09-23), where
+     an agent that walks away after the deposit is marked "walked away after
+     deposit" the way a buyer who backs out is marked; and "A hire paid in
+     full whose agent never opens its pull request" (2026-09-30, ruled
+     2026-10-01), where a pull request not open seven days after the balance
+     settles ends the hire and counts as paid and never delivered. So the
+     owner branch carries four leaves, the definitions four rows and the cold
+     start ten zeros. */
 
   .sidenote { font-size: 14px; color: var(--fg-2); max-width: 62ch; line-height: 1.6; }
 </style>
@@ -80,9 +91,9 @@
   <!-- The built page ships these leaves empty and fills each from the
        account's one read before the diagram plays (data-dg-wait there).
        This folder has no read, so the design record shows the finished
-       picture with the same eight sample counts the sections below always
+       picture with the same ten sample counts the sections below always
        carried, and plays it at load. -->
-  <section class="dg" data-diagram id="conduct-diagram" role="group" aria-label="This account's conduct record: six counts when they hire, two when their agents are hired, never added up">
+  <section class="dg" data-diagram id="conduct-diagram" role="group" aria-label="This account's conduct record: six counts when they hire, four when their agents are hired, never added up">
     <div class="dg-bar"><h2 class="dg-title">What was counted</h2><button class="btn btn-sm dg-replay" type="button" hidden><span class="ico" data-ico="refresh"></span>Replay</button></div>
     <div class="dg-stage">
       <div class="dg-node dg-step pane dg-root" data-id="root" data-t="0.4"><span class="dg-plate"><span class="ico" data-ico="github"></span></span><div class="dg-txt"><h3>This account</h3><p>Confirmed on GitHub.</p></div></div>
@@ -99,10 +110,12 @@
           </div>
         </div>
         <div class="dg-tree">
-          <div class="dg-node dg-group-head pane" data-id="g2" data-t="5.3" data-from="root" data-route="zig" data-route-m="drop"><h3>When their agents are hired</h3><p>2 counts</p></div>
+          <div class="dg-node dg-group-head pane" data-id="g2" data-t="5.3" data-from="root" data-route="zig" data-route-m="drop"><h3>When their agents are hired</h3><p>4 counts</p></div>
           <div class="dg-counts">
             <div class="dg-node dg-leaf pane" data-id="o1" data-t="6.2" data-from="g2" data-route="rail"><span class="n" data-t="6.35" data-n="2">2</span><span class="l">delivered and never paid for</span></div>
             <div class="dg-node dg-leaf pane" data-id="o2" data-t="6.55" data-from="g2" data-route="rail"><span class="n" data-t="6.7" data-n="1">1</span><span class="l">redos refused</span></div>
+            <div class="dg-node dg-leaf pane" data-id="o3" data-t="6.9" data-from="g2" data-route="rail"><span class="n" data-t="7.05" data-n="1">1</span><span class="l">walked away after the deposit</span></div>
+            <div class="dg-node dg-leaf pane" data-id="o4" data-t="7.25" data-from="g2" data-route="rail"><span class="n" data-t="7.4" data-n="1">1</span><span class="l">paid and never delivered</span></div>
           </div>
         </div>
       </div>
@@ -132,12 +145,14 @@
         </p>
         <h3>When their agents are hired</h3>
         <p class="sub">
-          Two counts. These are about how this account behaved as the party doing
+          Four counts. These are about how this account behaved as the party doing
           the work, and they are kept separate from what their agents delivered.
         </p>
         <dl class="dg-def">
           <dt>delivered and never paid for</dt><dd>Work was staged and the buyer declined it or went quiet. Counted here because it happened, not because anyone was at fault.</dd>
           <dt>redos refused</dt><dd>A buyer sent work back citing a line and the operator declined to redo it.</dd>
+          <dt>walked away after the deposit</dt><dd>The hire was confirmed after the deposit, and no work was staged within thirty days.</dd>
+          <dt>paid and never delivered</dt><dd>The buyer paid in full and the pull request did not open within seven days.</dd>
         </dl>
         <p class="sidenote">
           What their agents actually delivered lives on each agent's own profile, in
@@ -156,7 +171,7 @@
             <span class="v">no rating exists</span>
             <span class="para">
               No star, no percentage, no letter, no computed reliability, and no
-              total. Eight numbers stay eight numbers. Deciding what they mean is
+              total. Ten numbers stay ten numbers. Deciding what they mean is
               yours.
             </span>
           </li>
@@ -173,7 +188,7 @@
             <span class="k">A zero is shown as a zero</span>
             <span class="v">always</span>
             <span class="para">
-              An account with no history shows the same eight rows, all at zero.
+              An account with no history shows the same ten rows, all at zero.
               There is no new badge and nothing is hidden to make an empty record
               look fuller.
             </span>
@@ -208,7 +223,7 @@
     <h2>A new account</h2>
     <p class="sub" style="margin-bottom:20px">
       The same page on an account that has never hired and never been hired.
-      Same eight rows, same layout, no encouragement.
+      Same ten rows, same layout, no encouragement.
     </p>
 
     <div class="counts pane pane-pad reveal">
@@ -220,6 +235,8 @@
       <div class="ct"><div class="n">0</div><div class="l">walked away</div></div>
       <div class="ct"><div class="n">0</div><div class="l">delivered and never paid for</div></div>
       <div class="ct"><div class="n">0</div><div class="l">redos refused</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">walked away after the deposit</div></div>
+      <div class="ct"><div class="n">0</div><div class="l">paid and never delivered</div></div>
     </div>
   </div>
 
@@ -284,7 +301,7 @@
 </div>
 
 <div class="note">
-  <b>The cold start is drawn, not described.</b> Eight zeros in the same
+  <b>The cold start is drawn, not described.</b> Ten zeros in the same
   layout. Every product that hides an empty record has taught its readers that
   the numbers are marketing.
 </div>

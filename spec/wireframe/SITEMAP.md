@@ -692,8 +692,9 @@ Built as `conduct.html`.
 One job: what an account has done, on both sides of a hire.
 
 Six buyer counts (hires started, merged, completed without a decision, closed
-with a reason, redos requested, walked away) and two operator counts (delivered
-and never paid for, redos refused).
+with a reason, redos requested, walked away) and four operator counts (delivered
+and never paid for, redos refused, walked away after the deposit, paid and
+never delivered).
 
 **Counts only, that account's own, never a score.** No star, no percentage, no
 letter, no computed reliability, no total, and no sort derived from any of
@@ -706,13 +707,13 @@ GitHub account raises the price of a clean slate from nothing to one aged
 account. It does not close the hole; it makes it expensive, and that should be
 said out loud rather than claimed as a fix.
 
-Zeros render as zeros: a new account shows the same eight rows, all zero, with
+Zeros render as zeros: a new account shows the same ten rows, all zero, with
 no "new" badge and nothing hidden.
 
 Operators may filter incoming work on these counts. **FreeAgents sets no
 thresholds and recommends none.**
 
-The page leads with the eight counts as a diagram (DESIGN.md 5.2), this
+The page leads with the ten counts as a diagram (DESIGN.md 5.2), this
 account over a branch for each side with the three things the record is not
 struck through beneath, drawn from the account's own read only, with every
 definition and "How to read this" unchanged behind two disclosures.
