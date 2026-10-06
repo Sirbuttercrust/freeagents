@@ -4,9 +4,20 @@
    a press of save. The notifications switch has its own: see renderPushRow.
 
    RULING 2: the payout addresses are the one addition to the wireframe.
-   Validation is the server's (Ruling 3): this file sends what was typed
-   and renders the route's own message on a 400. It never copies either
-   regex.
+   Three boxes, one per token and network: USDC on Arbitrum
+   (operatorAddressEvm), ABT on Ethereum (operatorAddressAbtEth) and ABT on
+   ArcBlock (operatorAddressAbt). Each box fills from its own field on
+   GET /accounts/me and saves to that field only; no box is ever filled
+   from another. A changed box saves only once its owner ticks "I control
+   this wallet on <network>", which shows while the box holds a new,
+   non-empty address. An address that holds contract code comes back as a
+   409 with the route's own warning, and only "Save it anyway" sends that
+   same body again with confirmContractAddress.
+
+   RULING 3: validation is the server's. This file sends what was typed and
+   never copies the route's patterns. A 400 is turned into a sentence that
+   names the box in its label's words, picked by the field name the route's
+   sentence begins with; a sentence that names no box is shown as it stands.
 
    RULING 4: no display name field -- Account has no such column.
 
@@ -23,15 +34,30 @@
    exists.
 
    EVERYTHING THROUGH textContent or as an input value: githubLogin, did
-   and both addresses are content, never markup (api.js's own header
+   and the three addresses are content, never markup (api.js's own header
    rule). The stagger index below is the one thing written as a property
    rather than as text, which is a style write and not markup either. */
 (function () {
   "use strict";
   var A = window.FAApi;
   var did = "";
-  var initialEvm = "";
-  var initialAbt = "";
+
+  // The three payout boxes in page order. `name` is the label's words, used
+  // in every sentence about the box; `network` finishes its confirmation.
+  var BOXES = [
+    { id: "payout-evm", field: "operatorAddressEvm", name: "USDC on Arbitrum", network: "Arbitrum" },
+    { id: "payout-abt-eth", field: "operatorAddressAbtEth", name: "ABT on Ethereum", network: "Ethereum" },
+    { id: "payout-abt", field: "operatorAddressAbt", name: "ABT on ArcBlock", network: "ArcBlock" },
+  ];
+  // What the account has saved, by field: the last read or the last 200.
+  var saved = {};
+  // One save at a time, from either button.
+  var inFlight = false;
+  // The body the route warned about with its 409, while the warning shows.
+  var warnedBody = null;
+  // Counts edits to any box, so an answer can tell it is about a body the
+  // person has since changed.
+  var edits = 0;
 
   function start() {
     var session = A.getStoredSession();
@@ -66,12 +92,12 @@
   function render(me, token) {
     A.showById("settings-body", true);
 
-    initialEvm = typeof me.operatorAddressEvm === "string" ? me.operatorAddressEvm : "";
-    initialAbt = typeof me.operatorAddressAbt === "string" ? me.operatorAddressAbt : "";
-    var evmInput = A.el("payout-evm");
-    var abtInput = A.el("payout-abt");
-    if (evmInput) evmInput.value = initialEvm;
-    if (abtInput) abtInput.value = initialAbt;
+    BOXES.forEach(function (box) {
+      saved[box.field] = typeof me[box.field] === "string" ? me[box.field] : "";
+      var input = A.el(box.id);
+      if (input) input.value = saved[box.field];
+    });
+    wireBoxes();
 
     renderAccountRows(me);
     renderPushRow();
@@ -232,31 +258,145 @@
 
   function wireSave(token) {
     var btn = A.el("save-btn");
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      save(token);
+    if (btn) {
+      btn.addEventListener("click", function () {
+        save(token);
+      });
+    }
+    var anyway = A.el("save-anyway");
+    if (anyway) {
+      anyway.addEventListener("click", function () {
+        saveAnyway(token);
+      });
+    }
+  }
+
+  // Each box's confirmation row shows only while the box holds an address
+  // that is new and not empty. Any edit to a box unticks its confirmation,
+  // so the tick always answers for the address on screen, and any edit to
+  // any box hides the contract warning, so "Save it anyway" can only ever
+  // send an address the person saw warned. Unticking a confirmation hides
+  // the warning too: the warning only ever showed for a body whose every
+  // box was ticked, so without a tick there is nothing it may save.
+  function wireBoxes() {
+    BOXES.forEach(function (box) {
+      var input = A.el(box.id);
+      if (!input) return;
+      var tick = A.el(box.id + "-confirm");
+      input.addEventListener("input", function () {
+        edits += 1;
+        if (tick) tick.checked = false;
+        syncConfirm(box);
+        hideWarning();
+      });
+      if (tick) {
+        tick.addEventListener("change", function () {
+          if (!tick.checked) hideWarning();
+        });
+      }
     });
   }
 
-  function save(token) {
+  function confirmRow(box) {
+    var tick = A.el(box.id + "-confirm");
+    return tick ? tick.parentNode : null;
+  }
+
+  function isChanged(box) {
+    var input = A.el(box.id);
+    return input !== null && input.value !== saved[box.field];
+  }
+
+  function syncConfirm(box) {
+    var row = confirmRow(box);
+    if (!row) return;
+    var input = A.el(box.id);
+    var wanted = isChanged(box) && input.value !== "";
+    if (!wanted) A.el(box.id + "-confirm").checked = false;
+    row.hidden = !wanted;
+  }
+
+  function hideWarning() {
+    warnedBody = null;
+    A.showById("save-warning", false);
+  }
+
+  function hideOutcome() {
     A.showById("save-error", false);
     A.showById("save-success", false);
+    hideWarning();
+  }
 
-    // Ruling 1/3: only the fields the person changed. An untouched input
-    // is not in the body, so saving one rail never overwrites the other.
-    var evmInput = A.el("payout-evm");
-    var abtInput = A.el("payout-abt");
+  // The save outcome takes focus, so a keyboard or screen-reader user lands
+  // on what happened. Each message carries tabindex="-1" in the page.
+  function showOutcome(id) {
+    A.showById(id, true);
+    var box = A.el(id);
+    if (box) box.focus();
+  }
+
+  function save(token) {
+    if (inFlight) return;
+    hideOutcome();
+
+    // Ruling 1/3: only the boxes the person changed. An untouched box is
+    // not in the body, so saving one address never overwrites another.
+    // Every changed box must be ready before anything is sent: the first
+    // one in page order that is not names itself and nothing goes.
     var body = {};
-    if (evmInput && evmInput.value !== initialEvm) body.operatorAddressEvm = evmInput.value;
-    if (abtInput && abtInput.value !== initialAbt) body.operatorAddressAbt = abtInput.value;
+    for (var i = 0; i < BOXES.length; i += 1) {
+      var box = BOXES[i];
+      if (!isChanged(box)) continue;
+      var value = A.el(box.id).value;
+      if (value === "") {
+        // The route takes no empty address, so a saved one can only be
+        // replaced. Saying so here beats a refusal about a blank box.
+        showSaveError("A saved address can be replaced but not removed. Paste the new " + box.name + " address to save it.");
+        return;
+      }
+      if (!A.el(box.id + "-confirm").checked) {
+        showSaveError("Tick \"I control this wallet on " + box.network + "\" to save the " + box.name + " address.");
+        return;
+      }
+      body[box.field] = value;
+    }
 
     if (Object.keys(body).length === 0) return;
+    send(token, body);
+  }
 
-    var btn = A.el("save-btn");
-    if (btn) btn.disabled = true;
+  // "Save it anyway": the body the route warned about, plus the one flag
+  // the route's 409 named, and nothing else.
+  function saveAnyway(token) {
+    if (inFlight || warnedBody === null) return;
+    var body = {};
+    Object.keys(warnedBody).forEach(function (field) {
+      body[field] = warnedBody[field];
+    });
+    body.confirmContractAddress = true;
+    send(token, body);
+  }
+
+  // Both buttons say they are busy while a save is in flight and ignore
+  // presses until it answers. Neither is ever `disabled`: a disabled button
+  // that holds focus drops it to the page.
+  function setBusy(on) {
+    inFlight = on;
+    ["save-btn", "save-anyway"].forEach(function (id) {
+      var b = A.el(id);
+      if (!b) return;
+      if (on) b.setAttribute("aria-disabled", "true");
+      else b.removeAttribute("aria-disabled");
+    });
+  }
+
+  function send(token, body) {
+    setBusy(true);
+    var editsAtSend = edits;
 
     A.patchAuthed("/accounts/" + encodeURIComponent(did) + "/operator-address", token, body).then(function (result) {
-      if (btn) btn.disabled = false;
+      setBusy(false);
+      hideOutcome();
 
       if (result.state !== "ok") {
         showSaveError("Could not reach the server just now. Try again in a moment.");
@@ -267,9 +407,11 @@
       var resBody = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
 
       if (status === 200) {
-        initialEvm = evmInput ? evmInput.value : initialEvm;
-        initialAbt = abtInput ? abtInput.value : initialAbt;
-        A.showById("save-success", true);
+        BOXES.forEach(function (box) {
+          if (typeof body[box.field] === "string") saved[box.field] = body[box.field];
+          syncConfirm(box);
+        });
+        showOutcome("save-success");
         return;
       }
 
@@ -285,12 +427,46 @@
       }
 
       var serverMessage = typeof resBody.error === "string" && resBody.error !== "" ? resBody.error : "";
+
+      // The route's own warning for an address that holds contract code,
+      // as it stands: it was written for a person and names the network
+      // and the token. It offers "Save it anyway" only while the boxes
+      // still hold the body it is about; an edit made while the request
+      // was out means the warning is about addresses no longer on screen,
+      // so it shows without the button and Save asks again.
+      if (status === 409 && serverMessage !== "") {
+        if (edits !== editsAtSend) {
+          showSaveError(serverMessage);
+          return;
+        }
+        warnedBody = {};
+        BOXES.forEach(function (box) {
+          if (typeof body[box.field] === "string") warnedBody[box.field] = body[box.field];
+        });
+        A.setTextById("save-warning-detail", serverMessage);
+        showOutcome("save-warning");
+        return;
+      }
+
       showSaveError(refusalSentence(status, serverMessage));
     });
   }
 
+  // A 400 names the box in its label's words. The route's sentences each
+  // begin with the field they refuse; the space after the name keeps
+  // operatorAddressAbt from matching operatorAddressAbtEth. A sentence that
+  // begins with no box's field is the route's own and is shown as it is.
+  function plainRefusal(serverMessage) {
+    for (var i = 0; i < BOXES.length; i += 1) {
+      if (serverMessage.indexOf(BOXES[i].field + " ") === 0) {
+        return "The " + BOXES[i].name + " address is not a valid address. Copy it from your wallet again.";
+      }
+    }
+    return serverMessage || "The address could not be saved as written.";
+  }
+
   function refusalSentence(status, serverMessage) {
-    if (status === 400) return serverMessage || "The address could not be saved as written.";
+    if (status === 400) return plainRefusal(serverMessage);
     if (status === 403) return serverMessage || "This account is not allowed to set that address.";
     if (status === 404) return serverMessage || "This account is no longer registered.";
     if (status === 503) return "Storage is unavailable just now. Try again in a moment.";
@@ -299,7 +475,7 @@
 
   function showSaveError(message) {
     A.setTextById("save-error-detail", message);
-    A.showById("save-error", true);
+    showOutcome("save-error");
   }
 
   if (document.readyState === "loading") {
