@@ -276,91 +276,136 @@ const EXACTLY_7_DAYS = 7 * DAY_MS;
 async function plantPaid(rig: Rig, id: string, status: 'staged' | 'redo_requested', settledMsAgo: number): Promise<Job> {
   const settledAt = settledAgo(settledMsAgo);
   const job = plantedJob(id, status, new Date(settledAt.getTime() - DAY_MS));
+  const planted = structuredClone(job);
   await rig.jobRepo.create(job);
   await rig.settlementRepo.record(settlementRow(id, 'remainder', settledAt));
-  return job;
+  return planted;
 }
 
 async function storedStatus(rig: Rig, id: string): Promise<string | undefined> {
   return (await rig.jobRepo.findById(id))?.status;
 }
 
+// The whole stored row after a read: the row as planted (cloned before the
+// read) with only its status changed.
+function rowAfter(before: Job, status: Job['status']): Job {
+  return { ...before, status };
+}
+
+// The whole body GET /jobs/:jobId answers for a job from plantedJob, written
+// out from literals. confirmedAt and stagedAt are the literal instants the
+// case planted them at.
+function jobBody(id: string, status: string, confirmedAt: string, stagedAt: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    buyerDid: BUYER_DID,
+    agentDid: AGENT_DID,
+    repository: 'buyer/target-repo',
+    brief: 'Fix the login bug',
+    briefHash: 'sha256:257cb1465b1934ff412a869abf973beca8285a9cfbbb8eafcfa9271e9565290c',
+    status,
+    criteria: [{ text: 'fixes the login bug', proposedBy: 'agent', acceptedByBuyer: true, acceptedByAgent: true }],
+    price: { priceUsd: '500.00', rail: 'usdc', depositPercent: 25, redoAllowance: 1, deliveryWindowDays: null, acceptedByBuyer: true, acceptedByAgent: true },
+    specHash: 'a'.repeat(64),
+    confirmedAt,
+    stagingRepo: { owner: 'freeagents-platform', repo: `staging-${id}` },
+    baseCommit: 'buyer-target-repo-head-sha',
+    stagedCommit: 'commit-delivery-1',
+    stagedAt,
+    pullRequestTemplate: {
+      title: `FreeAgents job ${id}`,
+      body: `Job: ${id}\nRepository: buyer/target-repo\nBrief hash: sha256:257cb1465b1934ff412a869abf973beca8285a9cfbbb8eafcfa9271e9565290c\nSpec hash: ${'a'.repeat(64)}\n\nThis pull request was opened by the agent from its own fork, at the attested commit; the platform holds no write access to the source repository.`,
+    },
+    createdAt: '2026-08-27T12:00:00.000Z',
+    ...extra,
+  };
+}
+
+// The redo block a hire with one redo used and a request pending answers.
+function redoBlock(requestedAt: string): Record<string, unknown> {
+  return { redo: { refusedAt: null, requestedAt, requestedCriterionIndex: 0, stagedLapseExtensionDays: 0, usedCount: 1 } };
+}
+
 describe('(a) GET /jobs/:jobId on a staged hire paid in full', () => {
   it('answers paid_undelivered and stores it when the remainder settled 7 days and 1 ms ago', async () => {
     const rig = await boot();
-    await plantPaid(rig, 'j-dc-a-over', 'staged', JUST_OVER_7_DAYS);
+    const planted = await plantPaid(rig, 'j-dc-a-over', 'staged', JUST_OVER_7_DAYS);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-a-over', null);
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('paid_undelivered');
-    expect(await storedStatus(rig, 'j-dc-a-over')).toBe('paid_undelivered');
+    expect(await res.json()).toEqual(jobBody('j-dc-a-over', 'paid_undelivered', '2026-09-26T11:59:59.999Z', '2026-09-28T11:59:59.999Z'));
+    expect(await rig.jobRepo.findById('j-dc-a-over')).toEqual(rowAfter(planted, 'paid_undelivered'));
   });
 
   it('answers staged and stores nothing new when the remainder settled exactly 7 days ago', async () => {
     const rig = await boot();
-    await plantPaid(rig, 'j-dc-a-edge', 'staged', EXACTLY_7_DAYS);
+    const planted = await plantPaid(rig, 'j-dc-a-edge', 'staged', EXACTLY_7_DAYS);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-a-edge', null);
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('staged');
-    expect(await storedStatus(rig, 'j-dc-a-edge')).toBe('staged');
+    expect(await res.json()).toEqual(jobBody('j-dc-a-edge', 'staged', '2026-09-26T12:00:00.000Z', '2026-09-28T12:00:00.000Z'));
+    expect(await rig.jobRepo.findById('j-dc-a-edge')).toEqual(planted);
   });
 
   it('counts from the remainder row: a deposit row 30 days old does not end a hire whose remainder settled a day ago', async () => {
     const rig = await boot();
-    await plantPaid(rig, 'j-dc-a-deposit', 'staged', DAY_MS);
+    const planted = await plantPaid(rig, 'j-dc-a-deposit', 'staged', DAY_MS);
     await rig.settlementRepo.record(settlementRow('j-dc-a-deposit', 'deposit', settledAgo(30 * DAY_MS)));
 
     const res = await send(rig, 'GET', '/jobs/j-dc-a-deposit', null);
 
-    expect(((await res.json()) as { status: string }).status).toBe('staged');
-    expect(await storedStatus(rig, 'j-dc-a-deposit')).toBe('staged');
+    expect(await res.json()).toEqual(jobBody('j-dc-a-deposit', 'staged', '2026-10-02T12:00:00.000Z', '2026-10-04T12:00:00.000Z'));
+    expect(await rig.jobRepo.findById('j-dc-a-deposit')).toEqual(planted);
   });
 
   it('ends a hire whose remainder settled 8 days ago even when its deposit row is a day old', async () => {
     const rig = await boot();
-    await plantPaid(rig, 'j-dc-a-remainder', 'staged', 8 * DAY_MS);
+    const planted = await plantPaid(rig, 'j-dc-a-remainder', 'staged', 8 * DAY_MS);
     await rig.settlementRepo.record(settlementRow('j-dc-a-remainder', 'deposit', settledAgo(DAY_MS)));
 
     const res = await send(rig, 'GET', '/jobs/j-dc-a-remainder', null);
 
-    expect(((await res.json()) as { status: string }).status).toBe('paid_undelivered');
+    expect(await res.json()).toEqual(jobBody('j-dc-a-remainder', 'paid_undelivered', '2026-09-25T12:00:00.000Z', '2026-09-27T12:00:00.000Z'));
+    expect(await rig.jobRepo.findById('j-dc-a-remainder')).toEqual(rowAfter(planted, 'paid_undelivered'));
   });
 });
 
 describe('(b) GET /jobs/:jobId on a hire with a redo pending, paid in full', () => {
   it('answers paid_undelivered and stores it when the remainder settled 7 days and 1 ms ago', async () => {
     const rig = await boot();
-    await plantPaid(rig, 'j-dc-b-over', 'redo_requested', JUST_OVER_7_DAYS);
+    const planted = await plantPaid(rig, 'j-dc-b-over', 'redo_requested', JUST_OVER_7_DAYS);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-b-over', null);
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('paid_undelivered');
-    expect(await storedStatus(rig, 'j-dc-b-over')).toBe('paid_undelivered');
+    expect(await res.json()).toEqual(jobBody('j-dc-b-over', 'paid_undelivered', '2026-09-26T11:59:59.999Z', '2026-09-28T11:59:59.999Z', redoBlock('2026-09-28T12:59:59.999Z')));
+    expect(await rig.jobRepo.findById('j-dc-b-over')).toEqual(rowAfter(planted, 'paid_undelivered'));
   });
 
   it('answers redo_requested when the remainder settled exactly 7 days ago', async () => {
     const rig = await boot();
-    await plantPaid(rig, 'j-dc-b-edge', 'redo_requested', EXACTLY_7_DAYS);
+    const planted = await plantPaid(rig, 'j-dc-b-edge', 'redo_requested', EXACTLY_7_DAYS);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-b-edge', null);
 
-    expect(((await res.json()) as { status: string }).status).toBe('redo_requested');
-    expect(await storedStatus(rig, 'j-dc-b-edge')).toBe('redo_requested');
+    expect(await res.json()).toEqual(jobBody('j-dc-b-edge', 'redo_requested', '2026-09-26T12:00:00.000Z', '2026-09-28T12:00:00.000Z', redoBlock('2026-09-28T13:00:00.000Z')));
+    expect(await rig.jobRepo.findById('j-dc-b-edge')).toEqual(planted);
   });
 });
 
 describe('(c) a staged hire with no remainder row is outside the delivery clock', () => {
-  it('stays staged 5 days after staging, however old a settlement would have been', async () => {
+  it('stays staged 5 days after staging when no remainder row exists', async () => {
     const rig = await boot();
-    await rig.jobRepo.create(plantedJob('j-dc-c-young', 'staged', settledAgo(5 * DAY_MS)));
+    const planted = plantedJob('j-dc-c-young', 'staged', settledAgo(5 * DAY_MS));
+    const before = structuredClone(planted);
+    await rig.jobRepo.create(planted);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-c-young', null);
 
-    expect(((await res.json()) as { status: string }).status).toBe('staged');
+    expect(await res.json()).toEqual(jobBody('j-dc-c-young', 'staged', '2026-09-29T12:00:00.000Z', '2026-10-01T12:00:00.000Z'));
+    expect(await rig.jobRepo.findById('j-dc-c-young')).toEqual(before);
   });
 
   it('stays staged when an injected gate says settled but no row exists, 30 days on', async () => {
@@ -371,22 +416,26 @@ describe('(c) a staged hire with no remainder row is outside the delivery clock'
         return gate;
       },
     });
-    await rig.jobRepo.create(plantedJob('j-dc-c-gate', 'staged', settledAgo(30 * DAY_MS)));
+    const planted = plantedJob('j-dc-c-gate', 'staged', settledAgo(30 * DAY_MS));
+    const before = structuredClone(planted);
+    await rig.jobRepo.create(planted);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-c-gate', null);
 
-    expect(((await res.json()) as { status: string }).status).toBe('staged');
-    expect(await storedStatus(rig, 'j-dc-c-gate')).toBe('staged');
+    expect(await res.json()).toEqual(jobBody('j-dc-c-gate', 'staged', '2026-09-04T12:00:00.000Z', '2026-09-06T12:00:00.000Z'));
+    expect(await rig.jobRepo.findById('j-dc-c-gate')).toEqual(before);
   });
 
   it('control: still closes unpaid on its own clock, 9 days after staging', async () => {
     const rig = await boot();
-    await rig.jobRepo.create(plantedJob('j-dc-c-unpaid', 'staged', settledAgo(9 * DAY_MS)));
+    const planted = plantedJob('j-dc-c-unpaid', 'staged', settledAgo(9 * DAY_MS));
+    const before = structuredClone(planted);
+    await rig.jobRepo.create(planted);
 
     const res = await send(rig, 'GET', '/jobs/j-dc-c-unpaid', null);
 
-    expect(((await res.json()) as { status: string }).status).toBe('closed_unpaid');
-    expect(await storedStatus(rig, 'j-dc-c-unpaid')).toBe('closed_unpaid');
+    expect(await res.json()).toEqual(jobBody('j-dc-c-unpaid', 'closed_unpaid', '2026-09-25T12:00:00.000Z', '2026-09-27T12:00:00.000Z'));
+    expect(await rig.jobRepo.findById('j-dc-c-unpaid')).toEqual(rowAfter(before, 'closed_unpaid'));
   });
 });
 
@@ -616,18 +665,25 @@ describe('(g) B82: a payment report posted twice writes nothing the second time'
     await send(rig, 'POST', `/jobs/${jobId}/payments/remainder/usdc/start`, buyerIdentity);
     await send(rig, 'POST', `/jobs/${jobId}/payments/remainder/usdc/wallet-response`, buyerIdentity, REMAINDER_REPORT);
 
+    vi.setSystemTime(new Date(NOW.getTime() + DAY_MS));
+    const snapshotRes = await send(rig, 'GET', `/jobs/${jobId}`, null);
+    const stagedBody = (await snapshotRes.json()) as Record<string, unknown>;
+    expect(stagedBody.status).toBe('staged');
+    const stagedRow = structuredClone(await rig.jobRepo.findById(jobId));
+
     vi.setSystemTime(new Date(NOW.getTime() + 6 * DAY_MS));
     const replay = await send(rig, 'POST', `/jobs/${jobId}/payments/remainder/usdc/wallet-response`, buyerIdentity, REMAINDER_REPORT);
     expect(replay.status).toBe(200);
 
     vi.setSystemTime(new Date(NOW.getTime() + EXACTLY_7_DAYS));
     const onDaySeven = await send(rig, 'GET', `/jobs/${jobId}`, null);
-    expect(((await onDaySeven.json()) as { status: string }).status).toBe('staged');
+    expect(await onDaySeven.json()).toEqual(stagedBody);
+    expect(await rig.jobRepo.findById(jobId)).toEqual(stagedRow);
 
     vi.setSystemTime(new Date(NOW.getTime() + JUST_OVER_7_DAYS));
     const afterDaySeven = await send(rig, 'GET', `/jobs/${jobId}`, null);
-    expect(((await afterDaySeven.json()) as { status: string }).status).toBe('paid_undelivered');
-    expect(await storedStatus(rig, jobId)).toBe('paid_undelivered');
+    expect(await afterDaySeven.json()).toEqual({ ...stagedBody, status: 'paid_undelivered' });
+    expect(await rig.jobRepo.findById(jobId)).toEqual({ ...stagedRow, status: 'paid_undelivered' });
   });
 
   it('a first remainder report still writes the row at the time it arrived and one paid line', async () => {

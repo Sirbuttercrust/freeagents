@@ -5921,10 +5921,11 @@ export function createApp(
   // fix widened lapseAtStaged to also cover redo_requested, but this
   // function still asked the gate only for staged, so a paid buyer with a
   // pending redo was fed a fabricated "not settled" answer and could be
-  // terminated closed_unpaid with the gate never consulted -- the other
-  // clock, deemCompleted, never consults the settlement gate; its own live
-  // question, whether GitHub saw a merge inside the review window, is asked
-  // by askGithubBeforeDeeming below). Deriving the set from
+  // terminated closed_unpaid with the gate never consulted). The other
+  // two clocks, expireUnstaged and deemCompleted, never consult the
+  // settlement gate or the settlement row; deemCompleted's own live
+  // question, whether GitHub saw a merge inside the review window, is
+  // asked by askGithubBeforeDeeming below. Deriving the set from
   // lapseAtStaged's own starting statuses, rather than repeating a second
   // literal here, is what keeps this call site from silently falling
   // behind the domain function again the next time that set changes. A
