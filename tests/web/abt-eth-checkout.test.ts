@@ -326,13 +326,14 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
       });
       announceWallets(page.window, [{ uuid: 'w-short', name: 'Late Wallet', wallet }]);
       press(page, 'pay-btn');
-      await until(() => status(page) !== '', 'no sentence');
+      // Stops on a confirm too, so a short read as paid fails on the confirm count itself.
+      await until(() => status(page) !== '' || count(page, `POST /jobs/${id}/confirm`) > 0, 'no sentence and no confirm');
+      await new Promise((r) => setTimeout(r, 200));
+      expect(count(page, `POST /jobs/${id}/confirm`)).toBe(0);
       expect(status(page)).toBe(SHORT_SENTENCE);
       expect(presses(page)).toEqual([]);
       expect(shown(page.document, 'approved-btn')).toBe(false);
       expect(wallet.sends).toHaveLength(2);
-      await new Promise((r) => setTimeout(r, 200));
-      expect(count(page, `POST /jobs/${id}/confirm`)).toBe(0);
       expect(await h.settlementRepo.findByJobAndLeg(id, 'deposit')).toBeNull();
       expect((page.document.getElementById('pay-btn') as HTMLButtonElement).disabled).toBe(true);
     } finally { await page.close(); }
