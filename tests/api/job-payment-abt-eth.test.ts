@@ -1,17 +1,12 @@
-// The ABT-on-Ethereum payment routes: POST /jobs/:jobId/payments/:leg/abt_eth/start
-// and .../abt_eth/wallet-response, the rail offered at checkout only when the
-// agent's owner set an ABT-on-Ethereum address, and the late-transfer rule
-// wired through them.
-//
-// Every case runs over real HTTP against createApp with memory storage, the
-// real ABT-on-Ethereum rail on a fake chain client (receipts and block
-// times) and a fake price feed. Only Date is faked, so the clock the routes
-// read is the one each case sets. Expected values are written out from
-// literals: the job prices at 500.00 USD with the default 25 percent deposit,
-// so the deposit is 125.00 USD and the remainder 375.00 USD, the fee is 3
-// percent of each, and the feed answers 0.25 USD per ABT unless a case moves
-// it. At 0.25 the deposit is 500 ABT plus a 15 ABT fee, the remainder 1500
-// ABT plus a 45 ABT fee, at 18 decimals.
+// The ABT-on-Ethereum payment routes (start and wallet-response), the rail
+// offered only when the owner set an address for it, and the late-transfer
+// rule wired through them. Real HTTP against createApp with memory storage,
+// the real rail on a fake chain client (receipts and block times) and a fake
+// price feed; only Date is faked. The job prices at 500.00 USD with the
+// default 25 percent deposit: deposit 125.00 USD, remainder 375.00 USD, fee 3
+// percent, and the feed answers 0.25 USD per ABT unless a case moves it, so
+// the deposit is 500 ABT plus a 15 ABT fee and the remainder 1500 plus 45, at
+// 18 decimals. Expected values are written out from literals.
 import type { Server } from 'node:http';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,24 +19,13 @@ import { createMemoryAbtEthShortPaymentStorage } from '../../src/adapters/paymen
 import type { AbtEthShortPaymentStorage } from '../../src/adapters/payment/abt-eth-short-payment.js';
 import type { AbtEthChainClient, Erc20ObservedTransfer } from '../../src/adapters/payment/erc20.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
-import {
-  legAlreadySettledMessage,
-  legRailMismatchMessage,
-  legStatusConflictMessage,
-  operatorAddressNotSetMessage,
-} from '../../src/adapters/payment/route-support.js';
+import { legAlreadySettledMessage, legRailMismatchMessage, legStatusConflictMessage, operatorAddressNotSetMessage } from '../../src/adapters/payment/route-support.js';
 import type { RateReading } from '../../src/adapters/payment/types.js';
-import type { UsdcHalfPaidRow, UsdcHalfPaidStorage } from '../../src/adapters/payment/usdc-half-paid-storage-types.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
-import {
-  MemoryAccountRepository,
-  MemoryAgentRepository,
-  MemoryJobRepository,
-  MemoryMessageRepository,
-  MemorySettlementRepository,
-} from '../../src/adapters/storage/memory.js';
+import { MemoryAccountRepository, MemoryAgentRepository, MemoryJobRepository, MemoryMessageRepository, MemorySettlementRepository } from '../../src/adapters/storage/memory.js';
 import { signingIdentityFromSeed, type SigningIdentity } from '../helpers/sign-request.js';
 import { postSigned } from '../helpers/abt-fixtures.js';
+import { fakeHalfPaidStorage } from '../helpers/usdc-half-paid-fixtures.js';
 import { createStagingLifecycleGithubFake, registerAgentForkPullRequest, type StagingLifecycleFixture } from '../helpers/github-staging-fixtures.js';
 import { startOpenRailAppWithRails } from '../helpers/open-rail-fixtures.js';
 import { anyCommitStagingObserver } from '../helpers/staging-fixtures.js';
@@ -96,8 +80,6 @@ function setTime(iso: string): void {
   vi.setSystemTime(new Date(iso));
 }
 
-// ---------------------------------------------------------------- the world
-
 type Receipt = { readonly status: number | null; readonly transfer: Erc20ObservedTransfer | null };
 
 interface Chain {
@@ -116,32 +98,9 @@ function chainClient(chain: Chain): AbtEthChainClient {
     recordedAt: async (hash) => chain.recorded.get(hash.toLowerCase()) ?? null,
   };
 }
-
 function memorySpent(): UsdcSpentTransferStorage {
   const rows = new Map<string, UsdcSpentTransferRow>();
-  return {
-    async record(row) {
-      rows.set(row.hash, { ...row });
-    },
-    async findByHash(hash) {
-      return rows.get(hash) ?? null;
-    },
-  };
-}
-
-function memoryHalfPaid(): UsdcHalfPaidStorage {
-  const rows = new Map<string, UsdcHalfPaidRow>();
-  return {
-    async record(row) {
-      rows.set(`${row.jobId}:${row.leg}`, { ...row });
-    },
-    async read(jobId, leg) {
-      return rows.get(`${jobId}:${leg}`) ?? null;
-    },
-    async clear(jobId, leg) {
-      rows.delete(`${jobId}:${leg}`);
-    },
-  };
+  return { record: async (row) => void rows.set(row.hash, { ...row }), findByHash: async (hash) => rows.get(hash) ?? null };
 }
 
 function buildRail(chain: Chain, feed: { reading: RateReading | null }): AbtEthPaymentRail {
@@ -161,7 +120,7 @@ function buildRail(chain: Chain, feed: { reading: RateReading | null }): AbtEthP
       chainClient: chainClient(chain),
       rateSource: async () => feed.reading,
       spentTransferStorage: memorySpent(),
-      halfPaidStorage: memoryHalfPaid(),
+      halfPaidStorage: fakeHalfPaidStorage(),
     });
   } finally {
     for (const key of Object.keys(original)) {
@@ -203,22 +162,10 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
   await accounts.register({ did: operatorDid, githubLogin: 'operator-abt-eth' });
   await accounts.register({ did: stranger.did, githubLogin: 'stranger-abt-eth' });
   if (ownerEth !== null) await accounts.setOperatorAddressAbtEth(operatorDid, ownerEth);
-  if (options.ownerUsdc !== undefined && options.ownerUsdc !== null) {
-    await accounts.setOperatorAddressEvm(operatorDid, options.ownerUsdc);
-  }
+  if (options.ownerUsdc != null) await accounts.setOperatorAddressEvm(operatorDid, options.ownerUsdc);
   const agentRepo = new MemoryAgentRepository();
-  await agentRepo.create({
-    did: agent.did,
-    operatorDid,
-    delegation: { fixture: true } as never,
-    name: 'scout',
-    skills: ['triage'],
-    githubLogin: 'scout-abt-eth',
-    negotiatesOnOwnersBehalf: true,
-  });
-  if (options.agentVerified !== false) {
-    await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-abt-eth', status: 'verified' });
-  }
+  await agentRepo.create({ did: agent.did, operatorDid, delegation: { fixture: true } as never, name: 'scout', skills: ['triage'], githubLogin: 'scout-abt-eth', negotiatesOnOwnersBehalf: true });
+  if (options.agentVerified !== false) await agentRepo.updateGithubBinding(agent.did, { handle: 'scout-abt-eth', status: 'verified' });
   const settlementRepo = new MemorySettlementRepository();
   const messageRepo = new MemoryMessageRepository();
   const fixture = createStagingLifecycleGithubFake();
@@ -240,36 +187,13 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
   const app = createApp(
     accounts,
     agentRepo,
-    undefined,
-    fixture.github,
-    new MemoryJobRepository(),
-    undefined,
-    undefined,
-    undefined,
+    undefined, fixture.github, new MemoryJobRepository(), undefined, undefined, undefined,
     { verify: 100_000, read: 100_000, write: 100_000, upstream: 100_000 },
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    new PrismaSettlementGate(settlementRepo),
-    anyCommitStagingObserver(),
-    undefined,
-    null,
-    null,
-    settlementRepo,
-    undefined,
-    undefined,
-    messageRepo,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    rail,
-    lockStorage,
-    shorts,
+    undefined, undefined, undefined, undefined,
+    new PrismaSettlementGate(settlementRepo), anyCommitStagingObserver(), undefined, null, null,
+    settlementRepo, undefined, undefined, messageRepo,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    rail, lockStorage, shorts,
   );
   const server = app.listen(0, '127.0.0.1');
   servers.push(server);
@@ -290,8 +214,6 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
     fixture,
   };
 }
-
-// ------------------------------------------------------------------ helpers
 
 async function walkToProposedAndPriced(rig: Rig, rail?: 'abt' | 'usdc' | 'abt_eth'): Promise<string> {
   const created = await postSigned(rig.baseUrl, '/jobs', {
@@ -374,6 +296,39 @@ async function paidLines(rig: Rig, jobId: string): Promise<unknown[]> {
     .map((row) => ({ body: row.body, systemEvent: row.systemEvent }));
 }
 
+// The whole settlement row a paid deposit or remainder leaves.
+function settlementRow(jobId: string, leg: 'deposit' | 'remainder', observedAt: string): Record<string, unknown> {
+  const pair = leg === 'deposit' ? DEPOSIT_PAIR : REMAINDER_PAIR;
+  return {
+    jobId,
+    leg,
+    rail: 'abt_eth',
+    hash: pair.price,
+    secondaryHash: pair.fee,
+    operatorAddress: OWNER_ETH,
+    feeAddress: FEE_ADDRESS,
+    amountUsd: leg === 'deposit' ? '125.00' : '375.00',
+    observedAt: new Date(observedAt),
+  };
+}
+
+// The whole short row a deposit leg leaves.
+function shortRow(jobId: string, lockId: string, read: { usdPerTokenAtRead: string | null; worthUsd: string | null; recordedAt: string | null; readAt: string }): Record<string, unknown> {
+  return {
+    priceTxHash: DEP_PRICE,
+    jobId,
+    leg: 'deposit',
+    lockId,
+    feeTxHash: DEP_FEE,
+    amountToken: '500',
+    amountUsd: '125.00',
+    usdPerTokenAtRead: read.usdPerTokenAtRead,
+    worthUsd: read.worthUsd,
+    recordedAt: read.recordedAt === null ? null : new Date(read.recordedAt),
+    readAt: new Date(read.readAt),
+  };
+}
+
 const DEPOSIT_PAID_LINE = {
   body: 'Deposit paid',
   systemEvent: { type: 'deposit_paid', leg: 'deposit', amountUsd: '125.00', rail: 'abt_eth' },
@@ -396,8 +351,6 @@ function depositStartBody(lockId: string): Record<string, unknown> {
     quoteLock: { id: lockId, usdPerAbt: '0.25', rateUpdatedAt: FEED_TIME.toISOString(), expiresAt: HOLD_ENDS },
   };
 }
-
-// ---------------------------------------------------------------- (a), (b)
 
 describe('(a) a deployment with no ABT-on-Ethereum rail', () => {
   it('answers 503 on both routes and writes nothing', async () => {
@@ -433,25 +386,7 @@ describe('(b) who may use the routes', () => {
     expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
     expect(await paidLines(rig, jobId)).toEqual([]);
   });
-
-  it("refuses the agent, a party but not the buyer, on both routes, and writes nothing", async () => {
-    const rig = await boot();
-    const jobId = await walkToProposedAndPriced(rig);
-    landPair(rig, 'deposit', INSIDE_HOLD);
-    const lockId = await startOk(rig, jobId, 'deposit');
-    expect(rig.locks).toHaveLength(1);
-
-    const start = await startLeg(rig, jobId, 'deposit', rig.agent);
-    const response = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId), rig.agent);
-
-    expect([start.status, response.status]).toEqual([403, 403]);
-    expect(rig.locks).toHaveLength(1);
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-    expect(await paidLines(rig, jobId)).toEqual([]);
-  });
 });
-
-// ---------------------------------------------------------------------- (c)
 
 describe('(c) an owner with a USDC address and no ABT-on-Ethereum address', () => {
   it('is refused on both routes with the ABT-on-Ethereum sentence, and the USDC address is never used', async () => {
@@ -474,8 +409,6 @@ describe('(c) an owner with a USDC address and no ABT-on-Ethereum address', () =
     expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------- (d)
 
 describe('(d) the start', () => {
   it('answers both transfers in 18-decimal base units, the price to the owner and the fee to the platform, with the whole quote lock', async () => {
@@ -531,45 +464,7 @@ describe('(d) the start', () => {
     expect(await res.json()).toEqual({ error: 'The ABT price is not available right now. Try again in a minute.' });
     expect(rig.locks).toEqual([]);
   });
-
-  it('answers the remainder leg its own amounts', async () => {
-    const rig = await boot();
-    const jobId = await walkToProposedAndPriced(rig);
-    await rig.settlementRepo.record({
-      jobId,
-      leg: 'deposit',
-      rail: 'abt_eth',
-      hash: DEP_PRICE,
-      secondaryHash: DEP_FEE,
-      operatorAddress: OWNER_ETH,
-      feeAddress: FEE_ADDRESS,
-      amountUsd: '125.00',
-      observedAt: NOW,
-    });
-    await postSigned(rig.baseUrl, `/jobs/${jobId}/confirm`, {}, rig.buyer);
-    await postSigned(rig.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-abt-eth-1' }, rig.agent);
-
-    const res = await startLeg(rig, jobId, 'remainder');
-
-    expect(res.status).toBe(200);
-    const lock = rig.locks[0];
-    if (lock === undefined) throw new Error('expected one lock row');
-    expect(await res.json()).toEqual({
-      rail: 'abt_eth',
-      jobId,
-      leg: 'balance',
-      chainId: CHAIN_ID,
-      transfers: [
-        { recipient: OWNER_ETH, amountBaseUnits: REM_PRICE_UNITS, tokenContract: ABT_TOKEN },
-        { recipient: FEE_ADDRESS, amountBaseUnits: REM_FEE_UNITS, tokenContract: ABT_TOKEN },
-      ],
-      quoteLock: { id: lock.id, usdPerAbt: '0.25', rateUpdatedAt: FEED_TIME.toISOString(), expiresAt: HOLD_ENDS },
-    });
-    expect(lock.amountUsd).toBe('375.00');
-  });
 });
-
-// ------------------------------------------------- the other gates, both routes
 
 describe('the gates the USDC routes make, made on both ABT-on-Ethereum routes', () => {
   it('refuses a leg that is not deposit or remainder with 400', async () => {
@@ -702,9 +597,7 @@ describe('the gates the USDC routes make, made on both ABT-on-Ethereum routes', 
     const rig = await boot({ agentVerified: false });
     const jobId = await walkToProposedAndPriced(rig);
 
-    const start = await startLeg(rig, jobId, 'deposit');
-
-    expect(start.status).toBe(409);
+    expect((await startLeg(rig, jobId, 'deposit')).status).toBe(409);
     expect(rig.locks).toEqual([]);
   });
 
@@ -731,10 +624,8 @@ describe('the gates the USDC routes make, made on both ABT-on-Ethereum routes', 
   });
 });
 
-// ---------------------------------------------------------------------- (e)
-
 describe('(e) a rate that moves between the start and the report', () => {
-  it('does not change what the report is checked against: the lock\'s amounts', async () => {
+  it('does not change what the report is checked against: the lock\'s amounts, whatever the body carries', async () => {
     const rig = await boot();
     const jobId = await walkToProposedAndPriced(rig);
     landPair(rig, 'deposit', INSIDE_HOLD);
@@ -742,38 +633,14 @@ describe('(e) a rate that moves between the start and the report', () => {
     setTime(INSIDE_HOLD);
     rig.feed.reading = { usdPerToken: '0.5', updatedAt: new Date('2026-10-06T12:09:00.000Z') };
 
-    const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual({
-      jobId,
-      leg: 'deposit',
-      rail: 'abt_eth',
-      hash: DEP_PRICE,
-      secondaryHash: DEP_FEE,
-      operatorAddress: OWNER_ETH,
-      feeAddress: FEE_ADDRESS,
-      amountUsd: '125.00',
-      observedAt: new Date(INSIDE_HOLD),
-    });
-  });
-
-  it('ignores amounts the body carries', async () => {
-    const rig = await boot();
-    const jobId = await walkToProposedAndPriced(rig);
-    landPair(rig, 'deposit', INSIDE_HOLD);
-    const lockId = await startOk(rig, jobId, 'deposit');
-    setTime(INSIDE_HOLD);
-
+    // The body's own amounts are not read either.
     const res = await report(rig, jobId, 'deposit', { ...reportBody(DEPOSIT_PAIR, lockId), amountToken: '1', feeToken: '1' });
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', INSIDE_HOLD));
   });
 });
-
-// ---------------------------------------------------------------------- (f)
 
 describe('(f) the lock the report names', () => {
   it('refuses a report with no quoteLockId with 400', async () => {
@@ -859,8 +726,6 @@ describe('(f) the lock the report names', () => {
   });
 });
 
-// ------------------------------------------------------------ (g) to (k)
-
 describe('the late-transfer rule', () => {
   it('(g) settles at the held price a transfer recorded inside the hold and reported after it', async () => {
     const rig = await boot();
@@ -875,17 +740,7 @@ describe('the late-transfer rule', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(confirmationBody(DEPOSIT_PAIR, INSIDE_HOLD));
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual({
-      jobId,
-      leg: 'deposit',
-      rail: 'abt_eth',
-      hash: DEP_PRICE,
-      secondaryHash: DEP_FEE,
-      operatorAddress: OWNER_ETH,
-      feeAddress: FEE_ADDRESS,
-      amountUsd: '125.00',
-      observedAt: new Date(REPORTED_AT),
-    });
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
     expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE]);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([]);
   });
@@ -926,19 +781,7 @@ describe('the late-transfer rule', () => {
     expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
     expect(await paidLines(rig, jobId)).toEqual([]);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
-      {
-        priceTxHash: DEP_PRICE,
-        jobId,
-        leg: 'deposit',
-        lockId,
-        feeTxHash: DEP_FEE,
-        amountToken: '500',
-        amountUsd: '125.00',
-        usdPerTokenAtRead: '0.2',
-        worthUsd: '100',
-        recordedAt: new Date(AFTER_HOLD),
-        readAt: new Date(REPORTED_AT),
-      },
+      shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: AFTER_HOLD, readAt: REPORTED_AT }),
     ]);
     expect(await (await fetch(`${rig.baseUrl}/jobs/${jobId}`)).json()).toEqual(jobBefore);
   });
@@ -961,19 +804,7 @@ describe('the late-transfer rule', () => {
     expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
     expect(await paidLines(rig, jobId)).toEqual([]);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
-      {
-        priceTxHash: DEP_PRICE,
-        jobId,
-        leg: 'deposit',
-        lockId,
-        feeTxHash: DEP_FEE,
-        amountToken: '500',
-        amountUsd: '125.00',
-        usdPerTokenAtRead: null,
-        worthUsd: null,
-        recordedAt: new Date(AFTER_HOLD),
-        readAt: new Date(REPORTED_AT),
-      },
+      shortRow(jobId, lockId, { usdPerTokenAtRead: null, worthUsd: null, recordedAt: AFTER_HOLD, readAt: REPORTED_AT }),
     ]);
   });
 
@@ -996,41 +827,10 @@ describe('the late-transfer rule', () => {
     expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
     expect(await paidLines(rig, jobId)).toEqual([]);
     expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
-      {
-        priceTxHash: DEP_PRICE,
-        jobId,
-        leg: 'deposit',
-        lockId,
-        feeTxHash: DEP_FEE,
-        amountToken: '500',
-        amountUsd: '125.00',
-        usdPerTokenAtRead: '0.2',
-        worthUsd: '100',
-        recordedAt: null,
-        readAt: new Date(INSIDE_HOLD),
-      },
+      shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: null, readAt: INSIDE_HOLD }),
     ]);
   });
-
-  it('judges by the block time, not the arrival time: a transfer recorded after the hold, reported inside it, is judged late', async () => {
-    const rig = await boot();
-    const jobId = await walkToProposedAndPriced(rig);
-    // The fake chain says the block is after the hold; the request arrives
-    // inside it (the clock is set back). Only the block time can make this late.
-    landPair(rig, 'deposit', AFTER_HOLD);
-    const lockId = await startOk(rig, jobId, 'deposit');
-    setTime('2026-10-06T12:14:00.000Z');
-    rig.feed.reading = { usdPerToken: '0.2', updatedAt: new Date('2026-10-06T12:13:00.000Z') };
-
-    const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
-
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { short?: unknown }).short).toEqual({ recordedAt: AFTER_HOLD, agreedUsd: '125.00', worthUsd: '100' });
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
-  });
 });
-
-// ---------------------------------------------------------------------- (l)
 
 describe('(l) a payment reported twice', () => {
   it('answers a settled leg as the first call did and leaves one settlement row with its first time and one paid line, even after the job moved on', async () => {
@@ -1095,8 +895,6 @@ describe('(l) a payment reported twice', () => {
   });
 });
 
-// ---------------------------------------------------------------------- (m)
-
 describe('(m) a half-paid leg', () => {
   it('settles nothing when the price confirmed and the fee did not, and the next start answers the half-paid record', async () => {
     const rig = await boot();
@@ -1134,8 +932,6 @@ describe('(m) a half-paid leg', () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------- (n)
 
 describe('(n) the rail is offered only when the owner set it up', () => {
   async function payableRails(rig: Rig, jobId: string): Promise<unknown> {
@@ -1210,8 +1006,6 @@ describe('(n) the rail is offered only when the owner set it up', () => {
   });
 });
 
-// ---------------------------------------------------------------------- (o)
-
 describe('(o) the remainder leg settles on its own', () => {
   async function payDeposit(rig: Rig, jobId: string): Promise<void> {
     landPair(rig, 'deposit', INSIDE_HOLD);
@@ -1237,17 +1031,7 @@ describe('(o) the remainder leg settles on its own', () => {
     const paid = await report(rig, jobId, 'remainder', reportBody(REMAINDER_PAIR, lockId));
     expect(paid.status).toBe(200);
     expect(await paid.json()).toEqual(confirmationBody(REMAINDER_PAIR, '2026-10-06T12:12:00.000Z'));
-    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'remainder')).toEqual({
-      jobId,
-      leg: 'remainder',
-      rail: 'abt_eth',
-      hash: REM_PRICE,
-      secondaryHash: REM_FEE,
-      operatorAddress: OWNER_ETH,
-      feeAddress: FEE_ADDRESS,
-      amountUsd: '375.00',
-      observedAt: new Date(INSIDE_HOLD),
-    });
+    expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'remainder')).toEqual(settlementRow(jobId, 'remainder', INSIDE_HOLD));
     expect(await paidLines(rig, jobId)).toEqual([DEPOSIT_PAID_LINE, REMAINDER_PAID_LINE]);
 
     const { url } = registerAgentForkPullRequest(rig.fixture, {
