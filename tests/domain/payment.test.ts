@@ -1,7 +1,15 @@
 // P2: fee math, pure, decimal strings, no floats. Every assertion here fails
 // without src/domain/payment.ts and passes with it.
 import { describe, expect, it } from 'vitest';
-import { ABT_FEE_RATE_PERCENT, USDC_FEE_RATE_PERCENT, calculateFee, toBaseUnits, usdToTokenAmount } from '../../src/domain/payment.js';
+import {
+  ABT_FEE_RATE_PERCENT,
+  USDC_FEE_RATE_PERCENT,
+  calculateFee,
+  coversAgreedUsd,
+  toBaseUnits,
+  tokenAmountWorthUsd,
+  usdToTokenAmount,
+} from '../../src/domain/payment.js';
 
 describe('calculateFee: decimal-string math, never a JS float', () => {
   it('computes 3 percent of a plain amount, rounded to two places', () => {
@@ -157,5 +165,80 @@ describe('toBaseUnits: decimal token amount to integer smallest-unit, floor conv
 
   it('rejects a negative decimals count', () => {
     expect(() => toBaseUnits('15', -1)).toThrow();
+  });
+});
+
+// What a held token amount is worth at a rate read later. The worth is
+// floored at 8 decimal places, so a payment that is short is never called
+// full by rounding.
+describe('tokenAmountWorthUsd: the dollar value of a token amount, in BigInt over decimal strings', () => {
+  it('answers 20 for 80 tokens at 0.25 dollars each', () => {
+    expect(tokenAmountWorthUsd('80', '0.25')).toBe('20');
+  });
+
+  it('keeps the fraction of a worth that is not whole dollars, trailing zeros trimmed', () => {
+    expect(tokenAmountWorthUsd('1000', '0.01234567')).toBe('12.34567');
+  });
+
+  it('reads a rate written to 8 fractional digits exactly', () => {
+    expect(tokenAmountWorthUsd('400000000', '0.00000025')).toBe('100');
+    expect(tokenAmountWorthUsd('123.45678901', '0.12345678')).toBe('15.24157764');
+  });
+
+  it('answers 0 for a zero amount', () => {
+    expect(tokenAmountWorthUsd('0', '0.25')).toBe('0');
+  });
+
+  it('floors the worth at 8 places: one smallest unit of an 18-decimal token short of 80 is worth 19.99999999, not 20', () => {
+    // 79.999999999999999999 * 0.25 = 19.99999999999999999975 exactly.
+    expect(tokenAmountWorthUsd('79.999999999999999999', '0.25')).toBe('19.99999999');
+  });
+
+  it('floors a worth whose ninth digit is a 9 instead of rounding it up to a whole dollar', () => {
+    expect(tokenAmountWorthUsd('1', '0.999999999')).toBe('0.99999999');
+  });
+
+  it('refuses a malformed amount or rate', () => {
+    expect(() => tokenAmountWorthUsd('abc', '0.25')).toThrow('amountToken must be a non-negative decimal number, got "abc"');
+    expect(() => tokenAmountWorthUsd('80', '-1')).toThrow('usdPerToken must be a non-negative decimal number, got "-1"');
+  });
+});
+
+describe('coversAgreedUsd: is the amount still worth at least the agreed dollars at this rate', () => {
+  it('covers when the amount is worth exactly the agreed price', () => {
+    expect(coversAgreedUsd('80', '0.25', '20.00')).toBe(true);
+  });
+
+  it('does not cover when the amount is one smallest unit of an 18-decimal token less than the agreed price needs', () => {
+    expect(coversAgreedUsd('79.999999999999999999', '0.25', '20.00')).toBe(false);
+  });
+
+  it('covers when the amount is worth more than the agreed price', () => {
+    expect(coversAgreedUsd('80.000000000000000001', '0.25', '20.00')).toBe(true);
+    expect(coversAgreedUsd('80', '0.26', '20.00')).toBe(true);
+  });
+
+  it('does not cover when the rate fell', () => {
+    expect(coversAgreedUsd('80', '0.24', '20.00')).toBe(false);
+  });
+
+  it('judges a rate with 8 fractional digits exactly, at the boundary', () => {
+    expect(coversAgreedUsd('400000000', '0.00000025', '100.00')).toBe(true);
+    expect(coversAgreedUsd('399999999.999999999999999999', '0.00000025', '100.00')).toBe(false);
+  });
+
+  it('covers 3 tokens at 0.29 for 0.87, where floating point answers 0.8699999999999999 and calls it short', () => {
+    // 3 * 0.29 is 0.8699999999999999 as an IEEE754 double and 0.87 in exact
+    // arithmetic. 3 * 0.35 is 1.0499999999999998 against an exact 1.05.
+    expect(coversAgreedUsd('3', '0.29', '0.87')).toBe(true);
+    expect(coversAgreedUsd('3', '0.35', '1.05')).toBe(true);
+  });
+
+  it('does not call a value that rounds up to the agreed price full: 0.999999999 worth is short of 1.00', () => {
+    expect(coversAgreedUsd('1', '0.999999999', '1.00')).toBe(false);
+  });
+
+  it('refuses an agreed price that is not a decimal amount', () => {
+    expect(() => coversAgreedUsd('80', '0.25', 'twenty')).toThrow('agreedUsd must be a non-negative decimal number, got "twenty"');
   });
 });

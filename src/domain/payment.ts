@@ -215,3 +215,57 @@ export function remainderUsd(priceUsd: string, depositPercent: number): string {
   const depositHundredths = parseDecimalToHundredths(depositUsd(priceUsd, depositPercent), 'depositUsd');
   return hundredthsToDecimalString(priceHundredths - depositHundredths);
 }
+
+// What a held token amount is worth at a rate read later: the reverse of
+// usdToTokenAmount, for the question "is a payment that was recorded after
+// its price hold still worth the agreed price". BigInt over decimal strings,
+// never a float: a double stores 0.29 as 0.28999999999999998, so 3 tokens at
+// 0.29 multiply to 0.8699999999999999 and a float comparison against an
+// agreed 0.87 calls a covering payment short.
+//
+// Rounding: the amount and the rate are read exactly, at every digit they
+// carry (parseDecimalScaled would round a long rate half-up, which can only
+// ever raise a worth), and the product is FLOORED to WORTH_PRECISION places.
+// A value is therefore never reported higher than it is. coversAgreedUsd
+// compares the exact product with the agreed dollars, with no rounding at
+// all, so a worth that only rounds up to the agreed price does not cover it.
+const WORTH_PRECISION = 8;
+
+interface ExactDecimal {
+  readonly digits: bigint;
+  readonly scale: number;
+}
+
+function parseExactDecimal(value: string, label: string): ExactDecimal {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (match === null) {
+    throw new PaymentDomainError(`${label} must be a non-negative decimal number, got "${value}"`);
+  }
+  const fraction = match[2] ?? '';
+  return { digits: BigInt(`${match[1] ?? '0'}${fraction}`), scale: fraction.length };
+}
+
+function exactWorth(amountToken: string, usdPerToken: string): ExactDecimal {
+  const amount = parseExactDecimal(amountToken, 'amountToken');
+  const rate = parseExactDecimal(usdPerToken, 'usdPerToken');
+  return { digits: amount.digits * rate.digits, scale: amount.scale + rate.scale };
+}
+
+export function tokenAmountWorthUsd(amountToken: string, usdPerToken: string): string {
+  const worth = exactWorth(amountToken, usdPerToken);
+  const floored =
+    worth.scale > WORTH_PRECISION
+      ? worth.digits / 10n ** BigInt(worth.scale - WORTH_PRECISION)
+      : worth.digits * 10n ** BigInt(WORTH_PRECISION - worth.scale);
+  const scale = 10n ** BigInt(WORTH_PRECISION);
+  const fraction = (floored % scale).toString().padStart(WORTH_PRECISION, '0').replace(/0+$/, '');
+  const whole = (floored / scale).toString();
+  return fraction === '' ? whole : `${whole}.${fraction}`;
+}
+
+export function coversAgreedUsd(amountToken: string, usdPerToken: string, agreedUsd: string): boolean {
+  const worth = exactWorth(amountToken, usdPerToken);
+  const agreed = parseExactDecimal(agreedUsd, 'agreedUsd');
+  const scale = Math.max(worth.scale, agreed.scale);
+  return worth.digits * 10n ** BigInt(scale - worth.scale) >= agreed.digits * 10n ** BigInt(scale - agreed.scale);
+}
