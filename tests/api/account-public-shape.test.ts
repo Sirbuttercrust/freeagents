@@ -3,7 +3,7 @@
 // GET /accounts/:did needs no sign-in, so anyone who knew a DID could read
 // it. Pinned here, over real HTTP and a real WebAuthn sign-up
 // (tests/helpers/webauthn-fixtures.ts): the two answers that go to whoever
-// asks (GET /accounts/:did and the POST /accounts 201) carry the five public
+// asks (GET /accounts/:did and the POST /accounts 201) carry the six public
 // keys and no passkeySubject key at all, while the two answers that go to
 // the account itself (GET /accounts/me and the operator-address PATCH 200)
 // keep it.
@@ -19,7 +19,7 @@ import { fakeGitHubConfig } from '../helpers/session-fixtures.js';
 import { createPasskeyFixture, type PasskeyFixture } from '../helpers/webauthn-fixtures.js';
 
 const RP_ID = 'localhost';
-const PUBLIC_KEYS = ['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressEvm'];
+const PUBLIC_KEYS = ['createdAt', 'did', 'githubLogin', 'operatorAddressAbt', 'operatorAddressAbtEth', 'operatorAddressEvm'];
 const OWN_KEYS = [...PUBLIC_KEYS, 'passkeySubject'].sort();
 const EVM_ADDRESS = '0x' + 'ab'.repeat(20);
 
@@ -94,7 +94,7 @@ async function signUp(rig: Rig, fixture: PasskeyFixture): Promise<{ token: strin
 }
 
 describe('what an account answer shows, by who is asking', () => {
-  it('(a) GET /accounts/:did with no sign-in answers the five public keys and no passkeySubject key', async () => {
+  it('(a) GET /accounts/:did with no sign-in answers the six public keys and no passkeySubject key', async () => {
     const rig = await startRig();
     const a = await signUp(rig, createPasskeyFixture());
     const stored = await rig.accounts.findByDid(a.did);
@@ -107,7 +107,7 @@ describe('what an account answer shows, by who is asking', () => {
     expect('passkeySubject' in res.body).toBe(false);
   });
 
-  it('(b) POST /accounts with a passkeySubject in the body answers 201 with the five public keys and no passkeySubject key', async () => {
+  it('(b) POST /accounts with a passkeySubject in the body answers 201 with the six public keys and no passkeySubject key', async () => {
     const rig = await startRig();
 
     const res = await send(rig, 'POST', '/accounts', {

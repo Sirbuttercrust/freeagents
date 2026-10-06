@@ -50,8 +50,7 @@ async function provedRegistration(seedByte: number, login: string): Promise<{ di
 
 // The exact field set the service is allowed to keep, from the Operator domain
 // record: no stored field beyond this set. The public read shows all of it
-// except passkeySubject, unprovedGithubLogin and operatorAddressAbtEth (see
-// PUBLIC_FIELDS below).
+// except passkeySubject and unprovedGithubLogin (see PUBLIC_FIELDS below).
 // FIX-B62b: unprovedGithubLogin is stored (a login typed before logins
 // needed proof, kept so nothing is deleted) and never public, and null on
 // every row a route makes.
@@ -59,12 +58,11 @@ const ALLOWED_FIELDS = new Set(['did', 'githubLogin', 'unprovedGithubLogin', 'pa
 
 // B61c: the passkey's name is private to the account, so the public answer
 // is the stored set without passkeySubject. FIX-B62b: and without
-// unprovedGithubLogin, which no answer carries. The ABT-on-Ethereum payout
-// address is stored (the repository has a column and a setter for it) but no
-// route reads or writes it yet and neither account projection carries it, so
-// it is left out here until the route that exposes it lands.
+// unprovedGithubLogin, which no answer carries. The ABT-on-Ethereum operator
+// address is public like the other two addresses: PATCH
+// /accounts/:did/operator-address sets it and both account projections carry it.
 const PUBLIC_FIELDS = [...ALLOWED_FIELDS].filter(
-  (field) => field !== 'passkeySubject' && field !== 'unprovedGithubLogin' && field !== 'operatorAddressAbtEth',
+  (field) => field !== 'passkeySubject' && field !== 'unprovedGithubLogin',
 );
 
 // Names that would mean key material leaked into storage or the wire.
@@ -149,6 +147,7 @@ describe('operator registration, invariant 2', () => {
       createdAt: stored?.createdAt.toISOString(),
       operatorAddressEvm: stored?.operatorAddressEvm ?? null,
       operatorAddressAbt: stored?.operatorAddressAbt ?? null,
+      operatorAddressAbtEth: stored?.operatorAddressAbtEth ?? null,
     });
     expect(createdBody).toEqual(readBackBody);
   });
