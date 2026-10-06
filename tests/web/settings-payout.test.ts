@@ -484,7 +484,21 @@ describe('/settings, the three payout boxes', () => {
 });
 
 describe('/settings payout boxes at 320px in real Chrome', () => {
+  // The panes enter on base.css's reveal (a translateY, up to 0.5s, after
+  // ui.js adds .is-in). Measured mid-flight, a 44px input read 43.99994 from
+  // float rounding, so measure only once every pane in the body has its
+  // .is-in and nothing in the body is still moving, to a deadline. The 44px
+  // floor stays strict.
+  async function settle(browser: RealBrowser): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (!(await browser.evaluate<boolean>(`Array.from(document.querySelectorAll('#settings-body .reveal, #settings-body .stagger')).every((n) => n.classList.contains('is-in')) && !document.getAnimations().some((a) => a.playState === 'running' && a.effect && a.effect.target && a.effect.target.closest('#settings-body'))`))) {
+      if (Date.now() > deadline) throw new Error('the settings body never settled');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
   async function measure(browser: RealBrowser): Promise<{ scroll: [number, number]; small: unknown[]; boxes: unknown[] }> {
+    await settle(browser);
     return browser.evaluate(`(() => {
       const seen = (el) => el.offsetParent !== null && el.closest('[hidden]') === null;
       const all = Array.from(document.querySelectorAll('#settings-body a, #settings-body button, #settings-body input, #settings-body label')).filter(seen);

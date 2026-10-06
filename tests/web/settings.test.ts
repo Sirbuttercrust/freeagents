@@ -548,6 +548,17 @@ describe('the settings screen, driven end to end against the real app', () => {
         await browser.evaluate(`sessionStorage.setItem('fa_session', ${JSON.stringify(JSON.stringify(session))})`);
         await browser.goto(`${baseUrl}/settings`);
 
+        // The panes enter on base.css's reveal (a translateY, up to 0.5s,
+        // after ui.js adds .is-in). Measured mid-flight, a 44px input read
+        // 43.99994 from float rounding in one run of four, so measure only
+        // once every pane in the body has its .is-in and nothing in the body
+        // is still moving, to a deadline. The 44px floor stays strict.
+        const settleBy = Date.now() + 10_000;
+        while (!(await browser.evaluate<boolean>(`Array.from(document.querySelectorAll('#settings-body .reveal, #settings-body .stagger')).every((n) => n.classList.contains('is-in')) && !document.getAnimations().some((a) => a.playState === 'running' && a.effect && a.effect.target && a.effect.target.closest('#settings-body'))`))) {
+          if (Date.now() > settleBy) throw new Error('the settings body never settled');
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
         const overflow = await browser.evaluate<{ scrollWidth: number; clientWidth: number }>(`
           ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })
         `);
