@@ -293,7 +293,7 @@ describe('GET /jobs/:jobId/payments: what it answers', () => {
     const jobId = await plantJob(active, stagedOverrides(new Date()));
     const res = await getSigned(active.baseUrl, `/jobs/${jobId}/payments`, buyer);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ deposit: null, remainder: null });
+    expect(await res.json()).toEqual({ deposit: null, remainder: null, short: { deposit: null, remainder: null } });
   });
 
   it('(f) a settled USDC deposit is the deposit leg exactly, with the remainder null', async () => {
@@ -302,7 +302,7 @@ describe('GET /jobs/:jobId/payments: what it answers', () => {
     await settle(active, jobId, DEPOSIT_RECORD);
     const res = await getSigned(active.baseUrl, `/jobs/${jobId}/payments`, buyer);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ deposit: DEPOSIT_LEG, remainder: null });
+    expect(await res.json()).toEqual({ deposit: DEPOSIT_LEG, remainder: null, short: { deposit: null, remainder: null } });
   });
 
   it('(g) both legs settled: each leg is its own record, the remainder never the deposit', async () => {
@@ -311,7 +311,7 @@ describe('GET /jobs/:jobId/payments: what it answers', () => {
     await settle(active, jobId, DEPOSIT_RECORD, REMAINDER_RECORD);
     const res = await getSigned(active.baseUrl, `/jobs/${jobId}/payments`, agent);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ deposit: DEPOSIT_LEG, remainder: REMAINDER_LEG });
+    expect(await res.json()).toEqual({ deposit: DEPOSIT_LEG, remainder: REMAINDER_LEG, short: { deposit: null, remainder: null } });
   });
 
   it("another job's settled legs never show on this job", async () => {
@@ -320,7 +320,7 @@ describe('GET /jobs/:jobId/payments: what it answers', () => {
     const jobId = await plantJob(active, stagedOverrides(new Date()));
     await settle(active, other, DEPOSIT_RECORD, REMAINDER_RECORD);
     const res = await getSigned(active.baseUrl, `/jobs/${jobId}/payments`, buyer);
-    expect(await res.json()).toEqual({ deposit: null, remainder: null });
+    expect(await res.json()).toEqual({ deposit: null, remainder: null, short: { deposit: null, remainder: null } });
   });
 });
 
@@ -364,7 +364,7 @@ describe('GET /jobs/:jobId/payments: a plain read moves nothing', () => {
     const before = structuredClone(await active.jobRepo.findById(jobId));
     const res = await getSigned(active.baseUrl, `/jobs/${jobId}/payments`, buyer);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ deposit: null, remainder: null });
+    expect(await res.json()).toEqual({ deposit: null, remainder: null, short: { deposit: null, remainder: null } });
     expect((await active.jobRepo.findById(jobId))?.status).toBe('staged');
     expect(await active.jobRepo.findById(jobId)).toEqual(before);
   });

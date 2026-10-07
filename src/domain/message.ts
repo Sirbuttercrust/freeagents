@@ -143,6 +143,20 @@ export interface StagedEvent {
   readonly type: 'staged';
 }
 
+// A payment the network recorded after its price hold that was worth less than
+// the agreed price when the platform read it. It settles nothing: the leg
+// waits on the owner, who can accept it as paid. leg names which leg arrived
+// short; agreedUsd is the dollars the leg was agreed at and worthUsd what the
+// locked token amount was worth when it was read (null when no price could be
+// read). The same stance as DepositPaidEvent: amounts in USD, never a token
+// amount, a wallet address or a transaction hash.
+export interface PaymentShortEvent {
+  readonly type: 'payment_short';
+  readonly leg: 'deposit' | 'remainder';
+  readonly agreedUsd: string;
+  readonly worthUsd: string | null;
+}
+
 export interface PullRequestOpenedEvent {
   readonly type: 'pr_opened';
   readonly pullRequestUrl: string;
@@ -171,6 +185,7 @@ export type SystemEvent =
   | QuoteSentEvent
   | DepositPaidEvent
   | RemainderPaidEvent
+  | PaymentShortEvent
   | StagedEvent
   | PullRequestOpenedEvent
   | CompletedEvent
