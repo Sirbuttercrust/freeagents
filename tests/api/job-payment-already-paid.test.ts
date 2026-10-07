@@ -381,6 +381,32 @@ describe('B88: a deposit half-paid in USDC is refused by every ABT door', () => 
 describe('a deposit stored short on ABT on Ethereum is refused by the ABT wallet callback', () => {
   const SHORT_ON_ABT = 'the deposit for this job reached the owner in "abt_eth" worth less than the agreed price and waits on their answer; the "abt" payment routes refuse it. Message the owner.';
 
+  it.each([
+    ['abt/start', (baseUrl: string, jobId: string) => postSigned(baseUrl, `/jobs/${jobId}/payments/deposit/abt/start`, {}, buyer)],
+    ['the token-mint door', (baseUrl: string, jobId: string) => getSigned(baseUrl, `/api/did/pay/token?jobId=${jobId}&leg=deposit`, buyer)],
+  ])('%s answers 409 with the waits-on-the-owner sentence and mints no session', (_door, call) => withStarted(async ({ baseUrl, settlementRepo, abtEthShorts }) => {
+    const jobId = await walkToProposed(baseUrl, null);
+    await abtEthShorts.record({
+      priceTxHash: '0xaaaa000000000000000000000000000000000000000000000000000000000001',
+      jobId,
+      leg: 'deposit',
+      lockId: 'lock-1',
+      feeTxHash: null,
+      amountToken: '500',
+      amountUsd: '125.00',
+      usdPerTokenAtRead: '0.2',
+      worthUsd: '100',
+      recordedAt: new Date('2026-10-06T12:20:00.000Z'),
+      readAt: new Date('2026-10-06T12:40:00.000Z'),
+    });
+
+    const res = await call(baseUrl, jobId);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: SHORT_ON_ABT });
+    expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+  }));
+
   it('refuses a session minted before the short payment was stored: nothing is broadcast and no row is written', () => withStarted(async ({ baseUrl, settlementRepo, abtBroadcast, abtEthShorts }) => {
     const jobId = await walkToProposed(baseUrl, null);
     const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
