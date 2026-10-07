@@ -11,10 +11,14 @@ import { MemorySettlementRepository } from '../../../src/adapters/storage/memory
 import {
   checkRailDoorEligible,
   depositRailMismatchMessage,
+  heldLegMessage,
   heldRailMismatchMessage,
   operatorAddressNotSetMessage,
+  railHeldByShortPayment,
   railHoldingLeg,
 } from '../../../src/adapters/payment/route-support.js';
+import { createMemoryAbtEthShortPaymentStorage } from '../../../src/adapters/payment/abt-eth-short-payment-memory.js';
+import type { AbtEthShortPayment } from '../../../src/adapters/payment/abt-eth-short-payment-types.js';
 import type { AbtEthStoredHalfPaidRecord } from '../../../src/adapters/payment/abt-eth.js';
 import type { UsdcHalfPaidRecord } from '../../../src/adapters/payment/usdc.js';
 
@@ -249,6 +253,127 @@ describe('railHoldingLeg: the rail whose price transfer is confirmed on an unset
   it('throws when the ABT-on-Ethereum read fails', async () => {
     const failing = { readHalfPaidRecord: async () => { throw new Error('storage down'); } };
     await expect(railHoldingLeg({ jobId: 'job_1', leg: 'deposit', usdcRail: null, abtEthRail: failing })).rejects.toThrow('storage down');
+  });
+});
+
+describe('railHeldByShortPayment: a payment stored short holds its leg until the leg settles', () => {
+  const shortRow: AbtEthShortPayment = {
+    priceTxHash: '0xp',
+    jobId: 'job_1',
+    leg: 'deposit',
+    lockId: 'lock-1',
+    feeTxHash: '0xf',
+    amountToken: '500',
+    amountUsd: '125.00',
+    usdPerTokenAtRead: '0.2',
+    worthUsd: '100',
+    recordedAt: new Date('2026-10-06T12:20:00.000Z'),
+    readAt: new Date('2026-10-06T12:40:00.000Z'),
+  };
+  const settledRow = {
+    jobId: 'job_1',
+    leg: 'deposit',
+    rail: 'abt_eth',
+    hash: '0xp',
+    secondaryHash: '0xf',
+    operatorAddress: '0xOwner',
+    feeAddress: '0xFee',
+    amountUsd: '125.00',
+    observedAt: new Date('2026-10-06T12:41:00.000Z'),
+  } as const;
+
+  async function storeWith(rows: readonly AbtEthShortPayment[]) {
+    const shorts = createMemoryAbtEthShortPaymentStorage();
+    for (const row of rows) await shorts.record(row);
+    return shorts;
+  }
+
+  it('answers abt_eth for a leg with a short row and no settlement row', async () => {
+    const answer = await railHeldByShortPayment({
+      jobId: 'job_1',
+      leg: 'deposit',
+      abtEthShorts: await storeWith([shortRow]),
+      settlementRepo: new MemorySettlementRepository(),
+    });
+    expect(answer).toBe('abt_eth');
+  });
+
+  it('answers null once the leg has a settlement row', async () => {
+    const settlementRepo = new MemorySettlementRepository();
+    await settlementRepo.record(settledRow);
+    const answer = await railHeldByShortPayment({ jobId: 'job_1', leg: 'deposit', abtEthShorts: await storeWith([shortRow]), settlementRepo });
+    expect(answer).toBeNull();
+  });
+
+  it('answers null for another leg or another job than the short row names', async () => {
+    const shorts = await storeWith([shortRow]);
+    const settlementRepo = new MemorySettlementRepository();
+    expect(await railHeldByShortPayment({ jobId: 'job_1', leg: 'remainder', abtEthShorts: shorts, settlementRepo })).toBeNull();
+    expect(await railHeldByShortPayment({ jobId: 'job_2', leg: 'deposit', abtEthShorts: shorts, settlementRepo })).toBeNull();
+  });
+
+  it('holds a short remainder although the deposit settled', async () => {
+    const settlementRepo = new MemorySettlementRepository();
+    await settlementRepo.record(settledRow);
+    const remainderShort: AbtEthShortPayment = { ...shortRow, priceTxHash: '0xq', leg: 'remainder' };
+    const answer = await railHeldByShortPayment({ jobId: 'job_1', leg: 'remainder', abtEthShorts: await storeWith([remainderShort]), settlementRepo });
+    expect(answer).toBe('abt_eth');
+  });
+
+  it('answers null when the ABT-on-Ethereum rail is not configured', async () => {
+    const answer = await railHeldByShortPayment({ jobId: 'job_1', leg: 'deposit', abtEthShorts: null, settlementRepo: new MemorySettlementRepository() });
+    expect(answer).toBeNull();
+  });
+
+  it('throws when the short read fails', async () => {
+    const failing = { findByJobAndLeg: async () => { throw new Error('storage down'); } };
+    await expect(
+      railHeldByShortPayment({ jobId: 'job_1', leg: 'deposit', abtEthShorts: failing, settlementRepo: new MemorySettlementRepository() }),
+    ).rejects.toThrow('storage down');
+  });
+
+  it('throws when the settlement read fails', async () => {
+    const settlementRepo = { findByJobAndLeg: async () => { throw new Error('settlement down'); } };
+    await expect(
+      railHeldByShortPayment({ jobId: 'job_1', leg: 'deposit', abtEthShorts: await storeWith([shortRow]), settlementRepo }),
+    ).rejects.toThrow('settlement down');
+  });
+});
+
+describe('a leg held on a short payment says what the hirer can do', () => {
+  it.each([
+    ['deposit', 'usdc'],
+    ['remainder', 'abt'],
+  ] as const)('the %s door of %s refuses it and sends the hirer to the owner, not to a step that refuses', async (leg, routeRail) => {
+    const result = await checkRailDoorEligible({
+      jobId: 'job_1',
+      leg,
+      routeRail,
+      jobRail: null,
+      heldRail: 'abt_eth',
+      heldAwaitingOwner: true,
+      settlementRepo: new MemorySettlementRepository(),
+      operatorAddressOk: false,
+    });
+    const message = `the ${leg} for this job reached the owner in "abt_eth" worth less than the agreed price and waits on their answer; the "${routeRail}" payment routes refuse it. Message the owner.`;
+    expect(result).toEqual({ ok: false, status: 409, message });
+    expect(heldRailMismatchMessage(leg, routeRail, 'abt_eth', true)).toBe(message);
+  });
+
+  it.each([
+    ['change terms', 'The deposit has already reached the owner and waits on their answer, so the terms can no longer change. The hire waits on the owner to accept the payment or return it.'],
+    ['withdraw', 'The deposit has already reached the owner and waits on their answer, so this hire can no longer be withdrawn. Message the owner.'],
+    ['decline', 'The deposit has already reached the owner and waits on their answer, so this hire can no longer be declined. The hire waits on the owner to accept the payment or return it.'],
+    ['staged-decline', 'The balance has already reached the owner and waits on their answer, so the work can no longer be declined. Message the owner.'],
+    ['redo', 'The balance has already reached the owner and waits on their answer, so a redo can no longer be requested. Message the owner.'],
+  ] as const)('the %s refusal on a short leg names the owner\'s answer', (action, sentence) => {
+    expect(heldLegMessage(action, true)).toBe(sentence);
+  });
+
+  it('keeps the half-paid sentence for a leg that is only half paid', () => {
+    expect(heldLegMessage('withdraw', false)).toBe(
+      "The deposit's price has already reached the owner, so this hire can no longer be withdrawn. Finish the payment, then confirm the hire.",
+    );
   });
 });
 

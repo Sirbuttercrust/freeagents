@@ -146,6 +146,8 @@ interface Rig {
   // reads of both rails throw.
   readonly usdcReceipts: Map<string, Receipt>;
   readonly readsFail: { on: boolean };
+  // A switch that makes only the short-payment read throw.
+  readonly shortReadsFail: { on: boolean };
   readonly settlementRepo: MemorySettlementRepository;
   readonly messageRepo: MemoryMessageRepository;
   readonly fixture: StagingLifecycleFixture;
@@ -222,7 +224,15 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
     },
     read: (id) => inner.read(options.lockIdsIgnoreCase === true ? id.toLowerCase() : id),
   };
-  const shorts = createMemoryAbtEthShortPaymentStorage();
+  const shortsInner = createMemoryAbtEthShortPaymentStorage();
+  const shortReadsFail = { on: false };
+  const shorts: AbtEthShortPaymentStorage = {
+    ...shortsInner,
+    findByJobAndLeg: async (jobId, leg) => {
+      if (shortReadsFail.on) throw new Error('storage down');
+      return shortsInner.findByJobAndLeg(jobId, leg);
+    },
+  };
   const halfPaid: AbtEthHalfPaidStorage = fakeHalfPaidStorage();
   const readsFail = { on: false };
   const railHalfPaid: AbtEthHalfPaidStorage = {
@@ -264,6 +274,7 @@ async function boot(options: RigOptions = {}): Promise<Rig> {
     halfPaid,
     usdcReceipts,
     readsFail,
+    shortReadsFail,
     settlementRepo,
     messageRepo,
     fixture,
@@ -1782,6 +1793,305 @@ describe('(p) a half-paid leg is finished at the lock its first transfer was con
       expect(await startRes.json()).toEqual(STORAGE_DOWN);
       expect(rig.locks).toEqual([]);
       expect(await readJob(rig, jobId)).toEqual(before);
+    });
+  });
+});
+
+// A payment the network recorded after its price hold, worth less than the
+// agreed price when the platform read it, is stored short. The money is with
+// the owner, who answers it, so the leg is held the way a settled one is:
+// nothing asks for it again, nothing changes its price, nobody walks away,
+// and the unpaid clock does not close it.
+describe('(q) a payment stored short holds the hire while it waits on the owner', () => {
+  const SHORT_START = 'This payment reached the owner worth less than the agreed price, so the hire waits on the owner to accept it or return it. Message the owner.';
+  const WAITS = 'The hire waits on the owner to accept the payment or return it.';
+  const SHORT_TERMS = `The deposit has already reached the owner and waits on their answer, so the terms can no longer change. ${WAITS}`;
+  const SHORT_WITHDRAW = 'The deposit has already reached the owner and waits on their answer, so this hire can no longer be withdrawn. Message the owner.';
+  const SHORT_DECLINE = `The deposit has already reached the owner and waits on their answer, so this hire can no longer be declined. ${WAITS}`;
+  const SHORT_STAGED_DECLINE = 'The balance has already reached the owner and waits on their answer, so the work can no longer be declined. Message the owner.';
+  const SHORT_REDO = 'The balance has already reached the owner and waits on their answer, so a redo can no longer be requested. Message the owner.';
+  const SHORT_ON_USDC = 'the deposit for this job reached the owner in "abt_eth" worth less than the agreed price and waits on their answer; the "usdc" payment routes refuse it. Message the owner.';
+  const STORAGE_DOWN = { error: 'storage unavailable' };
+  const REMAINDER_RECORDED = '2026-10-06T12:30:00.000Z';
+  const BOTH = { usdcRail: true, ownerUsdc: OWNER_USDC } as const;
+  const OTHER_PRICE = '0xaaaa000000000000000000000000000000000000000000000000000000000009';
+  const OTHER_FEE = '0xbbbb00000000000000000000000000000000000000000000000000000000000a';
+
+  async function readJob(rig: Rig, jobId: string): Promise<unknown> {
+    return (await fetch(`${rig.baseUrl}/jobs/${jobId}`)).json();
+  }
+  async function conduct(rig: Rig, login: string): Promise<unknown> {
+    return (await fetch(`${rig.baseUrl}/buyers/${login}/conduct`)).json();
+  }
+
+  // What the first report of the short deposit answered.
+  const SHORT_DEPOSIT_BODY = {
+    ...confirmationBody(DEPOSIT_PAIR, AFTER_HOLD),
+    short: { recordedAt: AFTER_HOLD, agreedUsd: '125.00', worthUsd: '100' },
+  };
+
+  // The deposit transfers recorded after the hold, reported with ABT at
+  // 0.20 against a lock at 0.25: 500 ABT is worth 100.00, not 125.00.
+  async function shortDeposit(rig: Rig): Promise<{ jobId: string; lockId: string }> {
+    const jobId = await walkToProposedAndPriced(rig);
+    landPair(rig, 'deposit', AFTER_HOLD);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(REPORTED_AT);
+    rig.feed.reading = { usdPerToken: '0.2', updatedAt: new Date('2026-10-06T12:39:00.000Z') };
+    const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(SHORT_DEPOSIT_BODY);
+    return { jobId, lockId };
+  }
+
+  // The deposit paid inside its hold, confirmed and staged at INSIDE_HOLD.
+  async function stagedPaidDeposit(rig: Rig): Promise<string> {
+    const jobId = await walkToProposedAndPriced(rig);
+    landPair(rig, 'deposit', INSIDE_HOLD);
+    const lockId = await startOk(rig, jobId, 'deposit');
+    setTime(INSIDE_HOLD);
+    expect((await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId))).status).toBe(200);
+    expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/confirm`, {}, rig.buyer)).status).toBe(200);
+    expect((await postSigned(rig.baseUrl, `/jobs/${jobId}/stage`, { stagedCommit: 'commit-abt-eth-1' }, rig.agent)).status).toBe(200);
+    return jobId;
+  }
+
+  // The remainder transfers recorded after the remainder's hold, worth 300.00
+  // against 375.00 when read: a short remainder on a staged job.
+  async function shortRemainder(rig: Rig): Promise<string> {
+    const jobId = await stagedPaidDeposit(rig);
+    landPair(rig, 'remainder', REMAINDER_RECORDED);
+    const lockId = await startOk(rig, jobId, 'remainder');
+    setTime(REPORTED_AT);
+    rig.feed.reading = { usdPerToken: '0.2', updatedAt: new Date('2026-10-06T12:39:00.000Z') };
+    const res = await report(rig, jobId, 'remainder', reportBody(REMAINDER_PAIR, lockId));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ...confirmationBody(REMAINDER_PAIR, REMAINDER_RECORDED),
+      short: { recordedAt: REMAINDER_RECORDED, agreedUsd: '375.00', worthUsd: '300' },
+    });
+    return jobId;
+  }
+
+  it.each(['deposit', 'remainder'] as const)('(a) refuses abt_eth/start on a short %s, and writes no lock', async (leg) => {
+    const rig = await boot();
+    const jobId = leg === 'deposit' ? (await shortDeposit(rig)).jobId : await shortRemainder(rig);
+    const locksBefore = structuredClone(rig.locks);
+    const shortsBefore = structuredClone(await rig.shorts.findByJobAndLeg(jobId, leg));
+    const jobBefore = structuredClone(await readJob(rig, jobId));
+
+    const res = await startLeg(rig, jobId, leg);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: SHORT_START });
+    expect(rig.locks).toEqual(locksBefore);
+    expect(await rig.shorts.findByJobAndLeg(jobId, leg)).toEqual(shortsBefore);
+    expect(await readJob(rig, jobId)).toEqual(jobBefore);
+  });
+
+  it('(b) offers only abt_eth for a short deposit, and the USDC doors refuse it', async () => {
+    const rig = await boot(BOTH);
+    const { jobId } = await shortDeposit(rig);
+    expect(((await readJob(rig, jobId)) as { payableRails: unknown }).payableRails).toEqual(['abt_eth']);
+
+    const start = await postSigned(rig.baseUrl, `/jobs/${jobId}/payments/deposit/usdc/start`, {}, rig.buyer);
+    const respond = await postSigned(
+      rig.baseUrl,
+      `/jobs/${jobId}/payments/deposit/usdc/wallet-response`,
+      { priceTxHash: '0xcc01', feeTx: { signed: false } },
+      rig.buyer,
+    );
+
+    expect(start.status).toBe(409);
+    expect(await start.json()).toEqual({ error: SHORT_ON_USDC });
+    expect(respond.status).toBe(409);
+    expect(await respond.json()).toEqual({ error: SHORT_ON_USDC });
+    await expectNothingSettled(rig, jobId);
+  });
+
+  it('(c) refuses the re-price of a short deposit at 600.00, and the job reads as it did', async () => {
+    const rig = await boot();
+    const { jobId } = await shortDeposit(rig);
+    const before = structuredClone(await readJob(rig, jobId));
+
+    const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: SHORT_TERMS });
+    expect(await readJob(rig, jobId)).toEqual(before);
+  });
+
+  it.each([
+    ['withdraw', 'deposit', 'withdraw', {}, 'buyer', SHORT_WITHDRAW],
+    ['decline', 'deposit', 'decline', {}, 'agent', SHORT_DECLINE],
+    ['staged-decline', 'remainder', 'staged-decline', {}, 'buyer', SHORT_STAGED_DECLINE],
+    ['redo', 'remainder', 'redo', { criterionIndex: 0 }, 'buyer', SHORT_REDO],
+  ] as const)('(d) refuses %s on a short %s with its sentence, and the job reads as it did', async (_name, leg, route, body, who, sentence) => {
+    const rig = await boot();
+    const jobId = leg === 'deposit' ? (await shortDeposit(rig)).jobId : await shortRemainder(rig);
+    const before = structuredClone(await readJob(rig, jobId));
+
+    const res = await postSigned(rig.baseUrl, `/jobs/${jobId}/${route}`, body, rig[who]);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: sentence });
+    expect(await readJob(rig, jobId)).toEqual(before);
+  });
+
+  describe('(e) the unpaid clock', () => {
+    const NOT_CLOSED = { confirmed: 1, walkedAfterConfirm: 0, stagedDeclined: 0, closedUnpaid: 0, merged: 0, deemed: 0, closedUnmerged: 0, citedCloses: 0, redosRequested: 0, walkedAway: 0 };
+    const NO_OPERATOR_COUNTS = { deliveredNeverPaid: 0, redosRefused: 0, walkedAfterDeposit: 0, paidNeverDelivered: 0 };
+
+    it('does not close a short remainder, at stagedAt + 7 days + 1 ms or at + 30 days, and both public records stay as they were', async () => {
+      const rig = await boot();
+      const jobId = await shortRemainder(rig);
+      const stagedAt = new Date(INSIDE_HOLD).getTime();
+      const hirerBefore = structuredClone(await conduct(rig, 'buyer-abt-eth'));
+      const ownerBefore = structuredClone(await conduct(rig, 'operator-abt-eth'));
+      expect(hirerBefore).toEqual({ githubLogin: 'buyer-abt-eth', keyed: true, counts: NOT_CLOSED, operatorCounts: NO_OPERATOR_COUNTS });
+      expect(ownerBefore).toEqual({ githubLogin: 'operator-abt-eth', keyed: true, counts: { ...NOT_CLOSED, confirmed: 0 }, operatorCounts: NO_OPERATOR_COUNTS });
+
+      for (const offset of [7 * DAY_MS + 1, 30 * DAY_MS]) {
+        vi.setSystemTime(new Date(stagedAt + offset));
+        expect(((await readJob(rig, jobId)) as { status: string }).status).toBe('staged');
+        expect(await conduct(rig, 'buyer-abt-eth')).toEqual(hirerBefore);
+        expect(await conduct(rig, 'operator-abt-eth')).toEqual(ownerBefore);
+      }
+    });
+
+    it('control: a remainder never paid still closes unpaid at stagedAt + 7 days + 1 ms, not before', async () => {
+      const rig = await boot();
+      const jobId = await stagedPaidDeposit(rig);
+      const stagedAt = new Date(INSIDE_HOLD).getTime();
+
+      vi.setSystemTime(new Date(stagedAt + 7 * DAY_MS));
+      const atSeven = (await readJob(rig, jobId)) as { status: string };
+      vi.setSystemTime(new Date(stagedAt + 7 * DAY_MS + 1));
+      const pastSeven = (await readJob(rig, jobId)) as { status: string };
+
+      expect(atSeven.status).toBe('staged');
+      expect(pastSeven.status).toBe('closed_unpaid');
+    });
+  });
+
+  describe('(f) the pair already stored short is never judged again', () => {
+    it.each([
+      ['as it was sent', (pair: Pair) => reportBody(pair, 'unused')],
+      ['with its hashes in capitals', (pair: Pair) => ({ priceTxHash: pair.price.toUpperCase(), feeTx: { signed: true, hash: pair.fee.toUpperCase() }, quoteLockId: 'unused' })],
+    ])('answers the first body %s after ABT recovers to 0.30, and writes nothing', async (_name, build) => {
+      const rig = await boot();
+      const { jobId, lockId } = await shortDeposit(rig);
+      const rowsBefore = structuredClone(await rig.shorts.findByJobAndLeg(jobId, 'deposit'));
+      const locksBefore = structuredClone(rig.locks);
+      setTime('2026-10-06T13:00:00.000Z');
+      rig.feed.reading = { usdPerToken: '0.3', updatedAt: new Date('2026-10-06T12:59:00.000Z') };
+
+      const res = await report(rig, jobId, 'deposit', { ...build(DEPOSIT_PAIR), quoteLockId: lockId });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(SHORT_DEPOSIT_BODY);
+      await expectNothingSettled(rig, jobId);
+      expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual(rowsBefore);
+      expect(rowsBefore).toEqual([shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: AFTER_HOLD, readAt: REPORTED_AT })]);
+      expect(rig.locks).toEqual(locksBefore);
+    });
+
+    it('refuses a fresh pair on the same leg, and writes nothing', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await shortDeposit(rig);
+      const rowsBefore = structuredClone(await rig.shorts.findByJobAndLeg(jobId, 'deposit'));
+      rig.chain.receipts.set(OTHER_PRICE, { status: 1, transfer: transfer(OWNER_ETH, DEP_PRICE_UNITS) });
+      rig.chain.receipts.set(OTHER_FEE, { status: 1, transfer: transfer(FEE_ADDRESS, DEP_FEE_UNITS) });
+      rig.chain.recorded.set(OTHER_PRICE, new Date(AFTER_HOLD));
+      rig.feed.reading = { usdPerToken: '0.3', updatedAt: new Date('2026-10-06T12:39:00.000Z') };
+
+      const res = await report(rig, jobId, 'deposit', reportBody({ price: OTHER_PRICE, fee: OTHER_FEE }, lockId));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: SHORT_START });
+      await expectNothingSettled(rig, jobId);
+      expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual(rowsBefore);
+    });
+
+    it('refuses the stored price hash reported with another fee hash, and writes nothing', async () => {
+      const rig = await boot();
+      const { jobId, lockId } = await shortDeposit(rig);
+      const rowsBefore = structuredClone(await rig.shorts.findByJobAndLeg(jobId, 'deposit'));
+
+      const res = await report(rig, jobId, 'deposit', reportBody({ price: DEP_PRICE, fee: OTHER_FEE }, lockId));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: SHORT_START });
+      expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual(rowsBefore);
+    });
+  });
+
+  describe('(g) controls', () => {
+    it('a deposit worth the agreed price settles as before and holds nothing', async () => {
+      const rig = await boot();
+      const jobId = await walkToProposedAndPriced(rig);
+      landPair(rig, 'deposit', AFTER_HOLD);
+      const lockId = await startOk(rig, jobId, 'deposit');
+      setTime(REPORTED_AT);
+      rig.feed.reading = { usdPerToken: '0.25', updatedAt: new Date('2026-10-06T12:39:00.000Z') };
+
+      const res = await report(rig, jobId, 'deposit', reportBody(DEPOSIT_PAIR, lockId));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(confirmationBody(DEPOSIT_PAIR, AFTER_HOLD));
+      expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', REPORTED_AT));
+      expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([]);
+    });
+
+    it.each([
+      ['abt_eth/start', (rig: Rig, jobId: string) => startLeg(rig, jobId, 'deposit')],
+      ['abt_eth/wallet-response with a fresh pair', (rig: Rig, jobId: string) => report(rig, jobId, 'deposit', reportBody({ price: OTHER_PRICE, fee: OTHER_FEE }, 'a-lock-this-door-never-checks'))],
+    ])('a short deposit that later has a settlement row holds nothing: %s answers as for a settled leg', async (_door, call) => {
+      const rig = await boot(BOTH);
+      const { jobId } = await shortDeposit(rig);
+      await rig.settlementRepo.record({
+        jobId, leg: 'deposit', rail: 'abt_eth', hash: DEP_PRICE, secondaryHash: DEP_FEE,
+        operatorAddress: OWNER_ETH, feeAddress: FEE_ADDRESS, amountUsd: '125.00', observedAt: new Date(REPORTED_AT),
+      });
+      const locksBefore = structuredClone(rig.locks);
+
+      const res = await call(rig, jobId);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: legAlreadySettledMessage('deposit') });
+      expect(rig.locks).toEqual(locksBefore);
+    });
+  });
+
+  describe('(h) a failed short read', () => {
+    it('answers 503 and changes nothing at criteria and at abt_eth/start', async () => {
+      const rig = await boot();
+      const jobId = await walkToProposedAndPriced(rig);
+      const before = structuredClone(await readJob(rig, jobId));
+      rig.shortReadsFail.on = true;
+
+      const criteriaRes = await postSigned(rig.baseUrl, `/jobs/${jobId}/criteria`, { criteria, priceUsd: '600.00' }, rig.agent);
+      const startRes = await startLeg(rig, jobId, 'deposit');
+      rig.shortReadsFail.on = false;
+
+      expect(criteriaRes.status).toBe(503);
+      expect(await criteriaRes.json()).toEqual(STORAGE_DOWN);
+      expect(startRes.status).toBe(503);
+      expect(await startRes.json()).toEqual(STORAGE_DOWN);
+      expect(rig.locks).toEqual([]);
+      expect(await readJob(rig, jobId)).toEqual(before);
+    });
+
+    it('answers 503 when the clock of a staged job cannot read the short store, never "not short"', async () => {
+      const rig = await boot();
+      const jobId = await stagedPaidDeposit(rig);
+      vi.setSystemTime(new Date(new Date(INSIDE_HOLD).getTime() + 8 * DAY_MS));
+      rig.shortReadsFail.on = true;
+
+      const res = await fetch(`${rig.baseUrl}/jobs/${jobId}`);
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual(STORAGE_DOWN);
     });
   });
 });

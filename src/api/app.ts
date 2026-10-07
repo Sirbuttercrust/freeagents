@@ -166,7 +166,7 @@ import {
   STARTED_AT_EARLIER_PRICE_MESSAGE,
   type AbtEthQuoteLockStorage,
 } from '../adapters/payment/abt-eth-quote-lock.js';
-import { createAbtEthShortPaymentStorage, type AbtEthShortPaymentStorage } from '../adapters/payment/abt-eth-short-payment.js';
+import { createAbtEthShortPaymentStorage, type AbtEthShortPayment, type AbtEthShortPaymentStorage } from '../adapters/payment/abt-eth-short-payment.js';
 import { normalizeUsdcTxHash, type UsdcPaymentRailShim } from '../adapters/payment/usdc.js';
 import { createAbtEthPaymentRailOrNull, createAbtPaymentRailOrNull, createUsdcPaymentRailOrNull } from '../adapters/payment/rail-factory.js';
 import { attachAbtPaymentHandlers, setProvenStarter, type AbtTxEncoder } from '../adapters/payment/abt-did-connect.js';
@@ -180,13 +180,16 @@ import {
   confirmPayment,
   heldLegMessage,
   judgeLateAbtEthPayment,
+  legHold,
   legStatusConflictMessage,
   legStatusEligible,
   operatorAddressNotSetMessage,
   processWalletResponse,
-  railHoldingLeg,
+  railHeldByShortPayment,
   repositoryNotAccessibleMessage,
   requestPayment,
+  SHORT_AWAITING_OWNER_MESSAGE,
+  storedShortAnswer,
   usdcHalfPaidRecordFor,
   type HeldLegAction,
   type RouteLeg,
@@ -652,8 +655,10 @@ function jobProjection(row: Job): Record<string, unknown> {
 // independent of whether confirm has run yet. B88: a deposit that has not
 // settled but whose price transfer already reached the owner is held on the
 // rail it was paid in (heldRail, read by the caller), so only that currency
-// is offered while it is finished, whatever the quote pinned or the owner
-// has addresses for.
+// is offered, whatever the quote pinned or the owner has addresses for. The
+// hold is a deposit half paid, which the buyer finishes, or one stored short
+// on the ABT-on-Ethereum rail, which waits on the owner; either way no other
+// currency is offered and nobody pays the deposit twice.
 async function payableRailsFor(
   job: Job,
   jobAgent: Agent | null,
@@ -1221,30 +1226,47 @@ export function createApp(
     abtEthPaymentRail === null ? null : (abtEthQuoteLockStorage ?? createAbtEthQuoteLockStorage());
   const abtEthShorts: AbtEthShortPaymentStorage | null =
     abtEthPaymentRail === null ? null : (abtEthShortPaymentStorage ?? createAbtEthShortPaymentStorage());
-  // B88: one read of the rail whose price transfer already reached the owner
-  // on an unsettled leg, for the doors below. Answers { rail } (null when no
-  // rail holds the leg), or answers 503 itself and returns null when a
-  // half-paid read fails, so the route stops: a failed read is never taken
-  // for "nothing held".
+  // What holds a leg, for every door below: the rail, and whether the leg
+  // waits on the owner (a payment that reached them worth less than the
+  // agreed price, recorded short and not settled) or is half paid and the
+  // buyer finishes it. One read of the short store, the settlement row and
+  // both rails' half-paid records. A failed read throws; every caller
+  // answers it as unavailable, never as "nothing held".
+  function heldLegOf(jobId: string, leg: RouteLeg) {
+    return legHold({
+      jobId,
+      leg,
+      usdcRail: usdcPaymentRail,
+      abtEthRail: abtEthPaymentRail,
+      abtEthShorts,
+      settlementRepo,
+    });
+  }
+  // B88: one read of what holds a leg whose price transfer already reached
+  // the owner, for the doors below. Answers { rail, awaitingOwner } (rail
+  // null when nothing holds the leg), or answers 503 itself and returns null
+  // when a read fails, so the route stops: a failed read is never taken for
+  // "nothing held".
   async function readHeldRail(
     label: string,
     res: Response,
     jobId: string,
     leg: RouteLeg,
-  ): Promise<{ readonly rail: Rail | null } | null> {
+  ): Promise<{ readonly rail: Rail | null; readonly awaitingOwner: boolean } | null> {
     try {
-      return { rail: await railHoldingLeg({ jobId, leg, usdcRail: usdcPaymentRail, abtEthRail: abtEthPaymentRail }) };
+      const held = await heldLegOf(jobId, leg);
+      return { rail: held === null ? null : held.rail, awaitingOwner: held !== null && held.awaitingOwner };
     } catch (err) {
-      console.error(`${label}: half-paid read failed`, err);
+      console.error(`${label}: held-leg read failed`, err);
       res.status(503).json({ error: 'storage unavailable' });
       return null;
     }
   }
   // B88: the lifecycle doors' refusal. A leg whose price transfer already
   // reached the owner holds the way a settled leg does: 409 with the
-  // sentence for the action refused, nothing written. Answers the response
-  // and returns true when the route must stop (409 held, or 503 when the
-  // read failed).
+  // sentence for the action refused (the short-payment wording when the leg
+  // waits on the owner), nothing written. Answers the response and returns
+  // true when the route must stop (409 held, or 503 when the read failed).
   async function refuseWhenLegHeld(
     label: string,
     res: Response,
@@ -1255,7 +1277,7 @@ export function createApp(
     const held = await readHeldRail(label, res, jobId, leg);
     if (held === null) return true;
     if (held.rail === null) return false;
-    res.status(409).json({ error: heldLegMessage(action) });
+    res.status(409).json({ error: heldLegMessage(action, held.awaitingOwner) });
     return true;
   }
   // One repository behind both halves of the capability when the caller
@@ -5888,7 +5910,7 @@ export function createApp(
             jobAgent,
             repo,
             settlementRepo,
-            await railHoldingLeg({ jobId: row.id, leg: 'deposit', usdcRail: usdcPaymentRail, abtEthRail: abtEthPaymentRail }),
+            (await heldLegOf(row.id, 'deposit'))?.rail ?? null,
           ),
         };
       } catch (err) {
@@ -6003,7 +6025,8 @@ export function createApp(
 
   // The live half of applyLapses: two of its four clocks need a fact
   // beyond the row itself. lapseAtStaged needs whether the balance has
-  // settled, and lapseUndelivered needs when the remainder settled (the
+  // settled (or waits on the owner as a short payment), and lapseUndelivered
+  // needs when the remainder settled (the
   // observedAt of its settlement row), so this is where the settlement
   // gate and the settlement row are actually asked, for staged
   // AND redo_requested (the earlier
@@ -6362,8 +6385,10 @@ export function createApp(
     }
   }
 
-  // The one place the job clocks run live: the settlement gate for staged
-  // and redo_requested jobs, GitHub once before deeming a submitted job
+  // The one place the job clocks run live: the settlement gate and the
+  // short-payment store for staged and redo_requested jobs (a remainder that
+  // reached the owner worth less than the agreed price waits on the owner and
+  // is not closed as unpaid), GitHub once before deeming a submitted job
   // past its window, then applyLapses, the deemed-completion credential and
   // the persisted row. Every read that reports a job runs it: GET
   // /jobs/:jobId and loadForExchange (the load every job mutation and
@@ -6375,6 +6400,7 @@ export function createApp(
   async function applyLiveLapses(label: string, job: Job, res: Response): Promise<Job | null> {
     let remainderIsSettled = false;
     let remainderSettledAt: Date | null = null;
+    let awaitingOwner = false;
     if (LAPSE_AT_STAGED_STATUSES.has(job.status)) {
       try {
         remainderIsSettled = await remainderSettled(settlementGate, job.id);
@@ -6395,6 +6421,20 @@ export function createApp(
         res.status(503).json({ error: 'storage unavailable' });
         return null;
       }
+      // A remainder whose ABT-on-Ethereum payment reached the owner worth
+      // less than the agreed price and is not settled waits on the owner's
+      // answer. It is not unpaid, so the unpaid clock does not close it
+      // while it waits; the delivery clock stays off because nothing has
+      // settled. A failed read is the same 503, never "not short".
+      if (!remainderIsSettled) {
+        try {
+          awaitingOwner = (await railHeldByShortPayment({ jobId: job.id, leg: 'remainder', abtEthShorts, settlementRepo })) !== null;
+        } catch (err) {
+          console.error(`${label}: short payment read failed`, err);
+          res.status(503).json({ error: 'storage unavailable' });
+          return null;
+        }
+      }
     }
     const now = new Date();
     if (deemWindowHasPassed(job, now)) {
@@ -6402,7 +6442,11 @@ export function createApp(
       if (asked.kind === 'answered') return null;
       if (asked.kind === 'completed') return asked.row;
     }
-    const lapsed = applyLapses(job, now, remainderIsSettled, remainderSettledAt);
+    // The unpaid clock is told the remainder is not unpaid when it settled
+    // or when it waits on the owner (awaitingOwner); the delivery clock is
+    // told only the settled time, so it stays off for a remainder that
+    // waits.
+    const lapsed = applyLapses(job, now, remainderIsSettled || awaitingOwner, remainderSettledAt);
     if (lapsed.status === job.status) {
       // Already settled at this status on an earlier read -- but if that
       // earlier read is the one whose issuance attempt failed, this is
@@ -7175,9 +7219,10 @@ export function createApp(
       // B88: a deposit whose price transfer already reached the owner but
       // has not settled holds the same way, because a change would put the
       // agreed price out from under money already paid against it. That
-      // refusal is answered here (409, the held sentence) before
-      // proposeCriteria runs, so it also writes nothing. A failed
-      // half-paid read is 503.
+      // holds for a deposit half paid and for one stored short on the
+      // ABT-on-Ethereum rail, waiting on the owner. The refusal is answered
+      // here (409, the held sentence for that case) before proposeCriteria
+      // runs, so it also writes nothing. A failed held-leg read is 503.
       let depositIsSettled = false;
       if (current.status === 'proposed') {
         try {
@@ -7742,9 +7787,10 @@ export function createApp(
   //
   // B88: a deposit whose price transfer already reached the owner but has
   // not settled holds the same way: refused here (409, the held sentence,
-  // nothing written) before recordWithdrawn runs, and the buyer's way
-  // forward is to finish the payment, then confirm. A failed half-paid
-  // read is 503.
+  // nothing written) before recordWithdrawn runs. The buyer's way forward is
+  // to finish a half-paid deposit, then confirm; for a deposit stored short
+  // on the ABT-on-Ethereum rail it is to message the owner, who answers it.
+  // A failed held-leg read is 503.
   app.post(
     '/jobs/:jobId/withdraw',
     didSignature,
@@ -7788,7 +7834,9 @@ export function createApp(
   // B88: a deposit whose price transfer already reached the owner but has
   // not settled holds the same way, at the statuses the deposit is payable
   // in (legStatusEligible): refused (409, the held sentence, nothing
-  // written) before decline() runs. A failed half-paid read is 503.
+  // written) before decline() runs. That covers a deposit half paid and one
+  // stored short on the ABT-on-Ethereum rail, waiting on the owner. A failed
+  // held-leg read is 503.
   app.post(
     '/jobs/:jobId/decline',
     didSignature,
@@ -8273,12 +8321,13 @@ export function createApp(
   // not settled holds the same way, for the same reason: the buyer has paid
   // part of the second payment, and declining or redoing would leave that
   // money with the owner for work the buyer walked away from. The way
-  // forward is to finish the payment.
+  // forward is to finish a half-paid remainder; a remainder stored short on
+  // the ABT-on-Ethereum rail waits on the owner, and the sentence says so.
   //
   // Answers the response and returns true when the route must stop: 409
   // when paid in full (`refusal`) or when the remainder is held
   // (`heldAction`'s sentence), 503 when the settlement gate or the
-  // half-paid read cannot answer. Any other status is left to the domain's
+  // held-leg read cannot answer. Any other status is left to the domain's
   // own transition refusal.
   async function refuseStagedMoveWhenPaid(
     label: string,
@@ -8744,7 +8793,7 @@ export function createApp(
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, the rail a
-      // half-paid leg is held on, then the operator address for this
+      // half-paid or short leg is held on, then the operator address for this
       // rail. This door mints only ABT sessions
       // (attachAbtPaymentHandlers mounts here), so routeRail is fixed.
       const heldAtTokenDoor = await readHeldRail('GET/POST /api/did/pay/token', res, gate.job.id, leg);
@@ -8755,6 +8804,7 @@ export function createApp(
         routeRail: 'abt',
         jobRail: gate.job.rail,
         heldRail: heldAtTokenDoor.rail,
+        heldAwaitingOwner: heldAtTokenDoor.awaitingOwner,
         settlementRepo,
         operatorAddressOk: await abtOperatorAddressOk(gate.job.agentDid),
       });
@@ -8823,8 +8873,7 @@ export function createApp(
           agentRepo,
           accountRepo: repo,
           settlementRepo,
-          heldRailFor: (jobId, leg) =>
-            railHoldingLeg({ jobId, leg, usdcRail: usdcPaymentRail, abtEthRail: abtEthPaymentRail }),
+          heldRailFor: (jobId, leg) => heldLegOf(jobId, leg),
           platformSk: process.env.FREEAGENTS_ABT_PLATFORM_SK || '',
           chainHost: process.env.FREEAGENTS_ABT_CHAIN_HOST || '',
           baseUrl: publicBaseUrlFromEnv(),
@@ -8899,7 +8948,7 @@ export function createApp(
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, the rail a
-      // half-paid leg is held on, then the operator address for this
+      // half-paid or short leg is held on, then the operator address for this
       // rail.
       const heldAtAbtStart = await readHeldRail(label, res, gate.job.id, leg);
       if (heldAtAbtStart === null) return;
@@ -8909,6 +8958,7 @@ export function createApp(
         routeRail: 'abt',
         jobRail: gate.job.rail,
         heldRail: heldAtAbtStart.rail,
+        heldAwaitingOwner: heldAtAbtStart.awaitingOwner,
         settlementRepo,
         operatorAddressOk: await abtOperatorAddressOk(gate.job.agentDid),
       });
@@ -9048,7 +9098,7 @@ export function createApp(
       // FIX-B39 (B39), rule 5: ONE shared check, in place of
       // B25's job-rail-only check, in this order: the job's pinned
       // currency, the settled deposit's currency, the rail a
-      // half-paid leg is held on, then the operator address for this
+      // half-paid or short leg is held on, then the operator address for this
       // rail.
       const heldAtUsdcStart = await readHeldRail(label, res, gate.job.id, leg);
       if (heldAtUsdcStart === null) return;
@@ -9058,6 +9108,7 @@ export function createApp(
         routeRail: 'usdc',
         jobRail: gate.job.rail,
         heldRail: heldAtUsdcStart.rail,
+        heldAwaitingOwner: heldAtUsdcStart.awaitingOwner,
         settlementRepo,
         operatorAddressOk: operatorAddressResult.ok,
       });
@@ -9209,7 +9260,7 @@ export function createApp(
         // FIX-B39 (B39), rule 5: ONE shared check, in place of
         // B25's job-rail-only check, in this order: the job's pinned
         // currency, the settled deposit's currency, the rail a
-        // half-paid leg is held on, then the operator address for this
+        // half-paid or short leg is held on, then the operator address for this
         // rail.
         const heldAtUsdcResponse = await readHeldRail(label, res, gate.job.id, leg);
         if (heldAtUsdcResponse === null) return;
@@ -9219,6 +9270,7 @@ export function createApp(
           routeRail: 'usdc',
           jobRail: gate.job.rail,
           heldRail: heldAtUsdcResponse.rail,
+          heldAwaitingOwner: heldAtUsdcResponse.awaitingOwner,
           settlementRepo,
           operatorAddressOk: (await usdcOperatorAddressForJob(gate.job.agentDid)).ok,
         });
@@ -9401,12 +9453,21 @@ export function createApp(
       const operatorAddress = await abtEthOperatorAddressForJob(gate.job.agentDid);
       const heldAtAbtEthStart = await readHeldRail(label, res, gate.job.id, leg);
       if (heldAtAbtEthStart === null) return;
+      // A leg whose payment reached the owner worth less than the agreed
+      // price waits on the owner: it is not asked for again, so no new lock
+      // is written, and the refusal comes before any check that could answer
+      // with a step the hirer cannot take.
+      if (heldAtAbtEthStart.awaitingOwner) {
+        res.status(409).json({ error: SHORT_AWAITING_OWNER_MESSAGE });
+        return;
+      }
       const eligibility = await checkRailDoorEligible({
         jobId: gate.job.id,
         leg,
         routeRail: 'abt_eth',
         jobRail: gate.job.rail,
         heldRail: heldAtAbtEthStart.rail,
+        heldAwaitingOwner: heldAtAbtEthStart.awaitingOwner,
         settlementRepo,
         operatorAddressOk: operatorAddress !== null,
       });
@@ -9586,12 +9647,35 @@ export function createApp(
       if (!isIdempotentReplay) {
         const heldAtAbtEthResponse = await readHeldRail(label, res, gate.job.id, leg);
         if (heldAtAbtEthResponse === null) return;
+        // A leg whose payment reached the owner worth less than the agreed
+        // price waits on the owner. The pair already stored short answers
+        // what its first report answered, from the stored row and not from a
+        // fresh price read, and writes nothing. Any other pair is refused
+        // before anything is checked or written. Neither settles the leg.
+        if (heldAtAbtEthResponse.awaitingOwner) {
+          let stored: AbtEthShortPayment | null;
+          try {
+            stored = await abtEthShorts.findByHash(typeof replayBody?.priceTxHash === 'string' ? replayBody.priceTxHash : '');
+          } catch (err) {
+            console.error(`${label}: short payment read failed`, err);
+            res.status(503).json({ error: 'storage unavailable' });
+            return;
+          }
+          const firstAnswer = storedShortAnswer(stored, { jobId: gate.job.id, leg, report: replayBody });
+          if (firstAnswer === null) {
+            res.status(409).json({ error: SHORT_AWAITING_OWNER_MESSAGE });
+            return;
+          }
+          res.status(200).json(firstAnswer);
+          return;
+        }
         const eligibility = await checkRailDoorEligible({
           jobId: gate.job.id,
           leg,
           routeRail: 'abt_eth',
           jobRail: gate.job.rail,
           heldRail: heldAtAbtEthResponse.rail,
+          heldAwaitingOwner: heldAtAbtEthResponse.awaitingOwner,
           settlementRepo,
           operatorAddressOk: operatorAddress !== null,
         });
@@ -9719,6 +9803,10 @@ export function createApp(
         readPrice: (input) => abtEthPaymentRail.quote(input),
       });
       if (judgement.kind === 'short') {
+        // Stored short, with no settlement row: from here the leg waits on
+        // the owner (railHeldByShortPayment). A report of this same pair is
+        // answered from this row above, never judged again, so a price that
+        // recovers later does not settle it.
         await abtEthShorts.record({
           priceTxHash: ref.priceTxHash,
           jobId: gate.job.id,

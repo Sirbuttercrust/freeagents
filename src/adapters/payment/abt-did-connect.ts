@@ -45,7 +45,6 @@ import { depositUsd, remainderUsd } from '../../domain/payment.js';
 import type { AccountRepository, AgentRepository, JobRepository } from '../storage/types.js';
 import type { SettlementRepository } from '../storage/types.js';
 import type { AbtPaymentRail } from './abt.js';
-import type { Rail } from './types.js';
 import {
   checkAgentGithubVerified,
   checkAgreementReady,
@@ -58,6 +57,7 @@ import {
   requestPayment,
   type RouteLeg,
   checkRailDoorEligible,
+  type HeldLeg,
 } from './route-support.js';
 import {
   ABT_QUOTE_LOCK_LIFETIME_MS,
@@ -97,11 +97,13 @@ export interface AttachAbtPaymentHandlersOptions {
   // exact silent binding this card exists to stop).
   readonly accountRepo: AccountRepository;
   readonly settlementRepo: SettlementRepository;
-  // B88: the rail whose price transfer already reached the owner on this
-  // leg while it has not settled, null when none holds it. Required, so a
-  // wiring that forgets it does not compile. A throw is answered by onAuth
-  // as the storage sentence, and nothing is broadcast or recorded.
-  readonly heldRailFor: (jobId: string, leg: RouteLeg) => Promise<Rail | null>;
+  // B88: what holds this leg while it has not settled: the rail whose price
+  // transfer already reached the owner, and whether the leg waits on the
+  // owner's answer (a short payment) or on the buyer finishing it. Null when
+  // nothing holds it. Required, so a wiring that forgets it does not compile.
+  // A throw is answered by onAuth as the storage sentence, and nothing is
+  // broadcast or recorded.
+  readonly heldRailFor: (jobId: string, leg: RouteLeg) => Promise<HeldLeg | null>;
   readonly platformSk: string;
   readonly chainHost: string;
   readonly baseUrl: string;
@@ -480,11 +482,11 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
       // address): the two calls answer different questions (a boolean
       // eligibility check here, the address value itself there), so one
       // result cannot stand in for the other.
-      let heldRail: Rail | null;
+      let held: HeldLeg | null;
       try {
-        heldRail = await options.heldRailFor(jobId, leg);
+        held = await options.heldRailFor(jobId, leg);
       } catch (err) {
-        console.error('onAuth: half-paid read failed', err);
+        console.error('onAuth: held-leg read failed', err);
         return { confirmed: false, error: 'storage unavailable' };
       }
       const eligibility = await checkRailDoorEligible({
@@ -492,7 +494,8 @@ export function attachAbtPaymentHandlers(options: AttachAbtPaymentHandlersOption
         leg,
         routeRail: 'abt',
         jobRail: job.rail,
-        heldRail,
+        heldRail: held === null ? null : held.rail,
+        heldAwaitingOwner: held !== null && held.awaitingOwner,
         settlementRepo: options.settlementRepo,
         operatorAddressOk: (await operatorAddressForJob(options.jobRepo, options.agentRepo, options.accountRepo, jobId)).ok,
       });

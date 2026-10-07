@@ -855,7 +855,11 @@ export function expireUnstaged(job: Job, now: Date): Job {
 // SettlementGate to ask; it passes the real answer explicitly rather
 // than relying on this default. applyLapses also treats a known settled
 // time (its remainderSettledAt) as settled, so a job with a settled time
-// is never closed unpaid; that time is lapseUndelivered's input.
+// is never closed unpaid; that time is lapseUndelivered's input. The
+// caller also passes true for a remainder that reached the owner worth less
+// than the agreed price and waits on the owner's answer: that remainder is
+// not unpaid, so this clock leaves it, while lapseUndelivered still sees no
+// settled time and does not start.
 // The statuses lapseAtStaged and lapseUndelivered treat as "still
 // staged, clock running":
 // staged itself, and redo_requested (a pending redo sits between staged
