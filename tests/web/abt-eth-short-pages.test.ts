@@ -255,7 +255,14 @@ async function until(condition: () => boolean, message: string): Promise<void> {
 const shown = (d: Document, id: string): boolean => { for (let e: HTMLElement | null = d.getElementById(id); e; e = e.parentElement) if (e.hidden) return false; return d.getElementById(id) !== null; };
 const text = (d: Document, id: string): string => (d.getElementById(id)?.textContent ?? '').replace(/\s+/g, ' ').trim();
 const anchors = (e: Element | null): string[][] => Array.from(e?.querySelectorAll('a') ?? []).map((a) => [(a.textContent ?? '').trim(), a.getAttribute('href') ?? '']);
-const fail503 = (path: string): Stand => (method, p) => (method === 'GET' && p === path ? new Response(JSON.stringify({ error: 'storage unavailable' }), { status: 503 }) : null);
+// A payments read that fails with a 503. Its body still carries a short leg on each side,
+// so a reader that skipped the status check would draw one: the status is what is tested.
+const fail503 = (path: string): Stand => (method, p) => (method === 'GET' && p === path
+  ? new Response(JSON.stringify({
+    error: 'storage unavailable', deposit: null, remainder: null,
+    short: { deposit: { rail: 'abt_eth', agreedUsd: '125.00', worthUsd: '100', recordedAt: AFTER_HOLD }, remainder: { rail: 'abt_eth', agreedUsd: '375.00', worthUsd: '300', recordedAt: AFTER_HOLD } },
+  }), { status: 503 })
+  : null);
 
 const openThread = (id: string, who: Session, stand?: Stand): Promise<Page> =>
   render(`/messages?job=${id}`, who, (d) => d.querySelector('#conv .a-pin .pin-now') !== null && d.querySelector(`.convlist a[data-job="${id}"]`) !== null, stand);
