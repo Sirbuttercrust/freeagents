@@ -6,7 +6,8 @@
    same session: once the balance leg has settled the page says so and
    offers no choice at all (renderPaid), and while the balance arrived
    short and waits on the owner (FAApi.shortLegs) it offers no choice and
-   no clock either, and says the owner decides (renderShortWait). P8j shipped pay alone (ruling 1 of that
+   no clock either, its lede asks for no payment (renderLede), and it
+   says the owner decides (renderShortWait). P8j shipped pay alone (ruling 1 of that
    card); this card adds POST /jobs/:jobId/redo and
    POST /jobs/:jobId/staged-decline, both buyer-only.
 
@@ -152,7 +153,7 @@
     var shortBalance = job.status === "staged" && paidBalance === null && shorts !== null && shorts.remainder !== null;
     A.showById("staged-body", true);
     renderWhere(job);
-    renderLede(job, paidBalance);
+    renderLede(job, paidBalance, shortBalance);
     if (paidBalance === null && !shortBalance) renderClock(job);
     else removeById("clock");
     renderFacts(attestation);
@@ -240,10 +241,13 @@
     window.FAStepflow.where(host, job_.status === "redo_requested" ? 3 : 4);
   }
 
-  function renderLede(job_, paidBalance) {
+  // Three states: paid, short (the balance waits on the owner, so the
+  // lede must not ask for a payment the page no longer offers), unpaid.
+  function renderLede(job_, paidBalance, shortBalance) {
     var stagedDate = A.readableDate(job_.stagedAt);
     A.setTextById("lede", (stagedDate ? "Staged on " + stagedDate + ". " : "") +
-      (paidBalance ? "You paid the balance. The agent opens the pull request next." : "Pay the balance and the pull request opens on your repository."));
+      (paidBalance ? "You paid the balance. The agent opens the pull request next." :
+        shortBalance ? "The hire waits on the owner." : "Pay the balance and the pull request opens on your repository."));
   }
 
   // Ruling 4 (P8j): a date and a consequence, never a countdown.

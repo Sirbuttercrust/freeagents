@@ -515,13 +515,14 @@ describe('(f) /deposit while the deposit waits on the owner', () => {
 });
 
 describe('(g) /staged while the balance waits on the owner', () => {
-  it('no choices, no clock, no link about declining, the line and its link, no POST on load', async () => {
+  it('no choices, no clock, no link about declining, a lede that asks for no payment, the line and its link, no POST on load', async () => {
     const id = await hire('remainder');
     await shortPay(id, 'remainder');
     const page = await openStaged(id);
     try {
       await until(() => waitNote(page) !== null, 'no line');
-      expect({ choices: page.document.getElementById('choices-section'), clock: page.document.getElementById('clock'), outcomes: page.document.getElementById('outcomes-more'), paid: shown(page.document, 'balance-paid'), note: waitNote(page), tech: text(page.document, 'tech-hidden-note') }).toEqual({
+      expect({ lede: text(page.document, 'lede'), choices: page.document.getElementById('choices-section'), clock: page.document.getElementById('clock'), outcomes: page.document.getElementById('outcomes-more'), paid: shown(page.document, 'balance-paid'), note: waitNote(page), tech: text(page.document, 'tech-hidden-note') }).toEqual({
+        lede: 'Staged on October 6, 2026. The hire waits on the owner.',
         choices: null, clock: null, outcomes: null, paid: false,
         note: { sentence: 'Your balance arrived worth less than agreed. The owner decides if it counts.', links: [['Message the owner', `/messages?job=${id}`]], shown: true },
         tech: 'The work stays hidden until you pay.',
@@ -558,13 +559,13 @@ describe('(h) a failed payments read changes nothing on any of the four pages', 
     } finally { await page.close(); }
   }, 60_000);
 
-  it('a short balance, its payments read answering 503: /staged keeps its choices and its clock', async () => {
+  it('a short balance, its payments read answering 503: /staged keeps its lede, its choices and its clock', async () => {
     const id = await hire('remainder');
     await shortPay(id, 'remainder');
     const page = await openStaged(id, fail503(`/jobs/${id}/payments`));
     try {
       await wait(200);
-      expect([waitNote(page), text(page.document, 'pay-btn'), shown(page.document, 'choices-section'), text(page.document, 'clock-days')]).toEqual([null, 'Pay the balance, $386.25', true, '7 days to decide, until October 13, 2026.']);
+      expect([waitNote(page), text(page.document, 'lede'), text(page.document, 'pay-btn'), shown(page.document, 'choices-section'), text(page.document, 'clock-days')]).toEqual([null, 'Staged on October 6, 2026. Pay the balance and the pull request opens on your repository.', 'Pay the balance, $386.25', true, '7 days to decide, until October 13, 2026.']);
     } finally { await page.close(); }
   }, 30_000);
 });
