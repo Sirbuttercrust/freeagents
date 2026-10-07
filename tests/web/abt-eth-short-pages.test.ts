@@ -662,6 +662,7 @@ describe('(i) in real Chrome at 320, 390 and 1280', () => {
       ['refusal', await look(h.owner, `/operatorjob?job=${refused}`, '#short-panel', 'operatorjob-refusal', press)],
     ];
     console.log(`${width}: ${JSON.stringify(all)}`);
+    if (captureDir) writeFileSync(join(captureDir, `measure-${width}.json`), JSON.stringify(all, null, 1));
     for (const [name, m] of all) {
       expect({ name, scroll: m.scroll, low: m.low, small: m.small, bad: m.bad }).toEqual({ name, scroll: 0, low: [], small: [], bad: [] });
       expect(m.texts, `${name}: text measured`).toBeGreaterThan(0);
