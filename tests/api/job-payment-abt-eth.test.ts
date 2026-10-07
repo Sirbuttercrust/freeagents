@@ -2185,6 +2185,24 @@ describe('(r) the owner sees a short payment and accepts it as paid with one pre
       expect(await lines(rig, jobId, 'payment_short')).toEqual([SHORT_REMAINDER_LINE]);
     });
 
+    it('answers the whole 200 and keeps the short row when the thread line cannot be written', async () => {
+      const rig = await boot();
+      const create = rig.messageRepo.create.bind(rig.messageRepo);
+      vi.spyOn(rig.messageRepo, 'create').mockImplementation(async (message) => {
+        if (message.systemEvent?.type === 'payment_short') throw new Error('storage down');
+        return create(message);
+      });
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      const { jobId, lockId } = await shortDeposit(rig);
+
+      expect(await lines(rig, jobId, 'payment_short')).toEqual([]);
+      expect(await rig.shorts.findByJobAndLeg(jobId, 'deposit')).toEqual([
+        shortRow(jobId, lockId, { usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: AFTER_HOLD, readAt: REPORTED_AT }),
+      ]);
+      expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+    });
+
     it('adds no second line when the same short pair is reported again', async () => {
       const rig = await boot();
       const { jobId, lockId } = await shortDeposit(rig);
@@ -2587,6 +2605,30 @@ describe('(r) the owner sees a short payment and accepts it as paid with one pre
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual(depositLeg(ACCEPT_AT));
       expect(await rig.settlementRepo.findByJobAndLeg(jobId, 'deposit')).toEqual(settlementRow(jobId, 'deposit', ACCEPT_AT));
+    });
+  });
+
+  describe('(l) a short row whose quote lock is no longer stored', () => {
+    const LOCK_GONE = {
+      error: 'The price this payment was quoted at can no longer be found, so it cannot be accepted here. Report this payment to the platform with the job and the leg.',
+    };
+
+    it('answers 409 with what to do, and writes nothing', async () => {
+      const rig = await boot();
+      const jobId = await walkToProposedAndPriced(rig);
+      await rig.shorts.record({
+        priceTxHash: DEP_PRICE, jobId, leg: 'deposit', lockId: 'a-lock-never-stored', feeTxHash: DEP_FEE, amountToken: '500', amountUsd: '125.00',
+        usdPerTokenAtRead: '0.2', worthUsd: '100', recordedAt: new Date(AFTER_HOLD), readAt: new Date(REPORTED_AT),
+      });
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const before = await written(rig, jobId, 'deposit');
+      setTime(ACCEPT_AT);
+
+      const res = await accept(rig, jobId, 'deposit');
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(LOCK_GONE);
+      expect(await written(rig, jobId, 'deposit')).toEqual(before);
     });
   });
 

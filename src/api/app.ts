@@ -9917,7 +9917,9 @@ export function createApp(
   // object from that row and writes nothing, so a second press is the first
   // one's answer. A leg with no short row, settled by another payment, or
   // with more than one unsettled short row is refused with a sentence that
-  // says why. Returning the payment from the owner's own wallet is not a route
+  // says why, and so is a short row whose quote lock is no longer stored (the
+  // price it names cannot be rebuilt, so nothing here can read the chain for
+  // it). Returning the payment from the owner's own wallet is not a route
   // here.
   app.post(
     '/jobs/:jobId/payments/:leg/abt_eth/accept-short',
@@ -9975,7 +9977,10 @@ export function createApp(
       }
       if (lock === null) {
         console.error(`${label}: the quote lock ${short.lockId} of a stored short payment is missing`);
-        res.status(503).json({ error: 'storage unavailable' });
+        res.status(409).json({
+          error:
+            'The price this payment was quoted at can no longer be found, so it cannot be accepted here. Report this payment to the platform with the job and the leg.',
+        });
         return;
       }
       if (operatorAddress === null) {
