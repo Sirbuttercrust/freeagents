@@ -374,6 +374,30 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
     } finally { await page.close(); }
   }, 30_000);
 
+  it('(c4) two wallets: Pay again opens the wallet pick with no rate from the earlier attempt on show', async () => {
+    const id = await job(h);
+    const page = await openDeposit(h, id);
+    try {
+      let switches = 0;
+      const first = buildWallet(h.chain, (method) => {
+        if (method === 'wallet_switchEthereumChain' && (switches += 1) === 1) throw Object.assign(new Error('closed'), { code: 4001 });
+      });
+      announceWallets(page.window, [{ uuid: 'w-a', name: 'Wallet A', wallet: first }, { uuid: 'w-b', name: 'Wallet B', wallet: buildWallet(h.chain) }]);
+      const picks = (): string[] => (shown(page.document, 'usdc-pick') ? Array.from(page.document.querySelectorAll('#usdc-wallets button')).map((b) => (b.textContent ?? '').trim()) : []);
+      const sheet = (): unknown => ({ status: status(page), picks: picks(), rateShown: shown(page.document, 'abt-rate'), lines: rateLines(page) });
+      press(page, 'pay-btn');
+      await until(() => picks().length > 0, 'the wallet pick never opened');
+      (page.document.querySelector('#usdc-wallets button') as HTMLButtonElement).click();
+      await until(() => status(page) !== '', 'no sentence after picking Wallet A');
+      expect(sheet()).toEqual({ status: 'You closed the wallet before switching networks.', picks: [], rateShown: true, lines: RATE_LINES });
+      (page.document.querySelector('#scan [data-closes]') as HTMLButtonElement).click();
+      press(page, 'pay-btn');
+      await until(() => picks().length > 0, 'the wallet pick never opened again');
+      expect(sheet()).toEqual({ status: '', picks: ['Wallet A', 'Wallet B'], rateShown: false, lines: ['', 'Price data by CoinGecko'] });
+      expect(first.sends).toEqual([]);
+    } finally { await page.close(); }
+  }, 30_000);
+
   it('(e) a late transfer worth less now: the short sentence whole, no press, no confirm, no row, Pay stays disabled', async () => {
     const id = await job(h);
     const page = await openDeposit(h, id);

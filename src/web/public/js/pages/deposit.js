@@ -342,7 +342,8 @@
   }
   // Make 2: the wireframe's two-approvals line (deposit.html:256), at the
   // chosen option's fee. ABT on Ethereum's rate is drawn by the press's
-  // own lock (onQuote); usdc-pay.js empties an earlier one first.
+  // own lock (onQuote); usdc-pay.js empties an earlier one as each
+  // attempt begins, the wallet pick included.
   function openWallet() {
     if (paying) return;
     var figures = depositAndFee(job.price, feePercentOf(chosenRail));

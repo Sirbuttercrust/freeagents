@@ -49,8 +49,9 @@
   // onRefused(message), onQuote(quoteLock) }. rail is read at each press
   // (a page may pass a getter) and handed to the engine only when it is a
   // string; onQuote goes to the engine as is, and is also called with null
-  // as each attempt starts (run). onRefused answers true when
-  // the page shows a server refusal its own way; the sheet then stays empty.
+  // as each attempt begins (start and run, forgetRate). onRefused answers
+  // true when the page shows a server refusal its own way; the sheet then
+  // stays empty.
   function create(opts) {
     var engine = window.FAUsdcWallet, wallet = null, resendLeg = null, settled = false;
     // Once a leg reads short, nothing more is sent from this device for it:
@@ -85,14 +86,17 @@
       if (outcome === "server_refused") { showOnly(retryable(result) ? "usdc-retry" : null); return; }
       showOnly(outcome === "mismatched" ? null : "usdc-retry");
     }
-    // Every attempt (Pay, Try again, Send again) first empties a rate an
-    // earlier attempt drew (onQuote(null)), so a refused start never
-    // leaves an old price on show; this attempt's own lock fills it.
+    // A rate on show belongs to the attempt that drew it. Pay (start, which
+    // may stop on the wallet pick), a picked wallet, Try again and Send
+    // again (run) each empty it first (onQuote(null)), so neither the pick
+    // list nor a refused start shows an old price; only this attempt's own
+    // lock fills it. Check again keeps it: it reports the same lock.
+    function forgetRate() { if (typeof opts.onQuote === "function") opts.onQuote(null); }
     function run(chosen, resend) {
       wallet = chosen;
       clear();
       setBusy(true);
-      if (typeof opts.onQuote === "function") opts.onQuote(null);
+      forgetRate();
       var payOpts = withRail({ wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token, onQuote: opts.onQuote });
       if (resend) payOpts.resend = resend;
       engine.pay(payOpts).then(settle);
@@ -122,6 +126,7 @@
     function start() {
       wallet = null;
       clear();
+      forgetRate();
       setBusy(true);
       engine.discover().then(function (found) {
         setBusy(false);

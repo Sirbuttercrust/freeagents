@@ -644,7 +644,8 @@
 
   // Make 4: the deposit page's wallet choice, outcomes and presses, on the
   // hire's own currency. ABT on Ethereum's rate is drawn by the press's
-  // own lock (onQuote); usdc-pay.js empties an earlier one first.
+  // own lock (onQuote); usdc-pay.js empties an earlier one as each
+  // attempt begins, the wallet pick included.
   function openWallet() {
     if (paying) return;
     fillScanTotals();
