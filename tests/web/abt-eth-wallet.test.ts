@@ -697,6 +697,32 @@ describe('(h) a start answer with no usable price lock is refused before the wal
   });
 });
 
+describe('(j) onQuote hands the page the start answer\'s lock before the wallet switches networks', () => {
+  it('ABT on Ethereum: called once, with the whole lock, after accounts and before the switch', async () => {
+    const { h, page } = await setup(18);
+    const wallet = buildFakeWallet(h.chain);
+    const quotes: Array<{ lock: unknown; callsSoFar: string[] }> = [];
+
+    const result = await payAbt(page, h, wallet, { onQuote: (lock: unknown) => quotes.push({ lock, callsSoFar: [...wallet.calls] }) });
+
+    expect(result).toEqual({ outcome: 'paid', message: 'This payment is confirmed.' });
+    expect(quotes).toEqual([{
+      lock: { id: h.locks[0]!.id, usdPerAbt: '0.25', rateUpdatedAt: '2026-10-06T11:59:00.000Z', expiresAt: '2026-10-06T12:15:00.000Z' },
+      callsSoFar: ['eth_requestAccounts'],
+    }]);
+  });
+
+  it('USDC: never called', async () => {
+    const { h, page } = await setup(19);
+    const quotes: unknown[] = [];
+
+    const result = await engineOf(page).pay(payOpts(page, h, buildFakeWallet(h.chain), { onQuote: (lock: unknown) => quotes.push(lock) }));
+
+    expect(result.outcome).toBe('paid');
+    expect(quotes).toEqual([]);
+  });
+});
+
 describe('(i) any other rail value is refused at once', () => {
   it.each([['abt'], ['USDC'], [''], [null]])('pay() and check() with rail %j: a sentence, no request and no wallet call', async (rail) => {
     const { h, page } = await setup(15);

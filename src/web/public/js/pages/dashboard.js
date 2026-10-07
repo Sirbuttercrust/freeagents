@@ -2,8 +2,9 @@
    on spec/wireframe/dashboard.html (W-dashboard). Reads GET /accounts/me
    (the same departure P8m, P8n and P8q each already named in their own
    handoffs) to resolve the session to a DID and to learn whether the
-   account names a payout address (operatorAddressEvm, operatorAddressAbt;
-   SW3-10, the payout notice), then GET /accounts/:did/jobs,
+   account names any of its three payout addresses (operatorAddressEvm,
+   operatorAddressAbtEth, operatorAddressAbt; SW3-10, the payout notice),
+   then GET /accounts/:did/jobs,
    GET /accounts/:did/pending, GET /accounts/:did/incoming,
    GET /accounts/:did/agents and GET /accounts/:did/notifications fire
    together (ruling 1, W5 ruling; the last is FIX-SW12k's, read only for
@@ -95,7 +96,7 @@
         return;
       }
       var encodedDid = encodeURIComponent(did);
-      var payoutUnset = !hasAddress(me.operatorAddressEvm) && !hasAddress(me.operatorAddressAbt);
+      var payoutUnset = !hasAddress(me.operatorAddressEvm) && !hasAddress(me.operatorAddressAbt) && !hasAddress(me.operatorAddressAbtEth);
       Promise.all([
         A.getAuthed("/accounts/" + encodedDid + "/jobs", session.token),
         A.getAuthed("/accounts/" + encodedDid + "/pending", session.token),
@@ -173,7 +174,7 @@
     A.showById("dashboard-body", true);
 
     /* SW3-10: an owner of at least one agent whose account names no payout
-       address on either rail is told hirers cannot pay them. Only on a
+       address on any of the three is told hirers cannot pay them. Only on a
        roster read that answered 200 with a row in it: a failed roster
        (null) knows nothing, and an empty one belongs to a person who only
        hires. The line sits above the grid, outside every section. */
