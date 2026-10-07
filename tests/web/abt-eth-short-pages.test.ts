@@ -7,10 +7,10 @@
 // Driven against the real app with the real ABT-on-Ethereum rail injected at createApp's
 // own positions, the harness tests/web/abt-eth-checkout.test.ts builds (copied here, not
 // imported): a fake chain the server reads receipts and block times from, and a fake
-// price feed. A short payment is made the way a hirer's wallet makes one (shortPay: the
-// start, two transfers the network records after the hold, the report read while ABT is
-// at 0.20 instead of 0.25) unless a case names the short storage instead. A second
-// session signs in as the agent's owner through a switchable fake GitHub fetch. Pages are
+// price feed. A short payment is made through the routes a hirer's wallet and page use
+// (shortPay: the start, two transfers the network records after the hold, the report read
+// while ABT is at 0.20 instead of 0.25) unless a case names the short storage instead. A
+// second session signs in as the agent's owner through a switchable fake GitHub fetch. Pages are
 // served by the app's own static mount into jsdom; (i) drives real Chrome. Times are read
 // in UTC so every date on the page is a literal here.
 import type { Server } from 'node:http';
@@ -363,7 +363,7 @@ describe('(c) /operatorjob while a payment waits on the owner', () => {
 });
 
 describe('(d) the owner\u2019s one press, end to end', () => {
-  it('one click posts once with {}; the page reads paid, no panel, focus on the heading; the row and the thread line are written', async () => {
+  it('the press posts once with {}, even pressed twice; the page reads paid, no panel, focus on the heading; the row and the thread line are written', async () => {
     const id = await hire('deposit');
     const sent = await shortPay(id, 'deposit');
     const page = await openOwnerPage(id);

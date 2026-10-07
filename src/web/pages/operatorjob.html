@@ -204,7 +204,8 @@
            accepts it as paid with one press. The wireframe draws no such
            state. operatorjob.js (renderShortPanel) shows this panel only
            while GET /jobs/:jobId/payments names a short leg, never on a
-           failed read, and fills the line and the button with both figures.
+           failed read, fills the line with both figures and the button
+           with what the payment was worth.
            There is no return control: returning a short payment is not
            built. Two more departures come with it, both drawn by
            operatorjob.js: the money box's "arrived short" row (legRow) and

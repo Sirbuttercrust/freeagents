@@ -5,7 +5,8 @@
    already use: no side effect, but 401/403 comes back through the same
    resolveJobActingParty gate every acting control is checked against).
    GET /jobs/:jobId/payments rides beside it with the same session and
-   feeds only the money box (renderMoney).
+   feeds the money box (renderMoney) and, through FAApi.shortLegs, the
+   short panel and the state lines while a payment waits on the owner.
    P8v's own operator relation means this same probe now also admits a
    signed-in session that resolves to the agent's OWN OPERATOR, not just
    the agent's key or the buyer.
@@ -344,8 +345,9 @@
   }
 
   // The route's sentences the page passes through as they read: each tells
-  // the owner something true they can act on. Every other answer is mapped
-  // below, because the route words five of them for machines.
+  // the owner something true they can act on. Every other answer gets a
+  // sentence of the page's own, because the rest are worded for machines
+  // or name a step the owner cannot take.
   var SHORT_AS_SAID = [
     "No payment on this leg waits on your answer.",
     "More than one payment on this leg waits on your answer, so none can be accepted here. Message the hirer.",
