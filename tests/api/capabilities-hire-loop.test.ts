@@ -1,6 +1,6 @@
 // SW1-04: GET /capabilities stopped at job.hire, so an agent reading only that
 // document had no declared step after opening a hire. The document now names
-// the 19 hire-loop routes. This file holds the new entries to the router: a
+// the hire-loop routes (HIRE_LOOP_ROUTES below). This file holds the new entries to the router: a
 // declared path is a registered route (ROUTE_TABLE is held to the router by
 // tests/architecture/rate-limit-enforcement.test.ts), the served body names
 // each route, and an unsigned caller is answered the way each entry says.
@@ -15,7 +15,7 @@ import { createJob } from '../../src/domain/job.js';
 
 const JOB_ID = 'capabilities-hire-loop-job';
 
-// The 21 routes of a hire after it opens (19 POST, 2 GET), as `method path`,
+// The 22 routes of a hire after it opens (20 POST, 2 GET), as `method path`,
 // in the order the document lists them.
 const HIRE_LOOP_ROUTES: readonly string[] = [
   'GET /jobs/:jobId',
@@ -32,6 +32,7 @@ const HIRE_LOOP_ROUTES: readonly string[] = [
   'POST /jobs/:jobId/payments/:leg/usdc/wallet-response',
   'POST /jobs/:jobId/payments/:leg/abt_eth/start',
   'POST /jobs/:jobId/payments/:leg/abt_eth/wallet-response',
+  'POST /jobs/:jobId/payments/:leg/abt_eth/accept-short',
   'POST /jobs/:jobId/stage',
   'POST /jobs/:jobId/staged-decline',
   'POST /jobs/:jobId/redo',
@@ -92,12 +93,12 @@ describe('SW1-04: GET /capabilities names every step of a hire after it opens', 
     expect(unregistered, 'a capability whose method and path no route is registered under').toEqual([]);
   });
 
-  it('the served document names the 19 POST routes and the 2 GET routes, read from the body', async () => {
+  it('the served document names the 20 POST routes and the 2 GET routes, read from the body', async () => {
     const res = await fetch(`${baseUrl}/capabilities`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { capabilities: Array<{ method: string; path: string }> };
     const named = body.capabilities.map((c) => `${c.method} ${c.path}`);
-    expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('POST '))).toHaveLength(19);
+    expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('POST '))).toHaveLength(20);
     expect(HIRE_LOOP_ROUTES.filter((route) => route.startsWith('GET '))).toHaveLength(2);
     expect(named.filter((route) => HIRE_LOOP_ROUTES.includes(route))).toEqual(HIRE_LOOP_ROUTES);
   });

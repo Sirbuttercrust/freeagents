@@ -164,6 +164,7 @@ import {
   createAbtEthQuoteLockStorage,
   lockAbtEthQuote,
   STARTED_AT_EARLIER_PRICE_MESSAGE,
+  type AbtEthQuoteLock,
   type AbtEthQuoteLockStorage,
 } from '../adapters/payment/abt-eth-quote-lock.js';
 import { createAbtEthShortPaymentStorage, type AbtEthShortPayment, type AbtEthShortPaymentStorage } from '../adapters/payment/abt-eth-short-payment.js';
@@ -246,6 +247,7 @@ import {
   advanceReadState,
   type Message,
   type MessageAttachmentRef,
+  type SystemEvent,
   type ThreadReadState,
 } from '../domain/message.js';
 import {
@@ -7025,38 +7027,56 @@ export function createApp(
     readonly rail: 'abt' | 'usdc' | 'abt_eth';
     readonly amountUsd: string;
   }): Promise<void> {
+    await writeSystemLine(input.jobId, 'recordSettlementSystemEvent', {
+      body: input.leg === 'deposit' ? 'Deposit paid' : 'Remainder paid',
+      systemEvent:
+        input.leg === 'deposit'
+          ? { type: 'deposit_paid', leg: 'deposit', amountUsd: input.amountUsd, rail: input.rail }
+          : { type: 'remainder_paid', leg: 'remainder', amountUsd: input.amountUsd, rail: input.rail },
+    });
+  }
+
+  // A payment that reached the owner worth less than the agreed price is
+  // told to both parties the way a paid leg is: one platform-written line in
+  // the thread, best effort and logged, never turning the 200 the report
+  // answers into a 503. The line carries the leg and two dollar amounts, never
+  // a hash, an address or a token amount.
+  async function recordPaymentShortSystemEvent(input: {
+    readonly jobId: string;
+    readonly leg: 'deposit' | 'remainder';
+    readonly agreedUsd: string;
+    readonly worthUsd: string | null;
+  }): Promise<void> {
+    await writeSystemLine(input.jobId, 'recordPaymentShortSystemEvent', {
+      body: input.leg === 'deposit' ? 'Deposit arrived worth less than agreed' : 'Remainder arrived worth less than agreed',
+      systemEvent: { type: 'payment_short', leg: input.leg, agreedUsd: input.agreedUsd, worthUsd: input.worthUsd },
+    });
+  }
+
+  // The write behind both lines above. Every system row's SSE broadcast
+  // carries the full projection, not an empty object, so a live client
+  // renders the row with no second call. Both parties are notified like any
+  // other new thread row; 'new_message' is the closest of the four defined
+  // NotificationEventType values (src/domain/notification.ts), since the
+  // brief did not ask for a fifth event type just for this.
+  async function writeSystemLine(
+    jobId: string,
+    label: string,
+    line: { readonly body: string; readonly systemEvent: SystemEvent },
+  ): Promise<void> {
     try {
       const row = await messageRepo.create(
-        createSystemMessage(
-          {
-            id: 'm-' + randomBytes(8).toString('hex'),
-            jobId: input.jobId,
-            body: input.leg === 'deposit' ? 'Deposit paid' : 'Remainder paid',
-            systemEvent:
-              input.leg === 'deposit'
-                ? { type: 'deposit_paid', leg: 'deposit', amountUsd: input.amountUsd, rail: input.rail }
-                : { type: 'remainder_paid', leg: 'remainder', amountUsd: input.amountUsd, rail: input.rail },
-          },
-          new Date(),
-        ),
+        createSystemMessage({ id: 'm-' + randomBytes(8).toString('hex'), jobId, body: line.body, systemEvent: line.systemEvent }, new Date()),
       );
-      // Every system row's SSE broadcast carries the
-      // full projection, not an empty object, so a live client renders
-      // the row (here, the settlement amount and rail) with no second
-      // call.
-      broadcastThreadEvent(input.jobId, 'message', messageProjection(row));
+      broadcastThreadEvent(jobId, 'message', messageProjection(row));
     } catch (err) {
-      console.error('recordSettlementSystemEvent: failed to write the settlement system row', err);
+      console.error(`${label}: failed to write the system row`, err);
     }
-    // A settlement observation notifies both parties like any other new
-    // thread row; 'new_message' is the closest of the four defined
-    // NotificationEventType values (src/domain/notification.ts), since
-    // the brief did not ask for a fifth event type just for this.
     let job: Job | null;
     try {
-      job = await jobRepo.findById(input.jobId);
+      job = await jobRepo.findById(jobId);
     } catch (err) {
-      console.error('recordSettlementSystemEvent: storage failed reading the job', err);
+      console.error(`${label}: storage failed reading the job`, err);
       return;
     }
     if (job !== null) {
@@ -8172,13 +8192,23 @@ export function createApp(
     }),
   );
 
-  // Which payments of a hire settled. Answers 200 with
-  //   { deposit: <leg or null>, remainder: <leg or null> }
+  // Which payments of a hire settled, and which waits on the owner. Answers 200
+  // with
+  //   { deposit: <leg or null>, remainder: <leg or null>,
+  //     short: { deposit: <short or null>, remainder: <short or null> } }
   //   <leg> = { rail, amountUsd, operatorAddress, observedAt (ISO 8601) }
-  // where null means no settled payment is on record for that leg. A leg
+  //   <short> = { rail: 'abt_eth', agreedUsd, worthUsd (null when no price
+  //             could be read), recordedAt (ISO 8601, or null when the chain
+  //             gave no block time) }
+  // where a null leg means no settled payment is on record for it. A leg
   // carries those four facts and nothing else: no transaction hash, no fee
   // address, no fee amount. `rail` is passed through as stored, so a rail
-  // added later needs no change here.
+  // added later needs no change here. A short is a payment that reached the
+  // owner worth less than the agreed price and has not settled: the leg
+  // railHeldByShortPayment holds, which the owner accepts as paid or
+  // answers otherwise. It is null for every other leg, once the leg settled,
+  // and on a deployment with no ABT-on-Ethereum rail. A short carries no hash
+  // and no address either.
   //
   // Party-only (the buyer, the agent's owner, the agent's own key): which
   // payments settled, when, and to which address are facts between the two
@@ -8187,7 +8217,8 @@ export function createApp(
   //
   // Built like GET /jobs/:jobId/attestation and for the same reason it does
   // not call applyLiveLapses: a plain read never moves a job's status.
-  // Unknown job 404, no proof 401, not a party 403, any storage failure 503.
+  // Unknown job 404, no proof 401, not a party 403, any storage failure 503
+  // (a failed short read included, never read as no short).
   app.get(
     '/jobs/:jobId/payments',
     didSignature,
@@ -8209,19 +8240,26 @@ export function createApp(
       }
       const gate = await resolveJobActingParty(req, res, job);
       if (gate === null) return;
-      const legFor = (record: ObservedSettlementRecord | null): Record<string, string> | null =>
-        record === null
+      const shortOf = async (leg: RouteLeg, settled: ObservedSettlementRecord | null): Promise<Record<string, string | null> | null> => {
+        if (abtEthShorts === null || settled !== null) return null;
+        const [first] = await abtEthShorts.findByJobAndLeg(job.id, leg);
+        return first === undefined
           ? null
           : {
-              rail: record.rail,
-              amountUsd: record.amountUsd,
-              operatorAddress: record.operatorAddress,
-              observedAt: record.observedAt.toISOString(),
+              rail: 'abt_eth',
+              agreedUsd: first.amountUsd,
+              worthUsd: first.worthUsd,
+              recordedAt: first.recordedAt === null ? null : first.recordedAt.toISOString(),
             };
+      };
       try {
         const deposit = await settlementRepo.findByJobAndLeg(job.id, 'deposit');
         const remainder = await settlementRepo.findByJobAndLeg(job.id, 'remainder');
-        res.status(200).json({ deposit: legFor(deposit), remainder: legFor(remainder) });
+        res.status(200).json({
+          deposit: paymentLegBody(deposit),
+          remainder: paymentLegBody(remainder),
+          short: { deposit: await shortOf('deposit', deposit), remainder: await shortOf('remainder', remainder) },
+        });
       } catch (err) {
         console.error(`${label}: storage failed`, err);
         res.status(503).json({ error: 'storage unavailable' });
@@ -8658,6 +8696,20 @@ export function createApp(
     return leg === 'deposit'
       ? depositUsd(String(job.priceUsd), job.depositPercent)
       : remainderUsd(String(job.priceUsd), job.depositPercent);
+  }
+
+  // The four facts a settled leg shows a party: what GET /jobs/:jobId/payments
+  // answers for it and what the accept-short press answers. No hash, no fee
+  // address, no fee amount.
+  function paymentLegBody(record: ObservedSettlementRecord | null): Record<string, string> | null {
+    return record === null
+      ? null
+      : {
+          rail: record.rail,
+          amountUsd: record.amountUsd,
+          operatorAddress: record.operatorAddress,
+          observedAt: record.observedAt.toISOString(),
+        };
   }
 
   // B23 and B25 (s8): legStatusEligible,
@@ -9804,9 +9856,12 @@ export function createApp(
       });
       if (judgement.kind === 'short') {
         // Stored short, with no settlement row: from here the leg waits on
-        // the owner (railHeldByShortPayment). A report of this same pair is
-        // answered from this row above, never judged again, so a price that
-        // recovers later does not settle it.
+        // the owner (railHeldByShortPayment), who sees it in the thread and
+        // in GET /jobs/:jobId/payments and accepts it as paid at
+        // abt_eth/accept-short. A report of this same pair is answered from
+        // this row above, never judged again, so a price that recovers later
+        // does not settle it, and it never reaches the line below a second
+        // time.
         await abtEthShorts.record({
           priceTxHash: ref.priceTxHash,
           jobId: gate.job.id,
@@ -9820,6 +9875,7 @@ export function createApp(
           recordedAt: confirmation.priceRecordedAt === null ? null : new Date(confirmation.priceRecordedAt),
           readAt: new Date(),
         });
+        await recordPaymentShortSystemEvent({ jobId: gate.job.id, leg, agreedUsd: lock.amountUsd, worthUsd: judgement.worthUsd });
         res.status(200).json({
           ...confirmation,
           short: { recordedAt: confirmation.priceRecordedAt, agreedUsd: lock.amountUsd, worthUsd: judgement.worthUsd },
@@ -9839,6 +9895,140 @@ export function createApp(
       });
       await recordSettlementSystemEvent({ jobId: gate.job.id, leg, rail: 'abt_eth', amountUsd });
       res.status(200).json(confirmation);
+    }),
+  );
+
+  // The owner's one press on a payment that reached them worth less than the
+  // agreed price: accept it as paid. Empty body. The agent's side only, and
+  // the agent's own key only when its owner allowed it to negotiate, because
+  // taking less than the agreed price is the owner's decision.
+  //
+  // The settlement is written because the chain was read now, never because
+  // the caller said so: the pair stored short is rebuilt into a reference from
+  // the STORED row and the STORED lock (never the body, a fresh quote or the
+  // price now) and confirmed against the network again. No price is read and
+  // the late-transfer rule is not asked: the owner's press is the judgement.
+  // The row is written at the leg's agreed amount, the paid line follows, and
+  // the short row stays as the record that the leg arrived short; the
+  // settlement row ends the hold. The delivery clock counts its 7 days from
+  // this row's time.
+  //
+  // A leg already settled by the short payment's own hash answers the leg
+  // object from that row and writes nothing, so a second press is the first
+  // one's answer. A leg with no short row, settled by another payment, or
+  // with more than one unsettled short row is refused with a sentence that
+  // says why, and so is a short row whose quote lock is no longer stored (the
+  // price it names cannot be rebuilt, so nothing here can read the chain for
+  // it). Returning the payment from the owner's own wallet is not a route
+  // here.
+  app.post(
+    '/jobs/:jobId/payments/:leg/abt_eth/accept-short',
+    didSignature,
+    populateSessionSubject,
+    forwarded(async (req: Request, res: Response) => {
+      const label = 'POST /jobs/:jobId/payments/:leg/abt_eth/accept-short';
+      const leg = parseRouteLeg(String(req.params.leg));
+      if (leg === null) {
+        res.status(400).json({ error: 'leg must be "deposit" or "remainder"' });
+        return;
+      }
+      const gate = await requireSignedParty(label, String(req.params.jobId), req, res, ['agent']);
+      if (gate === null) return;
+      if (!(await requireNegotiationAllowed(label, res, gate.job, gate.did, gate.party))) return;
+      if (abtEthPaymentRail === null || abtEthLocks === null || abtEthShorts === null) {
+        res.status(503).json({ error: 'the abt_eth payment rail is not configured on this deployment' });
+        return;
+      }
+      let shorts: readonly AbtEthShortPayment[];
+      let settled: ObservedSettlementRecord | null;
+      try {
+        shorts = await abtEthShorts.findByJobAndLeg(gate.job.id, leg);
+        settled = await settlementRepo.findByJobAndLeg(gate.job.id, leg);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      const settledHash = settled === null ? null : settled.hash.toLowerCase();
+      if (settled !== null && shorts.some((row) => row.priceTxHash.toLowerCase() === settledHash)) {
+        res.status(200).json(paymentLegBody(settled));
+        return;
+      }
+      if (settled !== null || shorts.length === 0) {
+        res.status(409).json({ error: 'No payment on this leg waits on your answer.' });
+        return;
+      }
+      if (shorts.length > 1) {
+        res.status(409).json({
+          error: 'More than one payment on this leg waits on your answer, so none can be accepted here. Message the hirer.',
+        });
+        return;
+      }
+      const short = shorts[0]!;
+      let lock: AbtEthQuoteLock | null;
+      let operatorAddress: string | null;
+      try {
+        lock = await abtEthLocks.read(short.lockId);
+        operatorAddress = await abtEthOperatorAddressForJob(gate.job.agentDid);
+      } catch (err) {
+        console.error(`${label}: storage failed`, err);
+        res.status(503).json({ error: 'storage unavailable' });
+        return;
+      }
+      if (lock === null) {
+        console.error(`${label}: the quote lock ${short.lockId} of a stored short payment is missing`);
+        res.status(409).json({
+          error:
+            'The price this payment was quoted at can no longer be found, so it cannot be accepted here. Report this payment to the platform with the job and the leg.',
+        });
+        return;
+      }
+      if (operatorAddress === null) {
+        res.status(409).json({ error: operatorAddressNotSetMessage('abt_eth') });
+        return;
+      }
+      let ref: Extract<PaymentRef, { rail: 'abt_eth' }>;
+      let confirmation;
+      try {
+        const processed = await processWalletResponse(abtEthPaymentRail, leg, {
+          rail: 'abt_eth',
+          jobId: gate.job.id,
+          operatorAddress,
+          priceTxHash: short.priceTxHash,
+          feeTx: short.feeTxHash === null ? { signed: false } : { signed: true, hash: short.feeTxHash },
+          amountToken: lock.amountToken,
+          feeToken: lock.feeToken,
+          quoteLockId: lock.id,
+        });
+        if (processed.rail !== 'abt_eth') throw new Error('the abt_eth rail answered a reference for another rail');
+        ref = processed;
+        confirmation = await abtEthPaymentRail.confirm(ref);
+      } catch (err) {
+        console.error(`${label}: rail failed`, err);
+        res.status(503).json({ error: 'the abt_eth payment rail is unavailable' });
+        return;
+      }
+      if (!confirmation.confirmed) {
+        res.status(409).json({
+          error: 'The network does not show this payment as confirmed right now, so it cannot be accepted. Try again in a few minutes.',
+        });
+        return;
+      }
+      const amountUsd = legAmountUsdFromJob(gate.job, leg);
+      const record: ObservedSettlementRecord = {
+        jobId: gate.job.id,
+        leg,
+        rail: 'abt_eth',
+        hash: ref.priceTxHash,
+        secondaryHash: ref.feeTxHash,
+        operatorAddress: ref.operatorAddress,
+        feeAddress: ref.feeAddress,
+        amountUsd,
+        observedAt: new Date(),
+      };
+      await settlementRepo.record(record);
+      await recordSettlementSystemEvent({ jobId: gate.job.id, leg, rail: 'abt_eth', amountUsd });
+      res.status(200).json(paymentLegBody(record));
     }),
   );
 

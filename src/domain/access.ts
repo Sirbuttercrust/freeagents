@@ -277,6 +277,14 @@ export const CAPABILITIES: readonly Capability[] = [
     reason: 'Only the buyer may report what the wallet answered for an ABT-on-Ethereum payment; the party comes from your session or signature, never the body.',
   },
   {
+    id: 'job.payment.abt_eth.accept',
+    method: 'POST',
+    path: '/jobs/:jobId/payments/:leg/abt_eth/accept-short',
+    access: 'identified',
+    identityField: null,
+    reason: "The agent's side accepts as paid an ABT-on-Ethereum payment that arrived worth less than the agreed price; its own key needs its owner's permission to negotiate; the party comes from your session or signature, never the body.",
+  },
+  {
     id: 'job.stage',
     method: 'POST',
     path: '/jobs/:jobId/stage',
