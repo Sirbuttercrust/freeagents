@@ -296,7 +296,8 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
       const seen = watch(page);
       press(page, 'pay-btn');
       expect([text(page.document, 'scanh'), text(page.document, 'scan-approvals-line')]).toEqual(['Approve in your wallet', 'Two approvals, $125.00 then $3.75. Both are part of this one payment.']);
-      await until(() => count(page, `POST /jobs/${id}/confirm`) === 1, 'confirm was never called');
+      // page.requests logs the confirm as it is sent, and watch() only after its answer is read, so wait for both.
+      await until(() => count(page, `POST /jobs/${id}/confirm`) === 1 && seen.some((s) => s.path === `/jobs/${id}/confirm`), 'confirm was never called and answered');
       expect(atFirstAsk).toEqual([{ method: 'wallet_switchEthereumChain', rateShown: true, lines: RATE_LINES, addressShown: false }]);
       expect(wallet.switches).toEqual([{ chainId: '0x1' }]);
       expect(wallet.sends.map(({ to, recipient, amountBaseUnits }) => ({ to, recipient, amountBaseUnits }))).toEqual(DEPOSIT_PRICE_SENDS);
