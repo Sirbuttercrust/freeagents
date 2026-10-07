@@ -375,10 +375,11 @@ describe('B88: a deposit half-paid in USDC is refused by every ABT door', () => 
 });
 
 // A deposit whose ABT-on-Ethereum payment reached the owner worth less than
-// the agreed price is stored short and waits on the owner. The ABT wallet's
-// callback refuses it the way every other door does, and nothing is
-// broadcast or recorded.
-describe('a deposit stored short on ABT on Ethereum is refused by the ABT wallet callback', () => {
+// the agreed price is stored short and waits on the owner. The ABT start
+// door, the token-mint door and the ABT wallet's callback each refuse it with
+// the waits-on-the-owner sentence, and nothing is minted, broadcast or
+// recorded.
+describe('a deposit stored short on ABT on Ethereum is refused by every ABT door', () => {
   const SHORT_ON_ABT = 'the deposit for this job reached the owner in "abt_eth" worth less than the agreed price and waits on their answer; the "abt" payment routes refuse it. Message the owner.';
 
   it.each([
