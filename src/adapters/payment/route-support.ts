@@ -19,6 +19,7 @@ import type {
 } from './types.js';
 import type { AbtEthPaymentRail, AbtEthStoredHalfPaidRecord } from './abt-eth.js';
 import type { UsdcHalfPaidRecord, UsdcPaymentRailShim } from './usdc.js';
+import type { AbtEthShortPayment, AbtEthShortPaymentStorage } from './abt-eth-short-payment-types.js';
 import { agreementGap, LAPSE_AT_STAGED_STATUSES, type AgreementGap, type Job, type JobStatus } from '../../domain/job.js';
 import { verifiedGithubLogin, type Agent } from '../../domain/agent.js';
 import { publicBaseUrlFromEnv } from '../credentials/credentials.js';
@@ -85,16 +86,27 @@ export function depositRailMismatchMessage(routeRail: Rail, depositRail: Rail): 
 
 // B88: the same refusal for a leg that has not settled but whose price
 // transfer already reached the owner in `heldRail`. The buyer can act on
-// it: finish the leg in that currency.
-export function heldRailMismatchMessage(leg: RouteLeg, routeRail: Rail, heldRail: Rail): string {
+// it: finish the leg in that currency. When the leg is held because the
+// payment reached the owner worth less than the agreed price
+// (`awaitingOwner`), there is nothing for the buyer to finish: the owner
+// answers, so the sentence says that and names the step that works, a
+// message to the owner.
+export function heldRailMismatchMessage(leg: RouteLeg, routeRail: Rail, heldRail: Rail, awaitingOwner = false): string {
+  if (awaitingOwner) {
+    return `the ${leg} for this job reached the owner in "${heldRail}" worth less than the agreed price and waits on their answer; the "${routeRail}" payment routes refuse it. Message the owner.`;
+  }
   return `part of the ${leg} for this job was paid in "${heldRail}"; finish it there, the "${routeRail}" payment routes refuse it`;
 }
 
 // B88: what a lifecycle door answers (409) while a leg's price transfer has
 // reached the owner and the leg has not settled. It holds the leg the way a
 // settled one is held: the terms take no change and neither side walks away.
-// Each sentence names the next step. The owner has the buyer's money for
-// part of the payment, so the way forward is to finish it.
+// Each sentence names the next step. For a leg half paid, the owner has the
+// buyer's money for part of the payment, so the way forward is to finish it.
+// For a leg whose payment reached the owner worth less than the agreed price
+// (a short payment), nothing is left for the buyer to finish: the owner
+// answers, so those sentences name the owner's answer, and tell the buyer
+// (who can act on it) to message the owner.
 export type HeldLegAction = 'change terms' | 'withdraw' | 'decline' | 'staged-decline' | 'redo';
 
 const HELD_LEG_SENTENCES: Record<HeldLegAction, string> = {
@@ -109,18 +121,37 @@ const HELD_LEG_SENTENCES: Record<HeldLegAction, string> = {
     "The balance's price has already reached the owner, so a redo can no longer be requested. Finish the payment, and the agent opens the pull request next.",
 };
 
-export function heldLegMessage(action: HeldLegAction): string {
-  return HELD_LEG_SENTENCES[action];
+const SHORT_LEG_SENTENCES: Record<HeldLegAction, string> = {
+  'change terms':
+    'The deposit has already reached the owner and waits on their answer, so the terms can no longer change. The hire waits on the owner to accept the payment or return it.',
+  withdraw:
+    'The deposit has already reached the owner and waits on their answer, so this hire can no longer be withdrawn. Message the owner.',
+  decline:
+    'The deposit has already reached the owner and waits on their answer, so this hire can no longer be declined. The hire waits on the owner to accept the payment or return it.',
+  'staged-decline':
+    'The balance has already reached the owner and waits on their answer, so the work can no longer be declined. Message the owner.',
+  redo: 'The balance has already reached the owner and waits on their answer, so a redo can no longer be requested. Message the owner.',
+};
+
+export function heldLegMessage(action: HeldLegAction, awaitingOwner = false): string {
+  return (awaitingOwner ? SHORT_LEG_SENTENCES : HELD_LEG_SENTENCES)[action];
 }
 
+// What the ABT-on-Ethereum start and report doors answer (409) on a leg whose
+// payment reached the owner worth less than the agreed price: the leg is not
+// paid again, and the hirer's step is to message the owner.
+export const SHORT_AWAITING_OWNER_MESSAGE =
+  'This payment reached the owner worth less than the agreed price, so the hire waits on the owner to accept it or return it. Message the owner.';
+
 // B88: the rail whose price transfer is recorded `confirmed` on a leg's
-// half-paid record, null when neither rail holds the leg. This is the one
-// read behind every refusal above and every door that checks the rail. A
-// rail that is not configured is skipped. A record whose price transfer is
-// not confirmed (fee only, mismatched, not yet on the network) holds
-// nothing: no money reached the owner for the price. A failed read throws,
-// and every caller answers it as unavailable, never as "nothing held". When
-// both rails somehow hold the leg, USDC is answered first.
+// half-paid record, null when neither rail holds the leg. A rail that is not
+// configured is skipped. A record whose price transfer is not confirmed
+// (fee only, mismatched, not yet on the network) holds nothing: no money
+// reached the owner for the price. A failed read throws, and every caller
+// answers it as unavailable, never as "nothing held". When both rails
+// somehow hold the leg, USDC is answered first. A leg held because its
+// payment was recorded short is a different record: railHeldByShortPayment
+// below, and legHold below joins the two.
 export async function railHoldingLeg(input: {
   readonly jobId: string;
   readonly leg: RouteLeg;
@@ -136,6 +167,85 @@ export async function railHoldingLeg(input: {
     if (record !== null && record.priceStatus === 'confirmed') return 'abt_eth';
   }
   return null;
+}
+
+// The ABT-on-Ethereum rail when a payment on a leg reached the owner worth
+// less than the agreed price, so the leg waits on the owner: a short row is
+// stored for the job and leg and the leg has no settlement row. Null when the
+// rail is not configured (no short store), when no short row exists, and once
+// the leg has settled (whatever wrote that row ended the wait). A failed read
+// of either store throws, and every caller answers it as unavailable, never as
+// "nothing held".
+export async function railHeldByShortPayment(input: {
+  readonly jobId: string;
+  readonly leg: RouteLeg;
+  readonly abtEthShorts: Pick<AbtEthShortPaymentStorage, 'findByJobAndLeg'> | null;
+  readonly settlementRepo: Pick<SettlementRepository, 'findByJobAndLeg'>;
+}): Promise<'abt_eth' | null> {
+  if (input.abtEthShorts === null) return null;
+  const shorts = await input.abtEthShorts.findByJobAndLeg(input.jobId, input.leg);
+  if (shorts.length === 0) return null;
+  const settled = await input.settlementRepo.findByJobAndLeg(input.jobId, input.leg);
+  return settled === null ? 'abt_eth' : null;
+}
+
+// The answer a report of the pair already stored short gets: exactly the
+// body its first report got, built from the stored row and not from a fresh
+// price read, so the judgement on the pair is the first one however the
+// price reads now. Null when the report is not that pair: no row, a row for
+// another job or leg, another price hash, or another fee hash. Hashes compare
+// without case.
+export function storedShortAnswer(
+  row: AbtEthShortPayment | null,
+  input: {
+    readonly jobId: string;
+    readonly leg: RouteLeg;
+    readonly report: { readonly priceTxHash?: unknown; readonly feeTx?: { signed?: unknown; hash?: unknown } } | undefined;
+  },
+): Record<string, unknown> | null {
+  if (row === null || row.jobId !== input.jobId || row.leg !== input.leg) return null;
+  const reported = input.report;
+  if (typeof reported?.priceTxHash !== 'string' || reported.priceTxHash.toLowerCase() !== row.priceTxHash.toLowerCase()) return null;
+  const feeTx = reported.feeTx;
+  const reportedFee = typeof feeTx === 'object' && feeTx !== null && feeTx.signed === true && typeof feeTx.hash === 'string' ? feeTx.hash.toLowerCase() : null;
+  if (reportedFee !== (row.feeTxHash === null ? null : row.feeTxHash.toLowerCase())) return null;
+  const recordedAt = row.recordedAt === null ? null : row.recordedAt.toISOString();
+  return {
+    rail: 'abt_eth',
+    hash: row.priceTxHash,
+    confirmed: true,
+    legs: {
+      price: { status: 'confirmed', hash: row.priceTxHash },
+      fee: { status: 'confirmed', hash: row.feeTxHash },
+    },
+    halfPaid: false,
+    priceRecordedAt: recordedAt,
+    short: { recordedAt, agreedUsd: row.amountUsd, worthUsd: row.worthUsd },
+  };
+}
+
+// What holds a leg: the rail, and whether the hold is a short payment
+// waiting on the owner (true) or a half-paid leg the buyer finishes (false).
+export interface HeldLeg {
+  readonly rail: Rail;
+  readonly awaitingOwner: boolean;
+}
+
+// The one read behind every refusal above and every door that checks the
+// rail: a short payment first (the owner's answer governs the leg), then the
+// half-paid records. Null when nothing holds the leg. A failed read throws.
+export async function legHold(input: {
+  readonly jobId: string;
+  readonly leg: RouteLeg;
+  readonly usdcRail: Pick<UsdcPaymentRailShim, 'readHalfPaidRecord'> | null;
+  readonly abtEthRail: Pick<AbtEthPaymentRail, 'readHalfPaidRecord'> | null;
+  readonly abtEthShorts: Pick<AbtEthShortPaymentStorage, 'findByJobAndLeg'> | null;
+  readonly settlementRepo: Pick<SettlementRepository, 'findByJobAndLeg'>;
+}): Promise<HeldLeg | null> {
+  const short = await railHeldByShortPayment(input);
+  if (short !== null) return { rail: short, awaitingOwner: true };
+  const halfPaid = await railHoldingLeg(input);
+  return halfPaid === null ? null : { rail: halfPaid, awaitingOwner: false };
 }
 
 // FIX-B39, rule 5: the message every door answers when the hired agent's
@@ -167,9 +277,11 @@ export function operatorAddressNotSetMessage(rail: Rail): string {
 //      independent of whether the job itself ever got pinned to it --
 //      confirm has not necessarily run yet);
 //   3. part of THIS leg was already paid in the other currency: its price
-//      transfer reached the owner (railHoldingLeg below) but the leg has
-//      not settled. A leg held on a rail finishes on that rail, so no
-//      other currency's door offers it, and nobody pays one leg twice;
+//      transfer reached the owner (legHold above) but the leg has not
+//      settled, whether the buyer finishes it (half paid) or the owner
+//      answers it (recorded short, heldAwaitingOwner). A leg held on a rail
+//      stays on that rail, so no other currency's door offers it, and nobody
+//      pays one leg twice;
 //   4. the hired agent's operator has no payout address on record for
 //      this currency at all.
 // A caller passes operatorAddressOk rather than this function reaching
@@ -203,6 +315,10 @@ export async function checkRailDoorEligible(input: {
   readonly routeRail: Rail;
   readonly jobRail: Rail | null;
   readonly heldRail: Rail | null;
+  // True when heldRail holds the leg because its payment reached the owner
+  // short and waits on their answer; the refusal then names that wait
+  // instead of sending the buyer to finish the payment.
+  readonly heldAwaitingOwner?: boolean;
   readonly settlementRepo: SettlementRepository;
   readonly operatorAddressOk: boolean;
 }): Promise<RailDoorEligibilityResult | RailDoorEligibilityRefusal> {
@@ -214,7 +330,11 @@ export async function checkRailDoorEligible(input: {
     return { ok: false, status: 409, message: depositRailMismatchMessage(input.routeRail, settledDeposit.rail) };
   }
   if (input.heldRail !== null && input.heldRail !== input.routeRail) {
-    return { ok: false, status: 409, message: heldRailMismatchMessage(input.leg, input.routeRail, input.heldRail) };
+    return {
+      ok: false,
+      status: 409,
+      message: heldRailMismatchMessage(input.leg, input.routeRail, input.heldRail, input.heldAwaitingOwner === true),
+    };
   }
   if (!input.operatorAddressOk) {
     return { ok: false, status: 409, message: operatorAddressNotSetMessage(input.routeRail) };

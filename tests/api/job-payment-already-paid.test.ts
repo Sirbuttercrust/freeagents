@@ -16,6 +16,9 @@ import { createApp } from '../../src/api/app.js';
 import { PrismaSettlementGate } from '../../src/adapters/payment/gate.js';
 import { createUsdcPaymentRail, type UsdcChainClient } from '../../src/adapters/payment/usdc.js';
 import { createAbtPaymentRail } from '../../src/adapters/payment/abt.js';
+import { createAbtEthPaymentRail } from '../../src/adapters/payment/abt-eth.js';
+import { createMemoryAbtEthShortPaymentStorage } from '../../src/adapters/payment/abt-eth-short-payment-memory.js';
+import type { AbtEthShortPaymentStorage } from '../../src/adapters/payment/abt-eth-short-payment.js';
 import type { UsdcHalfPaidStorage } from '../../src/adapters/payment/usdc-half-paid-storage-types.js';
 import { didSuffix } from '../../src/domain/agent.js';
 import type { UsdcSpentTransferRow, UsdcSpentTransferStorage } from '../../src/adapters/payment/usdc-spent-transfer-storage-types.js';
@@ -47,6 +50,14 @@ const proposal = [
   { text: 'The login bug is fixed', proposedBy: 'agent' },
   { text: 'Checkout e2e test passes', proposedBy: 'agent' },
 ];
+function abtEthEnvVars(): Record<string, string> {
+  return {
+    FREEAGENTS_ABT_ETH_RPC_URL: 'https://rpc.example.test',
+    FREEAGENTS_ABT_ETH_TOKEN_CONTRACT: '0xb98d4c97425d9908e66e53a6fdf673acca0be986',
+    FREEAGENTS_ABT_ETH_CHAIN_ID: '1',
+    FREEAGENTS_ABT_ETH_FEE_ADDRESS: '0x2222222222222222222222222222222222222222',
+  };
+}
 function usdcEnvVars(): Record<string, string> {
   return {
     FREEAGENTS_USDC_RPC_URL: 'https://sepolia-rollup.arbitrum.io/rpc',
@@ -91,6 +102,9 @@ interface Started {
   readonly usdcReadsFail: { on: boolean };
   // The signed transaction the ABT rail broadcast, undefined while none was.
   readonly abtBroadcast: () => string | undefined;
+  // The short payments of the ABT-on-Ethereum rail, which this app wires
+  // beside the other two so a test can plant a row.
+  readonly abtEthShorts: AbtEthShortPaymentStorage;
 }
 // Runs fn against a started app, guaranteeing server.close() even on
 // failure -- the try/finally every describe block below would otherwise
@@ -106,7 +120,7 @@ async function withStarted(fn: (s: Started) => Promise<void>): Promise<void> {
 async function startApp(): Promise<Started> {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  return withEnv({ ...usdcEnvVars(), ...abtEnv(baseUrl, platformWallet, ABT_TOKEN, ABT_FEE_ADDRESS) }, async () => {
+  return withEnv({ ...usdcEnvVars(), ...abtEthEnvVars(), ...abtEnv(baseUrl, platformWallet, ABT_TOKEN, ABT_FEE_ADDRESS) }, async () => {
     const usdcHalfPaid = fakeHalfPaidStorage();
     const usdcReadsFail = { on: false };
     const usdcRail = createUsdcPaymentRail({
@@ -154,6 +168,13 @@ async function startApp(): Promise<Started> {
     const settlementRepo = new MemorySettlementRepository();
     const gate = new PrismaSettlementGate(settlementRepo);
     const { github } = createStagingLifecycleGithubFake();
+    const abtEthShorts = createMemoryAbtEthShortPaymentStorage();
+    const abtEthRail = createAbtEthPaymentRail({
+      chainClient: { decimals: async () => 18, getTransactionReceipt: async () => null, recordedAt: async () => null },
+      rateSource: async () => null,
+      spentTransferStorage: fakeSpentTransferStorage(),
+      halfPaidStorage: { ...fakeHalfPaidStorage(), read: async () => null },
+    });
     const app = createApp(
       operatorRepo,
       agentRepo,
@@ -175,10 +196,12 @@ async function startApp(): Promise<Started> {
       usdcRail,
       settlementRepo,
       pureTxEncoder,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      abtEthRail, undefined, abtEthShorts,
     );
     const server = app.listen(port, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
-    return { server, baseUrl, settlementRepo, usdcHalfPaid, usdcReadsFail, abtBroadcast: abtChain.sentTx };
+    return { server, baseUrl, settlementRepo, usdcHalfPaid, usdcReadsFail, abtBroadcast: abtChain.sentTx, abtEthShorts };
   });
 }
 // rail null is an open quote: the buyer picks the currency at checkout.
@@ -346,6 +369,38 @@ describe('B88: a deposit half-paid in USDC is refused by every ABT door', () => 
     usdcReadsFail.on = true;
     const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
     expect(result).toEqual({ confirmed: false, error: STORAGE_DOWN });
+    expect(abtBroadcast()).toBeUndefined();
+    expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
+  }));
+});
+
+// A deposit whose ABT-on-Ethereum payment reached the owner worth less than
+// the agreed price is stored short and waits on the owner. The ABT wallet's
+// callback refuses it the way every other door does, and nothing is
+// broadcast or recorded.
+describe('a deposit stored short on ABT on Ethereum is refused by the ABT wallet callback', () => {
+  const SHORT_ON_ABT = 'the deposit for this job reached the owner in "abt_eth" worth less than the agreed price and waits on their answer; the "abt" payment routes refuse it. Message the owner.';
+
+  it('refuses a session minted before the short payment was stored: nothing is broadcast and no row is written', () => withStarted(async ({ baseUrl, settlementRepo, abtBroadcast, abtEthShorts }) => {
+    const jobId = await walkToProposed(baseUrl, null);
+    const { sessionToken, authCallbackUrl } = await startAbtSession(baseUrl, buyer, { jobId, leg: 'deposit' });
+    await abtEthShorts.record({
+      priceTxHash: '0xaaaa000000000000000000000000000000000000000000000000000000000001',
+      jobId,
+      leg: 'deposit',
+      lockId: 'lock-1',
+      feeTxHash: null,
+      amountToken: '500',
+      amountUsd: '125.00',
+      usdPerTokenAtRead: '0.2',
+      worthUsd: '100',
+      recordedAt: new Date('2026-10-06T12:20:00.000Z'),
+      readAt: new Date('2026-10-06T12:40:00.000Z'),
+    });
+
+    const result = await continueAbtWalletProtocol(baseUrl, sessionToken, authCallbackUrl, fromRandom());
+
+    expect(result).toEqual({ confirmed: false, error: SHORT_ON_ABT });
     expect(abtBroadcast()).toBeUndefined();
     expect(await settlementRepo.findByJobAndLeg(jobId, 'deposit')).toBeNull();
   }));
