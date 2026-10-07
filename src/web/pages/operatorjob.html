@@ -193,8 +193,32 @@
       </div>
 
       <div class="glow">
-        <h1 id="state-heading">Reading this job</h1>
+        <h1 id="state-heading" tabindex="-1">Reading this job</h1>
         <p class="lede" id="state-lede"></p>
+      </div>
+
+      <!-- ====================================== A PAYMENT THAT ARRIVED SHORT ==
+           A DEPARTURE FROM THE WIREFRAME, named as one, required by the
+           2026-10-01 ruling on ABT on Ethereum: a payment recorded after its
+           price hold and worth less than agreed waits on the owner, who
+           accepts it as paid with one press. The wireframe draws no such
+           state. operatorjob.js (renderShortPanel) shows this panel only
+           while GET /jobs/:jobId/payments names a short leg, never on a
+           failed read, and fills the line and the button with both figures.
+           There is no return control: returning a short payment is not
+           built. Two more departures come with it, both drawn by
+           operatorjob.js: the money box's "arrived short" row (legRow) and
+           the state heading and lede while a payment waits (renderState).
+           The alert node is here from the start so a refusal is
+           announced into a node that already exists. -->
+      <div class="pane pane-pad" style="margin-top:28px" id="short-panel" hidden>
+        <h2 style="margin-bottom:12px">A payment arrived short</h2>
+        <p id="short-line" style="margin:0"></p>
+        <p class="sub" style="margin-top:8px">The hire waits on your answer.</p>
+        <div class="acts" style="margin-top:20px">
+          <button class="btn btn-primary" type="button" id="short-accept-btn">Accept as paid</button>
+        </div>
+        <div class="empty warn" id="short-error" role="alert" tabindex="-1" hidden style="margin-top:16px"><p class="sub" id="short-error-detail"></p></div>
       </div>
 
       <!-- ================================================ THE REDO ========== -->

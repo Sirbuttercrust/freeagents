@@ -30,7 +30,9 @@
    Controls post to /jobs/:jobId/redo-refuse and /jobs/:jobId/stage (the
    same route the agent's own key already used to stage the first time
    and to restage after an accepted redo), both now open to the operator
-   relation as well as the agent's key.
+   relation as well as the agent's key, and to
+   /jobs/:jobId/payments/:leg/abt_eth/accept-short, the owner's one press
+   that accepts a short ABT-on-Ethereum payment as paid (renderShortPanel).
 
    Departures from spec/wireframe/operatorjob.html, named per the
    handoff: no drawn fixture numbers (the wireframe's "05 of 07" and
@@ -51,6 +53,11 @@
    from the job's own real numbers (redoAllowance, redo.usedCount, the
    price line) rather than the wireframe's fixed prose figures,
    renderRedoConsequences below, joined to both dialogs, not just one.
+   The 2026-10-01 ruling on a short ABT-on-Ethereum payment adds three
+   the wireframe never draws: the short panel and its press
+   (renderShortPanel, its markup in operatorjob.html), the money box's
+   "arrived short" row (legRow) and the state lines while a payment
+   waits on the owner (renderState).
 
    W-operatorjob (the polish rebuild) adds two more, both in this file:
    renderWho paints the .who creature from swarm.js on job.agentDid
@@ -72,6 +79,11 @@
   // it does not carry).
   var REDO_LAPSE_EXTENSION_DAYS = 7;
   var jobId = "", token = null, job = null, redoAcceptSelectedCommit = "", session = null;
+  // The leg the short panel answers ("deposit" or "remainder"), or null
+  // while no payment waits; shortBusy holds one press in flight; and
+  // focusHeading moves focus to the state heading on the render that
+  // follows an accepted press.
+  var shortLeg = null, shortBusy = false, focusHeading = false;
 
   var STATE_HEADINGS = {
     draft: "A brief arrived",
@@ -124,9 +136,11 @@
 
   function reload() {
     // The payments read rides beside the attestation read, with the same
-    // session. Only renderMoney uses its answer, and a failed read leaves
-    // the money box exactly as it reads without one.
-    Promise.all([
+    // session. Its answer feeds the money box (renderMoney), and its short
+    // legs the short panel and the state lines; a failed read leaves all
+    // three exactly as they read without one. Resolves once the page has
+    // drawn what it read.
+    return Promise.all([
       A.get("/jobs/" + encodeURIComponent(jobId)),
       A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token),
       A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments", token)
@@ -164,7 +178,7 @@
   }
 
   function onLoaded(results) {
-    var jobResult = results[0], gate = results[1], legs = A.settledLegs(results[2]);
+    var jobResult = results[0], gate = results[1], legs = A.settledLegs(results[2]), shorts = A.shortLegs(results[2]);
     if (jobResult.state === "absent") { failLoad("There is no hire at that address."); return; }
     if (jobResult.state !== "ok") { failLoad("The record could not be loaded just now. Reloading may work."); return; }
     job = jobResult.value;
@@ -193,14 +207,14 @@
     // routes to party-error exactly like "buyer" does, never to the
     // controls -- a read that failed to clear the caller is not a
     // caller this screen may treat as cleared.
-    resolveIsBuyerParty(job).then(function (buyerParty) {
+    return resolveIsBuyerParty(job).then(function (buyerParty) {
       if (buyerParty !== "not-buyer") {
         A.setTextById("party-error-detail", "Only the agent that took this job, or the account that operates it, can read this screen.");
         A.showById("party-error", true);
         return;
       }
       A.showById("operatorjob-body", true);
-      render(job, legs);
+      render(job, legs, shorts);
       // FIX-B60: once per load, ask the platform to look at GitHub. When it
       // records an outcome, the page reads the hire again and renders it
       // the way a fresh load of that status would.
@@ -208,21 +222,29 @@
     });
   }
 
-  function render(job_, legs) {
+  function render(job_, legs, shorts) {
     document.title = "Job " + job_.id + ", operator view: FreeAgents";
     // MSG1b: the way into this hire's conversation. The body this link
     // sits in shows only after the party check above has passed.
     var msgLink = A.el("messages-link");
     if (msgLink) msgLink.setAttribute("href", "/messages?job=" + encodeURIComponent(job_.id));
     renderWho(job_);
-    renderState(job_, legs);
+    renderState(job_, legs, shorts);
+    renderShortPanel(shorts);
     renderRedoPanel(job_);
     renderStagePanel(job_);
-    renderMoney(job_, legs);
+    renderMoney(job_, legs, shorts);
     renderHistory(job_);
     renderDrafting(job_);
     renderTechnical(job_);
     renderDecline(job_);
+    // An accepted press removed the button that held focus: the heading
+    // now says where the hire stands, so focus goes there.
+    if (focusHeading) {
+      focusHeading = false;
+      var heading = A.el("state-heading");
+      if (heading) heading.focus();
+    }
   }
 
   // FIX-SW12i: the owner turns a brief down before both signatures (api.js
@@ -271,8 +293,16 @@
     });
   }
 
-  function renderState(job_, legs) {
+  function renderState(job_, legs, shorts) {
     var status = typeof job_.status === "string" ? job_.status : "";
+    // A payment that arrived short holds the hire on this owner's answer,
+    // whatever the status says, so the heading says that first.
+    var waiting = firstShortLeg(shorts);
+    if (waiting !== null) {
+      A.setTextById("state-heading", "A payment waits on your answer");
+      A.setTextById("state-lede", "The " + (waiting === "remainder" ? "balance" : "deposit") + " arrived worth less than agreed. Accept it as paid to go on.");
+      return;
+    }
     // A staged hire whose balance has settled is no longer waiting on the
     // buyer, and the staged lede ("unpaid ... until the buyer settles the
     // balance") would contradict the money box under it. Only a settled
@@ -284,6 +314,110 @@
     }
     A.setTextById("state-heading", STATE_HEADINGS[status] || status);
     A.setTextById("state-lede", STATE_LEDES[status] || "");
+  }
+
+  // A PAYMENT THAT ARRIVED SHORT (the 2026-10-01 ruling). While
+  // GET /jobs/:jobId/payments names a short leg, this panel shows both
+  // figures and the owner's one press, which accepts it as paid. A null
+  // read (failed, or no `short` in the answer) hides it: a page that could
+  // not read the leg offers nothing to press about it. A deposit is
+  // answered before a balance, and in practice only one ever waits, since
+  // the balance is not payable until the deposit settled.
+  function firstShortLeg(shorts) {
+    if (!shorts) return null;
+    if (shorts.deposit !== null) return "deposit";
+    if (shorts.remainder !== null) return "remainder";
+    return null;
+  }
+  function renderShortPanel(shorts) {
+    shortLeg = firstShortLeg(shorts);
+    if (shortLeg === null) { A.showById("short-panel", false); return; }
+    var leg = shorts[shortLeg];
+    var word = shortLeg === "remainder" ? "balance" : "deposit";
+    var agreed = money(parseFloat(leg.agreedUsd));
+    var worth = leg.worthUsd === null ? null : money(parseFloat(leg.worthUsd));
+    A.setTextById("short-line", worth === null
+      ? "The " + word + " arrived worth less than the agreed " + agreed + "."
+      : "The " + word + " arrived worth " + worth + ", not the agreed " + agreed + ".");
+    A.setTextById("short-accept-btn", worth === null ? "Accept as paid" : "Accept " + worth + " as paid");
+    A.showById("short-panel", true);
+  }
+
+  // The route's sentences the page passes through as they read: each tells
+  // the owner something true they can act on. Every other answer is mapped
+  // below, because the route words five of them for machines.
+  var SHORT_AS_SAID = [
+    "No payment on this leg waits on your answer.",
+    "More than one payment on this leg waits on your answer, so none can be accepted here. Message the hirer.",
+    "The network does not show this payment as confirmed right now, so it cannot be accepted. Try again in a few minutes."
+  ];
+  var SHORT_NOT_ANSWERING = "The payment service is not answering right now. Try again in a moment.";
+  var SHORT_CATCH_ALL = "This payment could not be accepted just now. Reload the page to see where it stands.";
+  // Returns { sentence, settings } where settings asks for the Settings link.
+  function shortRefusal(result) {
+    if (result.state !== "ok") return { sentence: SHORT_NOT_ANSWERING };
+    var status = result.value.status;
+    var body = result.value.body && typeof result.value.body === "object" ? result.value.body : {};
+    var said = typeof body.error === "string" ? body.error : "";
+    if (status === 409 && SHORT_AS_SAID.indexOf(said) !== -1) return { sentence: said };
+    if (status === 409 && said.indexOf("has not set an ABT-on-Ethereum operator address") !== -1) {
+      return { sentence: "Add your ABT on Ethereum payout address in Settings first.", settings: true };
+    }
+    if (status === 409 && said.indexOf("The price this payment was quoted at can no longer be found") === 0) {
+      return { sentence: "This payment can no longer be accepted here. Message the hirer." };
+    }
+    if (status === 503 && (said === "the abt_eth payment rail is unavailable" || said === "storage unavailable")) {
+      return { sentence: SHORT_NOT_ANSWERING };
+    }
+    return { sentence: SHORT_CATCH_ALL };
+  }
+  function showShortRefusal(refusal) {
+    var box = A.el("short-error");
+    A.setTextById("short-error-detail", refusal.sentence);
+    var old = A.el("short-settings-row");
+    if (old) old.parentNode.removeChild(old);
+    if (refusal.settings) {
+      var row = document.createElement("div");
+      row.className = "acts";
+      row.id = "short-settings-row";
+      row.style.marginTop = "12px";
+      var link = document.createElement("a");
+      link.className = "btn";
+      link.setAttribute("href", "/settings");
+      link.textContent = "Open Settings";
+      row.appendChild(link);
+      box.appendChild(row);
+    }
+    A.showById("short-error", true);
+    box.focus();
+  }
+  function setShortBusy(on) {
+    shortBusy = on;
+    var btn = A.el("short-accept-btn");
+    if (!btn) return;
+    // aria-disabled, never disabled: the pressed button keeps focus while
+    // the answer is on its way.
+    if (on) { btn.setAttribute("aria-disabled", "true"); btn.setAttribute("aria-busy", "true"); }
+    else { btn.removeAttribute("aria-disabled"); btn.removeAttribute("aria-busy"); }
+  }
+  var shortAcceptBtn = A.el("short-accept-btn");
+  if (shortAcceptBtn) {
+    shortAcceptBtn.addEventListener("click", function () {
+      if (shortBusy || shortLeg === null) return;
+      setShortBusy(true);
+      A.showById("short-error", false);
+      A.postAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments/" + shortLeg + "/abt_eth/accept-short", token, {}).then(function (result) {
+        if (result.state === "ok" && result.value.status === 200) {
+          // Held busy until the page has read the hire again, so a second
+          // press can never post while the paid state is on its way.
+          focusHeading = true;
+          reload().then(function () { focusHeading = false; setShortBusy(false); });
+          return;
+        }
+        setShortBusy(false);
+        showShortRefusal(shortRefusal(result));
+      });
+    });
   }
 
   // The redo panel: the one control that needs an answer. Renders only
@@ -390,11 +524,15 @@
   // leg reads as the wireframe's dated "received" row, with the amount the
   // settlement recorded, the currency and the owner's address it went to,
   // in full so the owner can match it against their own wallet. A leg
-  // with no settlement reads "not paid yet" beside the agreed figure.
+  // with no settlement reads "not paid yet" beside the agreed figure. A
+  // leg whose ABT-on-Ethereum payment arrived worth less and waits on the
+  // owner (the short legs of the same read) reads "arrived short" with
+  // what it was worth beside what was agreed, never "not paid yet", since
+  // the owner holds that money.
   // When the payments read failed (legs is null) the rows say nothing
   // about payment either way: a deposit and a balance as figures, the way
   // the box read before the payments read existed.
-  function renderMoney(job_, legs) {
+  function renderMoney(job_, legs, shorts) {
     var price = job_.price && typeof job_.price === "object" ? job_.price : null;
     var host = A.el("money-facts");
     host.textContent = "";
@@ -411,13 +549,20 @@
       host.appendChild(factRow("Deposit", money(deposit)));
       host.appendChild(factRow("Balance, when the buyer pays it", money(remainder)));
     } else {
-      host.appendChild(legRow("Deposit", legs.deposit, deposit));
-      host.appendChild(legRow("Balance", legs.remainder, remainder));
+      host.appendChild(legRow("Deposit", legs.deposit, deposit, shorts ? shorts.deposit : null));
+      host.appendChild(legRow("Balance", legs.remainder, remainder, shorts ? shorts.remainder : null));
     }
     host.appendChild(factRow("Platform fee", "paid by the buyer, on top"));
   }
 
-  function legRow(name, leg, agreed) {
+  function legRow(name, leg, agreed, held) {
+    if (leg === null && held) {
+      var when = A.readableDate(held.recordedAt);
+      var worth = held.worthUsd === null ? "less than " : money(parseFloat(held.worthUsd)) + " of ";
+      var heldCurrency = A.railName(held.rail);
+      return factRow(name + " arrived short" + (when ? ", " + when : ""),
+        worth + money(parseFloat(held.agreedUsd)) + (heldCurrency ? " in " + heldCurrency : ""));
+    }
     if (leg === null) return factRow(name + ", not paid yet", money(agreed));
     var date = A.readableDate(leg.observedAt);
     var currency = A.railName(leg.rail);

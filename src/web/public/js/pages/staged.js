@@ -4,7 +4,9 @@
    GET /jobs/:jobId/attestation (the party probe, agreement.js/deposit.js's
    own pattern, no side effect), and GET /jobs/:jobId/payments with the
    same session: once the balance leg has settled the page says so and
-   offers no choice at all (renderPaid). P8j shipped pay alone (ruling 1 of that
+   offers no choice at all (renderPaid), and while the balance arrived
+   short and waits on the owner (FAApi.shortLegs) it offers no choice and
+   no clock either, and says the owner decides (renderShortWait). P8j shipped pay alone (ruling 1 of that
    card); this card adds POST /jobs/:jobId/redo and
    POST /jobs/:jobId/staged-decline, both buyer-only.
 
@@ -70,7 +72,8 @@
   function reload() {
     // The payments read rides beside the other two so a paid balance is
     // known before anything renders. Its answer only ever removes the
-    // choices once the balance has settled; a failed read changes nothing.
+    // choices once the balance has settled or while it waits on the owner
+    // as a short payment; a failed read changes nothing.
     Promise.all([
       A.get("/jobs/" + encodeURIComponent(jobId)),
       A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestation", token),
@@ -142,10 +145,15 @@
     // could still pay always sees how.
     var legs = A.settledLegs(results[2]);
     var paidBalance = job.status === "staged" && legs !== null ? legs.remainder : null;
+    // A balance that arrived short waits on the owner: the clock is held
+    // for it (the route holds the unpaid lapse), and a second payment would
+    // be refused, so neither is offered. Null on a failed read.
+    var shorts = A.shortLegs(results[2]);
+    var shortBalance = job.status === "staged" && paidBalance === null && shorts !== null && shorts.remainder !== null;
     A.showById("staged-body", true);
     renderWhere(job);
     renderLede(job, paidBalance);
-    if (paidBalance === null) renderClock(job);
+    if (paidBalance === null && !shortBalance) renderClock(job);
     else removeById("clock");
     renderFacts(attestation);
     renderTechnical(attestation);
@@ -157,7 +165,8 @@
     // server-side only.
     resolveIsBuyerParty(job).then(function (result) {
       isBuyerParty = result;
-      if (paidBalance === null) renderChoicesSection(job);
+      if (shortBalance) renderShortWait();
+      else if (paidBalance === null) renderChoicesSection(job);
       else renderPaid(paidBalance);
     });
   }
@@ -165,6 +174,21 @@
   function removeById(id) {
     var node = A.el(id);
     if (node && node.parentNode) node.parentNode.removeChild(node);
+  }
+
+  // The balance arrived short and waits on the owner's answer: the choices
+  // go the way renderPaid removes them, the link about declining or doing
+  // nothing goes with them (neither is the buyer's move now, and no clock
+  // runs), and one line with the way into the conversation stands where
+  // #balance-paid would. The technical note keeps its words, since the
+  // work does stay hidden until it is paid.
+  function renderShortWait() {
+    removeById("choices-section");
+    removeById("outcomes-more");
+    var note = A.shortWaitNote("Your balance arrived worth less than agreed. The owner decides if it counts.", job.id);
+    note.style.marginTop = "40px";
+    var paid = A.el("balance-paid");
+    paid.parentNode.insertBefore(note, paid);
   }
 
   // The balance has settled: the hire waits on the agent's pull request,

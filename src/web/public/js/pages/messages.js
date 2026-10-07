@@ -9,8 +9,13 @@
    unreadCount per row and the unreadTotal). Opening a thread reads, side by
    side: GET /jobs/:jobId/messages (oldest first), GET /jobs/:jobId (status,
    price, the brief's date, the receipt), GET /jobs/:jobId/attachments
-   (names, sizes and kinds of the files sent) and
-   GET /jobs/:jobId/messages/read-state (both seats' lastReadAt).
+   (names, sizes and kinds of the files sent),
+   GET /jobs/:jobId/messages/read-state (both seats' lastReadAt) and
+   GET /jobs/:jobId/payments, read through FAApi.shortLegs for one fact:
+   whether a payment arrived short and still waits on the owner. That
+   fact sets the pinned strip and the owner's Answer link on the short
+   line; a failed read leaves both as they read without it. It is read
+   once, when the thread opens.
 
    WHAT IT WRITES. POST /jobs/:jobId/messages (send, reply, a file with no
    words), PATCH /jobs/:jobId/messages/:id (edit, 15 minutes, author only),
@@ -80,7 +85,8 @@
     staged: "Work ready for review",
     pr_opened: "Pull request opened",
     completed: "Hire complete",
-    staging_invited: "GitHub invitation sent"
+    staging_invited: "GitHub invitation sent",
+    payment_short: "Payment arrived short"
   };
 
   function mq(q) { return !!(window.matchMedia && window.matchMedia(q).matches); }
@@ -162,7 +168,7 @@
   /* ------------------------------------------------------------ state */
   var S = {
     token: null, me: null, threads: [], unreadTotal: 0, gen: 0,
-    jobId: null, row: null, job: null, seat: null, writable: false,
+    jobId: null, row: null, job: null, seat: null, writable: false, shorts: null,
     messages: [], byId: {}, files: {}, readState: { buyer: null, agent: null },
     replyTo: null, editing: null, draftBeforeEdit: "",
     uploads: [], upSeq: 0, fresh: {}, pops: {},
@@ -447,7 +453,7 @@
     S.uploads.forEach(function (u) { u.cancelled = true; if (u.xhr) try { u.xhr.abort(); } catch (e) { /* gone */ } });
     Object.keys(S.thumbs).forEach(function (k) { try { URL.revokeObjectURL(S.thumbs[k]); } catch (e) { /* gone */ } });
     clearTimeout(S.typingTimer);
-    S.jobId = null; S.row = null; S.job = null; S.seat = null; S.writable = false;
+    S.jobId = null; S.row = null; S.job = null; S.seat = null; S.writable = false; S.shorts = null;
     S.messages = []; S.byId = {}; S.files = {}; S.readState = { buyer: null, agent: null };
     S.replyTo = null; S.editing = null; S.uploads = []; S.fresh = {}; S.pops = {};
     S.thumbs = {}; S.thumbLoading = {}; S.typingOn = false;
@@ -468,7 +474,8 @@
       A.get(p),
       api("GET", p + "/attachments"),
       api("GET", p + "/messages/read-state"),
-      findRow(jobId) ? Promise.resolve(true) : loadThreads()
+      findRow(jobId) ? Promise.resolve(true) : loadThreads(),
+      api("GET", p + "/payments")
     ]).then(function (res) {
       if (gen !== S.gen) return;
       var code = status(res[0]);
@@ -488,6 +495,7 @@
       S.seat = row.seat === "agent" ? "agent" : "buyer";
       S.job = res[1].state === "ok" ? res[1].value : null;
       S.writable = row.writable !== false && !(S.job && TERMINAL[S.job.status]);
+      S.shorts = A.shortLegs(res[5]);
       setMessages(list.messages);
       setFiles(body(res[2]));
       var rs = body(res[3]);
@@ -612,8 +620,16 @@
   }
 
   /* ------------------------------------------------------------ the pinned strip */
+  /* A payment that arrived short holds the hire on the owner's answer
+     (GET /jobs/:jobId/payments, its `short` key), so while one waits the
+     strip says that, whatever the status, before anything else. */
+  function shortWaits(leg) {
+    if (!S.shorts) return false;
+    return leg ? S.shorts[leg] !== null : S.shorts.deposit !== null || S.shorts.remainder !== null;
+  }
   function pinNow(st, seat, job) {
     var buyer = seat === "buyer";
+    if (shortWaits()) return buyer ? "Waiting on the owner's answer" : "Your answer needed";
     switch (st) {
       case "draft": return buyer ? "Waiting for a quote" : "Waiting for your quote";
       case "proposed":
@@ -639,6 +655,7 @@
   /* The ONE next step for this seat, or none. */
   function nextStep(st, seat, job) {
     var q = "?job=" + enc(S.jobId);
+    if (shortWaits()) return seat === "agent" ? { text: "Answer", href: "/operatorjob" + q, primary: true } : null;
     if (st === "proposed") {
       if (seat === "buyer" && agreed(job)) return { text: "Pay the deposit", href: "/deposit" + q, primary: true };
       return { text: "Review the quote", href: "/agreement" + q };
@@ -738,6 +755,22 @@
         var accept = S.seat === "agent" ? httpsOnly(ev.acceptUrl) : null;
         if (accept) sent.link = { text: "Accept on GitHub", href: accept, offsite: true };
         return [sent];
+      }
+      /* The same fact for both seats, true in a finished thread too. Only
+         the owner answers it (on /operatorjob), so only the owner's seat
+         gets the link, and only while the payments read says the leg
+         still waits. */
+      case "payment_short": {
+        var legWord = ev.leg === "remainder" ? "Balance" : "Deposit";
+        var worth = typeof ev.worthUsd === "string" ? usd(ev.worthUsd) : "";
+        var agreedFig = usd(ev.agreedUsd);
+        var line = worth && agreedFig
+          ? { icon: "wallet", parts: [legWord + " arrived worth less, ", { b: worth + " of " + agreedFig }] }
+          : { icon: "wallet", parts: [legWord + " arrived worth less than agreed"] };
+        if (S.seat === "agent" && shortWaits(ev.leg === "remainder" ? "remainder" : "deposit")) {
+          line.link = { text: "Answer", href: "/operatorjob?job=" + enc(S.jobId) };
+        }
+        return [line];
       }
       default: return [];
     }
