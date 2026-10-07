@@ -570,11 +570,18 @@
     return typeof rail === "string" && Object.prototype.hasOwnProperty.call(RAIL_NAMES, rail) ? RAIL_NAMES[rail] : "";
   }
 
-  /* The answer to GET /jobs/:jobId/payments as { deposit, remainder }, each
-     leg null (not settled) or { rail, amountUsd, operatorAddress, observedAt }.
-     Anything but a 200 carrying that shape returns null: the read failed, and
-     a page that got null says nothing about payment at all, so a failed read
-     can never claim a leg is paid or that it is not. */
+  /* TWO READERS OF GET /jobs/:jobId/payments, one per question a page asks
+     of it. settledLegs: which legs settled. shortLegs: which legs hold an
+     ABT-on-Ethereum payment that reached the owner worth less than agreed
+     and waits on the owner's answer. Each returns null for a failed read,
+     and each reads only its own part of the answer. shortWaitNote, below
+     them, is what the hirer's pay pages draw while a short leg waits.
+
+     settledLegs answers { deposit, remainder }, each leg null (not settled)
+     or { rail, amountUsd, operatorAddress, observedAt }. Anything but a 200
+     carrying that shape returns null: the read failed, and a page that got
+     null says nothing about payment at all, so a failed read can never
+     claim a leg is paid or that it is not. */
   function settledLegs(result) {
     if (!result || result.state !== "ok" || result.value.status !== 200) return null;
     var body = result.value.body;
@@ -589,6 +596,56 @@
     var deposit = leg(body.deposit), remainder = leg(body.remainder);
     if (deposit === undefined || remainder === undefined) return null;
     return { deposit: deposit, remainder: remainder };
+  }
+
+  /* shortLegs answers { deposit, remainder } from the same read's `short`
+     key, each leg null (nothing waits) or { rail, agreedUsd, worthUsd,
+     recordedAt }. worthUsd is null when no price could be read, recordedAt
+     when the chain gave no block time. A failed read, a 200 without
+     `short`, or a short that is not that shape returns null, so a page that
+     got null says nothing about a short payment either way. */
+  function shortLegs(result) {
+    if (!result || result.state !== "ok" || result.value.status !== 200) return null;
+    var body = result.value.body;
+    var held = body && typeof body === "object" ? body.short : null;
+    if (!held || typeof held !== "object") return null;
+    function figure(value) { return typeof value === "string" && !isNaN(parseFloat(value)); }
+    function leg(value) {
+      if (value === null) return null;
+      if (!value || typeof value !== "object" || typeof value.rail !== "string" || !figure(value.agreedUsd)) return undefined;
+      if (value.worthUsd !== null && !figure(value.worthUsd)) return undefined;
+      if (value.recordedAt !== null && typeof value.recordedAt !== "string") return undefined;
+      return { rail: value.rail, agreedUsd: value.agreedUsd, worthUsd: value.worthUsd, recordedAt: value.recordedAt };
+    }
+    var deposit = leg(held.deposit), remainder = leg(held.remainder);
+    if (deposit === undefined || remainder === undefined) return null;
+    return { deposit: deposit, remainder: remainder };
+  }
+
+  /* What the hirer's pay pages (deposit.js, staged.js) draw in place of
+     Pay while their leg's payment arrived short: one sentence and the way
+     into the hire's conversation. Built here so both pages say it the
+     same way; the static shells carry none of these words. */
+  function shortWaitNote(sentence, jobId) {
+    var box = document.createElement("div");
+    box.className = "empty warn";
+    box.id = "short-wait";
+    var line = document.createElement("p");
+    line.style.margin = "0";
+    line.textContent = sentence;
+    var row = document.createElement("div");
+    row.className = "row";
+    row.style.marginTop = "14px";
+    var link = document.createElement("a");
+    link.className = "btn";
+    link.id = "short-wait-link";
+    link.style.minHeight = "44px";
+    link.setAttribute("href", "/messages?job=" + encodeURIComponent(jobId));
+    link.textContent = "Message the owner";
+    row.appendChild(link);
+    box.appendChild(line);
+    box.appendChild(row);
+    return box;
   }
 
   /* The path a credential id resolves to on THIS origin. A credential id is
@@ -877,6 +934,8 @@
     plural: plural,
     railName: railName,
     settledLegs: settledLegs,
+    shortLegs: shortLegs,
+    shortWaitNote: shortWaitNote,
     credentialPath: credentialPath,
     credentialKey: credentialKey,
     idFromPath: idFromPath,

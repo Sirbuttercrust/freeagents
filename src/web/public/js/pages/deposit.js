@@ -13,6 +13,12 @@
    draws the lock its start answered (the engine's onQuote) before the
    wallet is asked to switch networks, and a payment that reads short
    never confirms.
+   GET /jobs/:jobId/payments rides beside the job read with the same
+   session, read through FAApi.shortLegs for one fact: whether the
+   deposit arrived short and waits on the owner. While it does, Pay and
+   the options are not offered (hidden), and one sentence with the way
+   into the conversation stands in their place (showShortWait). A failed
+   read leaves the page as it reads without it.
    RAIL_*_FEE_PERCENT are venue constants (ruling 3), pinned by a test
    against src/domain/payment.ts's fee-rate constants; both ABT rails
    take the ABT one. No simulated
@@ -40,7 +46,8 @@
     // this page needs (agreement.js's own pattern), no side effect.
     Promise.all([
       A.get("/jobs/" + encodeURIComponent(jobId)),
-      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestations", token)
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/attestations", token),
+      A.getAuthed("/jobs/" + encodeURIComponent(jobId) + "/payments", token)
     ]).then(onJobLoaded);
   }
   function failLoad(detail) {
@@ -86,8 +93,21 @@
     wirePayButton();
     wireUsdc();
     offerPayableRails();
+    var shorts = A.shortLegs(results[2]);
+    if (shorts !== null && shorts.deposit !== null) showShortWait();
     var back = A.el("back-to-agreement");
     if (back) back.setAttribute("href", "/agreement?job=" + encodeURIComponent(job.id));
+  }
+  // The deposit reached the owner worth less than agreed, so the hire waits
+  // on the owner's answer and a second payment would be refused: Pay and
+  // the options go (hidden, the way offerPayableRails hides them), and the
+  // page says why, with the way into the conversation.
+  function showShortWait() {
+    ["rails-heading", "rails", "total-pane", "pay-btn", "gas-note", "no-rails"].forEach(function (id) { A.showById(id, false); });
+    var rails = A.el("rails");
+    var note = A.shortWaitNote("Your payment arrived worth less than agreed. The owner decides if it counts.", job.id);
+    note.style.marginTop = "34px";
+    rails.parentNode.insertBefore(note, rails);
   }
   // Make 1: one option per payable currency; none hides Pay and the total
   // and points at the hire's conversation. The chosen one is always the
