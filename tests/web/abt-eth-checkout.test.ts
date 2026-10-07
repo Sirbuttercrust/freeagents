@@ -339,7 +339,9 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
       expect({ status: status(page), presses: presses(page) }).toEqual({ status: 'The network has not confirmed this payment yet. Check again shortly.', presses: ['usdc-check'] });
       releaseHeld(h.chain);
       press(page, 'usdc-check');
-      await until(() => count(page, `POST /jobs/${id}/confirm`) === 1 && seen.some((s) => s.path === `/jobs/${id}/confirm`), 'Check again never led to the confirm');
+      await until(() => status(page) !== '', 'no sentence after Check again');
+      expect({ status: status(page), presses: presses(page) }).toEqual({ status: 'This payment is confirmed.', presses: [] });
+      await until(() => count(page, `POST /jobs/${id}/confirm`) === 1 && seen.some((s) => s.path === `/jobs/${id}/confirm`), 'confirm was never called and answered');
       expect(seen.map((s) => s.path)).toEqual([
         `/jobs/${id}/payments/deposit/abt_eth/start`, `/jobs/${id}/payments/deposit/abt_eth/wallet-response`,
         `/jobs/${id}/payments/deposit/abt_eth/wallet-response`, `/jobs/${id}/confirm`,
@@ -347,7 +349,6 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
       const report = { priceTxHash: wallet.sends[0]!.hash, feeTx: { signed: true, hash: wallet.sends[1]!.hash }, quoteLockId: h.locks.at(-1)!.id };
       expect([seen[1]!.body, seen[2]!.body]).toEqual([report, report]);
       expect(wallet.sends).toHaveLength(2);
-      expect(status(page)).toBe('This payment is confirmed.');
       expect((await h.settlementRepo.findByJobAndLeg(id, 'deposit'))?.rail).toBe('abt_eth');
     } finally { await page.close(); }
   }, 30_000);
