@@ -68,17 +68,27 @@ const DEPOSIT_PRICE_SENDS = [
   { to: ABT_TOKEN, recipient: ABT_FEE_ADDRESS, amountBaseUnits: '15000000000000000000' },
 ];
 
+interface Receipt { status: number; transfer: Erc20ObservedTransfer }
+// held: while true, a sent transfer's receipt waits in `pending` and the server's chain
+// can't see it, so the server answers "not confirmed" while the wallet reports it landed.
 interface Chain {
-  readonly receipts: Map<string, { status: number; transfer: Erc20ObservedTransfer }>;
+  readonly receipts: Map<string, Receipt>;
+  readonly pending: Map<string, Receipt>;
   readonly recorded: Map<string, Date>;
   count: number;
   recordedAt: string;
+  held: boolean;
+}
+function releaseHeld(chain: Chain): void {
+  for (const [hash, receipt] of chain.pending) chain.receipts.set(hash, receipt);
+  chain.pending.clear();
+  chain.held = false;
 }
 interface Harness {
   readonly baseUrl: string;
   readonly session: Session;
   readonly chain: Chain;
-  readonly feed: { reading: RateReading };
+  readonly feed: { reading: RateReading | null };
   readonly locks: AbtEthQuoteLock[];
   readonly jobRepo: MemoryJobRepository;
   readonly settlementRepo: MemorySettlementRepository;
@@ -97,8 +107,8 @@ function withEnv<T>(vars: Record<string, string>, fn: () => T): T {
 // The app, with the ABT-on-Ethereum rail or (abtEth false) without one, as a deployment
 // that never set it up. No USDC or ArcBlock rail: no case here pays on either.
 async function buildHarness(abtEth: boolean): Promise<Harness> {
-  const chain: Chain = { receipts: new Map(), recorded: new Map(), count: 0, recordedAt: INSIDE_HOLD };
-  const feed = { reading: { usdPerToken: '0.25', updatedAt: FEED_TIME } as RateReading };
+  const chain: Chain = { receipts: new Map(), pending: new Map(), recorded: new Map(), count: 0, recordedAt: INSIDE_HOLD, held: false };
+  const feed: { reading: RateReading | null } = { reading: { usdPerToken: '0.25', updatedAt: FEED_TIME } as RateReading };
   const accounts = new MemoryAccountRepository();
   await accounts.register({ did: BUYER_DID, githubLogin: BUYER_LOGIN });
   const agents = new MemoryAgentRepository();
@@ -184,10 +194,11 @@ function buildWallet(chain: Chain, onRequest: (method: string) => void = () => {
       const send = { hash: `0x${chain.count.toString(16).padStart(64, '0')}`, to: tx.to.toLowerCase(), recipient: recipient.toLowerCase(), amountBaseUnits: amount.toString() };
       sends.push(send);
       chain.recorded.set(send.hash, new Date(chain.recordedAt));
-      chain.receipts.set(send.hash, { status: 1, transfer: { to: send.recipient, value: send.amountBaseUnits, tokenContract: send.to, chainId: 1 } });
+      (chain.held ? chain.pending : chain.receipts).set(send.hash, { status: 1, transfer: { to: send.recipient, value: send.amountBaseUnits, tokenContract: send.to, chainId: 1 } });
       return send.hash;
     }
-    if (args.method === 'eth_getTransactionReceipt') return chain.receipts.has(String(params[0])) ? { status: '0x1' } : null;
+    // The wallet sees every transfer it sent as landed, held or not.
+    if (args.method === 'eth_getTransactionReceipt') return sends.some((s) => s.hash === String(params[0])) ? { status: '0x1' } : null;
     throw new Error(`fake wallet: unhandled method ${args.method}`);
   }
   return { provider: { request }, calls, sends, switches, release() {} };
@@ -251,7 +262,7 @@ async function job(on: Harness, overrides: Partial<Job> = {}): Promise<string> {
 
 describe('/deposit offers ABT on Ethereum, named with its network', () => {
   beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
-  afterEach(() => { vi.useRealTimers(); h.feed.reading = { usdPerToken: '0.25', updatedAt: FEED_TIME }; h.chain.recordedAt = INSIDE_HOLD; });
+  afterEach(() => { vi.useRealTimers(); h.feed.reading = { usdPerToken: '0.25', updatedAt: FEED_TIME }; h.chain.recordedAt = INSIDE_HOLD; releaseHeld(h.chain); });
 
   it('(a) all three set up: the three options in order, each whole, and ABT on ArcBlock chosen', async () => {
     const page = await openDeposit(h, await job(h, { agentDid: AGENT_ALL }));
@@ -315,6 +326,53 @@ describe('/deposit offers ABT on Ethereum, named with its network', () => {
     } finally { await page.close(); }
   }, 30_000);
 
+  it('(c2) the network slow to confirm: Check again reports the same transfers and lock to .../abt_eth/wallet-response, then confirms once', async () => {
+    const id = await job(h);
+    const page = await openDeposit(h, id);
+    try {
+      h.chain.held = true;
+      const wallet = buildWallet(h.chain);
+      announceWallets(page.window, [{ uuid: 'w-slow', name: 'Eth Wallet', wallet }]);
+      const seen = watch(page);
+      press(page, 'pay-btn');
+      await until(() => status(page) !== '', 'no sentence after the first press');
+      expect({ status: status(page), presses: presses(page) }).toEqual({ status: 'The network has not confirmed this payment yet. Check again shortly.', presses: ['usdc-check'] });
+      releaseHeld(h.chain);
+      press(page, 'usdc-check');
+      await until(() => count(page, `POST /jobs/${id}/confirm`) === 1 && seen.some((s) => s.path === `/jobs/${id}/confirm`), 'Check again never led to the confirm');
+      expect(seen.map((s) => s.path)).toEqual([
+        `/jobs/${id}/payments/deposit/abt_eth/start`, `/jobs/${id}/payments/deposit/abt_eth/wallet-response`,
+        `/jobs/${id}/payments/deposit/abt_eth/wallet-response`, `/jobs/${id}/confirm`,
+      ]);
+      const report = { priceTxHash: wallet.sends[0]!.hash, feeTx: { signed: true, hash: wallet.sends[1]!.hash }, quoteLockId: h.locks.at(-1)!.id };
+      expect([seen[1]!.body, seen[2]!.body]).toEqual([report, report]);
+      expect(wallet.sends).toHaveLength(2);
+      expect(status(page)).toBe('This payment is confirmed.');
+      expect((await h.settlementRepo.findByJobAndLeg(id, 'deposit'))?.rail).toBe('abt_eth');
+    } finally { await page.close(); }
+  }, 30_000);
+
+  it('(c3) a rate drawn by an earlier attempt is gone when the next start is refused', async () => {
+    const id = await job(h);
+    const page = await openDeposit(h, id);
+    try {
+      let switches = 0;
+      const wallet = buildWallet(h.chain, (method) => {
+        if (method === 'wallet_switchEthereumChain' && (switches += 1) === 1) throw Object.assign(new Error('closed'), { code: 4001 });
+      });
+      announceWallets(page.window, [{ uuid: 'w-stale', name: 'Eth Wallet', wallet }]);
+      press(page, 'pay-btn');
+      await until(() => status(page) !== '', 'no sentence after the first press');
+      const sheet = (): unknown => ({ status: status(page), presses: presses(page), rateShown: shown(page.document, 'abt-rate'), lines: rateLines(page) });
+      expect(sheet()).toEqual({ status: 'You closed the wallet before switching networks.', presses: ['usdc-retry'], rateShown: true, lines: RATE_LINES });
+      h.feed.reading = null;
+      press(page, 'usdc-retry');
+      await until(() => status(page) !== '' && status(page) !== 'You closed the wallet before switching networks.', 'no sentence after Try again');
+      expect(sheet()).toEqual({ status: 'The ABT price is not available right now. Nothing was charged. Try again in a minute.', presses: ['usdc-retry'], rateShown: false, lines: ['', 'Price data by CoinGecko'] });
+      expect(wallet.sends).toEqual([]);
+    } finally { await page.close(); }
+  }, 30_000);
+
   it('(e) a late transfer worth less now: the short sentence whole, no press, no confirm, no row, Pay stays disabled', async () => {
     const id = await job(h);
     const page = await openDeposit(h, id);
@@ -354,17 +412,23 @@ describe('/staged pays a hire in ABT on Ethereum in its own currency', () => {
   beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('(g) the Ethereum gas line, the 3 percent fee line, and the remainder paid through .../abt_eth/, never .../abt/start', async () => {
+  it('(g) the Ethereum gas line, the 3 percent fee line, the rate shown before the wallet is asked, and the remainder paid through .../abt_eth/, never .../abt/start', async () => {
     const id = await job(h, { status: 'staged', rail: 'abt_eth', stagedAt: RECENT, stagedCommit: 'commit-abt-eth-checkout', confirmedAt: RECENT, confirmedSpecHash: 'sha256:abt-eth-checkout' });
     const page = await openStaged(h, id);
     try {
       expect(gasLine(page)).toBe('You need a little ETH on Ethereum for gas.');
       expect(page.document.querySelector('#choices .para')?.textContent).toBe('$375.00 of the $500.00 price, plus the 3 percent fee. Then the pull request opens on your repository, and merging is up to you.');
       expect(text(page.document, 'pay-btn')).toBe('Pay the balance, $386.25');
-      const wallet = buildWallet(h.chain);
+      const atFirstAsk: unknown[] = [];
+      const wallet = buildWallet(h.chain, (method) => {
+        if (method !== 'eth_requestAccounts' && atFirstAsk.length === 0) {
+          atFirstAsk.push({ method, heading: text(page.document, 'scanh'), rateShown: shown(page.document, 'abt-rate'), lines: rateLines(page), addressShown: shown(page.document, 'scan-abt-address') });
+        }
+      });
       announceWallets(page.window, [{ uuid: 'w-bal', name: 'Eth Wallet', wallet }]);
       press(page, 'pay-btn');
       await until(() => status(page) !== '', 'no sentence');
+      expect(atFirstAsk).toEqual([{ method: 'wallet_switchEthereumChain', heading: 'Pay the balance', rateShown: true, lines: RATE_LINES, addressShown: false }]);
       expect(status(page)).toBe('This payment is confirmed.');
       expect(wallet.sends.map(({ recipient, amountBaseUnits }) => ({ recipient, amountBaseUnits }))).toEqual([
         { recipient: OWNER_ETH, amountBaseUnits: '1500000000000000000000' },

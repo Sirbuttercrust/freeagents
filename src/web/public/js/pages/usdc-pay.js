@@ -48,7 +48,8 @@
   // opts: { jobId, token, leg, rail, onBusy(bool), onPaid(), onAlreadyPaid(),
   // onRefused(message), onQuote(quoteLock) }. rail is read at each press
   // (a page may pass a getter) and handed to the engine only when it is a
-  // string; onQuote goes to the engine as is. onRefused answers true when
+  // string; onQuote goes to the engine as is, and is also called with null
+  // as each attempt starts (run). onRefused answers true when
   // the page shows a server refusal its own way; the sheet then stays empty.
   function create(opts) {
     var engine = window.FAUsdcWallet, wallet = null, resendLeg = null, settled = false;
@@ -84,10 +85,14 @@
       if (outcome === "server_refused") { showOnly(retryable(result) ? "usdc-retry" : null); return; }
       showOnly(outcome === "mismatched" ? null : "usdc-retry");
     }
+    // Every attempt (Pay, Try again, Send again) first empties a rate an
+    // earlier attempt drew (onQuote(null)), so a refused start never
+    // leaves an old price on show; this attempt's own lock fills it.
     function run(chosen, resend) {
       wallet = chosen;
       clear();
       setBusy(true);
+      if (typeof opts.onQuote === "function") opts.onQuote(null);
       var payOpts = withRail({ wallet: wallet, jobId: opts.jobId, leg: opts.leg, token: opts.token, onQuote: opts.onQuote });
       if (resend) payOpts.resend = resend;
       engine.pay(payOpts).then(settle);

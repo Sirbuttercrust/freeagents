@@ -643,13 +643,12 @@
   }
 
   // Make 4: the deposit page's wallet choice, outcomes and presses, on the
-  // hire's own currency. ABT on Ethereum's sheet empties the rate block an
-  // earlier press drew; this press's own lock fills it (onQuote).
+  // hire's own currency. ABT on Ethereum's rate is drawn by the press's
+  // own lock (onQuote); usdc-pay.js empties an earlier one first.
   function openWallet() {
     if (paying) return;
     fillScanTotals();
     scanMode(isAbtEth(job) ? "abt_eth" : "usdc");
-    if (isAbtEth(job)) A.drawAbtQuote(null);
     A.setTextById("scan-approvals-line", "Two approvals, " + money(currentFigures.remainder) + " then " + money(currentFigures.fee) + ". Both are part of this one payment.");
     var dialog = A.el("scan");
     if (!dialog || !dialog.open) openDialog("scan");

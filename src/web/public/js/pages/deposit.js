@@ -341,13 +341,12 @@
     openSheet("abt", "Open your wallet with this address, and approve. One approval, for this whole payment.");
   }
   // Make 2: the wireframe's two-approvals line (deposit.html:256), at the
-  // chosen option's fee. ABT on Ethereum's sheet empties the rate block
-  // an earlier press drew; this press's own lock fills it (onQuote).
+  // chosen option's fee. ABT on Ethereum's rate is drawn by the press's
+  // own lock (onQuote); usdc-pay.js empties an earlier one first.
   function openWallet() {
     if (paying) return;
     var figures = depositAndFee(job.price, feePercentOf(chosenRail));
     openSheet(chosenRail, "Two approvals, " + money(figures.deposit) + " then " + money(figures.fee) + ". Both are part of this one payment.");
-    if (chosenRail === "abt_eth") A.drawAbtQuote(null);
     usdcPay.start();
   }
   // Paid: the same press carries on into ONE press of "I approved in my
